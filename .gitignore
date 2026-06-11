@@ -1,3 +1,14 @@
 node_modules/
 dist/
 *.log
+
+# PyInstaller launcher 빌드 산출물
+launcher/build/
+launcher/dist/
+launcher/*.spec
+HarnessManagerLauncher.exe
+launcher.json
+
+# Python
+__pycache__/
+*.pyc

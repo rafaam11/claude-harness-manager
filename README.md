@@ -8,6 +8,15 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 서버는 `127.0.0.1`에만 바인드되고 외부로 노출되지 않는다. 받는 사람은 **각자 자기 PC**에서 실행해 **자기 `~/.claude`**를 관리한다(데이터는 공유되지 않는다).
 
+## 빠른 시작 (Windows)
+
+**Node.js 20+ 만 설치돼 있으면** 더블클릭 두 번으로 끝난다.
+
+1. **`setup.bat` 더블클릭** — 의존성 설치(`npm install`)와 GUI 런처 exe 빌드를 자동으로 수행한다.
+2. 생성된 **`HarnessManagerLauncher.exe` 더블클릭** — 대시보드를 켜고 브라우저(http://127.0.0.1:5173)를 연다.
+
+> Node.js가 없으면 [nodejs.org](https://nodejs.org) 에서 먼저 설치한다. Python/PyInstaller가 없는 PC면 `setup.bat`이 exe 빌드만 건너뛰므로, 그때는 `npm run dev`로 실행한다. macOS/Linux도 `npm run dev`를 쓴다(아래 [설치 & 실행](#설치--실행) 참고).
+
 ## 주요 기능
 
 - **Catalog** — Skill / Agent / Command / MCP Server / Plugin을 종류별 블럭으로. 클릭 시 인라인 상세(프론트매터·마크다운 본문·연결 설정).

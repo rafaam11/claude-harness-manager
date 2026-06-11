@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createJSONEditor, type Content } from "vanilla-jsoneditor";
+import "vanilla-jsoneditor/themes/jse-theme-dark.css";
 import { api, fmtSize, fmtDate, ApiError } from "../api/client";
 
 const CONFIGS = [
@@ -17,6 +19,63 @@ interface ConfigData {
 
 interface BackupInfo { name: string; size: number; mtime: number }
 
+type EditorInstance = ReturnType<typeof createJSONEditor>;
+
+function contentToText(c: Content): string {
+  if ("text" in c && typeof c.text === "string") return c.text;
+  if ("json" in c) return JSON.stringify((c as { json: unknown }).json, null, 2);
+  return "";
+}
+
+/**
+ * vanilla-jsoneditor(tree/text 토글) React 래퍼.
+ * uncontrolled — 마운트 시 initialText로 1회 초기화하고, 이후 외부 변경은
+ * apiRef.current.update()로 명령적으로 반영한다(편집 상태 보존). 편집 → onChangeText 단방향.
+ */
+function JsonTreeEditor({
+  initialText,
+  readOnly,
+  isDark,
+  onChangeText,
+  apiRef,
+}: {
+  initialText: string;
+  readOnly: boolean;
+  isDark: boolean;
+  onChangeText: (t: string) => void;
+  apiRef: React.MutableRefObject<EditorInstance | null>;
+}) {
+  const container = useRef<HTMLDivElement>(null);
+  const onChangeRef = useRef(onChangeText);
+  onChangeRef.current = onChangeText;
+  const initialRef = useRef(initialText);
+
+  useEffect(() => {
+    const editor = createJSONEditor({
+      target: container.current!,
+      props: {
+        content: { text: initialRef.current },
+        readOnly,
+        mainMenuBar: true,
+        onChange: (updated: Content) => {
+          onChangeRef.current(contentToText(updated));
+        },
+      },
+    });
+    apiRef.current = editor;
+    return () => {
+      editor.destroy();
+      apiRef.current = null;
+    };
+  }, [apiRef]);
+
+  useEffect(() => {
+    apiRef.current?.updateProps({ readOnly });
+  }, [readOnly, apiRef]);
+
+  return <div ref={container} className={`jse-wrap${isDark ? " jse-theme-dark" : ""}`} />;
+}
+
 export default function ConfigEditor() {
   const [name, setName] = useState<string>("settings");
   const [data, setData] = useState<ConfigData | null>(null);
@@ -24,6 +83,10 @@ export default function ConfigEditor() {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [message, setMessage] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [externalChange, setExternalChange] = useState(false);
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.getAttribute("data-theme") !== "light",
+  );
+  const editorRef = useRef<EditorInstance | null>(null);
 
   const load = useCallback((n: string) => {
     setMessage(null);
@@ -31,6 +94,7 @@ export default function ConfigEditor() {
     api.get<ConfigData>(`/api/configs/${n}`).then((d) => {
       setData(d);
       setText(d.content);
+      editorRef.current?.update({ text: d.content });
     }).catch((e) => setMessage({ kind: "err", text: e.message }));
     api.get<BackupInfo[]>(`/api/configs/${n}/backups`).then(setBackups).catch(() => setBackups([]));
   }, []);
@@ -47,6 +111,14 @@ export default function ConfigEditor() {
     }, 5000);
     return () => clearInterval(t);
   }, [name, data]);
+
+  // 앱 테마(data-theme) 변경을 따라 에디터 테마 전환
+  useEffect(() => {
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setIsDark(el.getAttribute("data-theme") !== "light"));
+    obs.observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
 
   const jsonValid = (() => {
     try { JSON.parse(text); return true; } catch { return false; }
@@ -79,6 +151,16 @@ export default function ConfigEditor() {
       load(name);
     } catch (e) {
       setMessage({ kind: "err", text: (e as Error).message });
+    }
+  };
+
+  const prettify = () => {
+    try {
+      const p = JSON.stringify(JSON.parse(text), null, 2);
+      setText(p);
+      editorRef.current?.update({ text: p });
+    } catch {
+      setMessage({ kind: "err", text: "JSON 파싱 오류 — 정렬할 수 없습니다" });
     }
   };
 
@@ -116,16 +198,19 @@ export default function ConfigEditor() {
       {data && (
         <div>
           <p className="muted mono">{data.path} — {fmtDate(data.mtime)}</p>
-          <textarea
-            className="editor"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+          <JsonTreeEditor
+            initialText={text}
             readOnly={!data.writable}
-            spellCheck={false}
+            isDark={isDark}
+            onChangeText={setText}
+            apiRef={editorRef}
           />
           <p>
             <button className="btn" onClick={save} disabled={!data.writable || !dirty || !jsonValid}>
               저장
+            </button>
+            <button className="btn ghost" onClick={prettify} disabled={!data.writable || !jsonValid}>
+              정렬
             </button>
             {!jsonValid && <span className="tag warn">JSON 파싱 오류 — 저장 불가</span>}
             {dirty && jsonValid && <span className="tag muted">수정됨</span>}

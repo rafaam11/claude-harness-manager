@@ -5,10 +5,11 @@ import { CLAUDE_HOME, CONFIG_FILES, STALE_DAYS } from "../config.js";
 import { readConfig, safeWrite, listBackups, restoreBackup } from "../lib/safe-write.js";
 import { detectClaude } from "../lib/cc-detect.js";
 import { archiveItems, restoreItem, listManifests } from "../lib/archive.js";
-import { getCatalog } from "../services/catalog.js";
+import { getCatalog, readCatalogContent } from "../services/catalog.js";
 import { getPlugins } from "../services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "../services/projects.js";
 import { scanCandidates } from "../services/scan.js";
+import { getMcpServers } from "../services/mcp.js";
 
 function configEntry(name: string) {
   const entry = CONFIG_FILES[name];
@@ -85,8 +86,17 @@ export async function registerRoutes(app: FastifyInstance) {
 
   // --- catalog / plugins / projects ---
   app.get("/api/catalog", async () => getCatalog());
+
+  app.get("/api/catalog/content", async (req, reply) => {
+    const { path: filePath } = req.query as { path?: string };
+    if (!filePath) return reply.code(400).send({ error: "path 필요" });
+    return readCatalogContent(filePath);
+  });
+
   app.get("/api/plugins", async () => getPlugins());
   app.get("/api/projects", async () => getProjects());
+
+  app.get("/api/mcp", async () => getMcpServers());
 
   app.get("/api/projects/:id/files", async (req) => {
     const { id } = req.params as { id: string };

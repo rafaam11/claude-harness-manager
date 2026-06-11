@@ -49,7 +49,7 @@ export default function Memory() {
         </thead>
         <tbody>
           {projects.map((p) => (
-            <tr key={p.id} onClick={() => open(p.id)} style={{ cursor: "pointer", background: selected === p.id ? "#262a31" : undefined }}>
+            <tr key={p.id} onClick={() => open(p.id)} style={{ cursor: "pointer", background: selected === p.id ? "var(--active-bg)" : undefined }}>
               <td className="mono">{p.id}</td>
               <td className="num">{fmtSize(p.size)}</td>
               <td className="num">{p.transcriptCount}</td>

@@ -15,10 +15,19 @@ const PAGES = {
 } as const;
 
 type PageKey = keyof typeof PAGES;
+type Theme = "dark" | "light";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("overview");
   const [ccRunning, setCcRunning] = useState(false);
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("hm-theme") as Theme) || "dark",
+  );
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("hm-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     const check = () =>
@@ -31,12 +40,28 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
+
   return (
     <div className="layout">
       <nav>
-        <h1>Harness Manager</h1>
+        <div className="nav-head">
+          <h1>Harness Manager</h1>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+            aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+          >
+            {theme === "dark" ? "☀" : "🌙"}
+          </button>
+        </div>
         {(Object.keys(PAGES) as PageKey[]).map((k) => (
-          <button key={k} className={page === k ? "active" : ""} onClick={() => setPage(k)}>
+          <button
+            key={k}
+            className={`nav-item${page === k ? " active" : ""}`}
+            onClick={() => setPage(k)}
+          >
             {PAGES[k].label}
           </button>
         ))}

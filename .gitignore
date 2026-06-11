@@ -12,3 +12,6 @@ launcher.json
 # Python
 __pycache__/
 *.pyc
+
+# 비주얼 컴패니언 브레인스토밍 산출물
+.superpowers/

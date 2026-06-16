@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import Overview from "./pages/Overview";
+import Workspace from "./pages/Workspace";
 import Catalog from "./pages/Catalog";
 import Memory from "./pages/Memory";
 import Cleanup from "./pages/Cleanup";
@@ -8,6 +9,7 @@ import ConfigEditor from "./pages/ConfigEditor";
 
 const PAGES = {
   overview: { label: "Overview", el: <Overview /> },
+  workspace: { label: "Workspace", el: <Workspace /> },
   catalog: { label: "Catalog", el: <Catalog /> },
   memory: { label: "Memory", el: <Memory /> },
   cleanup: { label: "Cleanup", el: <Cleanup /> },

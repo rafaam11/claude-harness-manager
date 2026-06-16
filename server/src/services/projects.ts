@@ -14,7 +14,7 @@ export interface ProjectInfo {
 }
 
 /** flatten된 디렉토리명(D--hdx-agv)에서 원본 경로 후보를 추정 */
-function guessOriginalPath(id: string): string | null {
+export function guessOriginalPath(id: string): string | null {
   const m = id.match(/^([A-Za-z])--(.+)$/);
   if (!m) return null;
   // '-'가 경로 구분자였는지 이름의 일부였는지 구분 불가 → 단순 추정만

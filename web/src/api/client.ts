@@ -40,3 +40,23 @@ export function fmtSize(bytes: number): string {
 export function fmtDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
+
+/** "오늘/어제/N일 전" 형태의 상대 시간. 회상 표면에서 "마지막 활동"을 직관적으로 보여준다. */
+export function fmtRelative(ms: number): string {
+  if (!ms) return "—";
+  const day = 86400000;
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const startThat = new Date(ms);
+  startThat.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round((startToday.getTime() - startThat.getTime()) / day);
+  if (dayDiff <= 0) {
+    const diff = Date.now() - ms;
+    const h = Math.floor(diff / 3600000);
+    if (h < 1) return `${Math.max(1, Math.floor(diff / 60000))}분 전`;
+    return `${h}시간 전`;
+  }
+  if (dayDiff === 1) return "어제";
+  if (dayDiff < 7) return `${dayDiff}일 전`;
+  return fmtDate(ms);
+}

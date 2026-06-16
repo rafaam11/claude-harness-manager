@@ -10,6 +10,9 @@ import { getPlugins } from "../services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "../services/projects.js";
 import { scanCandidates } from "../services/scan.js";
 import { getMcpServers } from "../services/mcp.js";
+import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "../services/recall.js";
+import { readPlanContent } from "../services/plans.js";
+import { setPlanField, setProjectField } from "../lib/board.js";
 
 function configEntry(name: string) {
   const entry = CONFIG_FILES[name];
@@ -107,6 +110,43 @@ export async function registerRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const { path: rel } = req.query as { path: string };
     return readProjectFile(id, rel);
+  });
+
+  // --- workspace (작업 회상 대시보드) ---
+  app.get("/api/workspace/projects", async () => getWorkspaceProjects());
+
+  app.get("/api/workspace/plans", async (req) => {
+    const { archived } = req.query as { archived?: string };
+    return getEnrichedPlans(archived === "1");
+  });
+
+  app.get("/api/workspace/plan/content", async (req, reply) => {
+    const { filename, archived } = req.query as { filename?: string; archived?: string };
+    if (!filename) return reply.code(400).send({ error: "filename 필요" });
+    return readPlanContent(filename, archived === "1");
+  });
+
+  app.get("/api/workspace/timeline", async (req) => {
+    const { archived } = req.query as { archived?: string };
+    return getTimeline(archived === "1");
+  });
+
+  app.post("/api/workspace/board/plan/:filename", async (req, reply) => {
+    const { filename } = req.params as { filename: string };
+    if (!filename) return reply.code(400).send({ error: "filename 필요" });
+    const { status, memo, projectOverride } = req.body as {
+      status?: string;
+      memo?: string;
+      projectOverride?: string | null;
+    };
+    return setPlanField(filename, { status, memo, projectOverride });
+  });
+
+  app.post("/api/workspace/board/project/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!id) return reply.code(400).send({ error: "id 필요" });
+    const { status, memo } = req.body as { status?: string; memo?: string };
+    return setProjectField(id, { status, memo });
   });
 
   // --- cleanup ---

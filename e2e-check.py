@@ -15,13 +15,22 @@ with sync_playwright() as p:
     print("Overview cards:", page.locator(".card").count())
 
     # 각 페이지 탭 순회
-    for label in ["Catalog", "Memory", "Cleanup", "Config Editor"]:
+    for label in ["Workspace", "Catalog", "Memory", "Cleanup", "Config Editor"]:
         page.click(f"nav button:has-text('{label}')")
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(300)
+
+    # Workspace 3개 하위 뷰 순회 + 스크린샷
+    page.click("nav button:has-text('Workspace')")
+    page.wait_for_load_state("networkidle")
+    for sub in ["Projects", "Plans", "Timeline"]:
+        page.click(f".ws-subtabs button:has-text('{sub}')")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(500)
+        page.screenshot(path=f"e2e-workspace-{sub.lower()}.png", full_page=True)
+
     page.click("nav button:has-text('Overview')")
     page.wait_for_timeout(300)
-
     page.screenshot(path="e2e-overview.png", full_page=True)
     page.click("nav button:has-text('Cleanup')")
     page.wait_for_load_state("networkidle")

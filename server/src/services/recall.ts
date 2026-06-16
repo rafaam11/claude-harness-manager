@@ -1,0 +1,429 @@
+import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import readline from "node:readline";
+import path from "node:path";
+import {
+  PROJECTS_DIR,
+  HISTORY_FILE,
+  RECALL_TAIL_BYTES,
+  RECALL_MAX_FULL_SCAN_BYTES,
+  WORKSPACE_CACHE_TTL_MS,
+  PLAN_GUESS_WINDOW_MS,
+} from "../config.js";
+import { guardPath } from "../lib/path-guard.js";
+import { getProjects, guessOriginalPath } from "./projects.js";
+import { getPlans, type PlanInfo } from "./plans.js";
+import { getSessionTodos, type SessionTodos } from "./tasks.js";
+import { readBoard, type BoardStatus } from "../lib/board.js";
+
+const SNIPPET_MAX = 280;
+
+/** "마지막으로 뭐 했는지" — 한 세션 transcript에서 뽑은 회상 정보 */
+export interface SessionRecall {
+  sessionId: string | null;
+  aiTitle: string | null;
+  lastPrompt: string | null;
+  lastAssistantSnippet: string | null;
+  cwd: string | null;
+  gitBranch: string | null;
+  transcriptPath: string;
+  transcriptMtime: number;
+  truncatedScan: boolean; // tail만 읽었는지
+}
+
+export interface ProjectRecall {
+  id: string;
+  realPath: string | null;
+  gitBranch: string | null;
+  lastActivity: number;
+  staleDays: number;
+  recall: SessionRecall | null;
+  todos: SessionTodos | null;
+}
+
+export interface EnrichedPlan extends PlanInfo {
+  guessedProjectId: string | null;
+  projectOverride: string | null; // 사용자가 명시 지정한 값(없으면 null)
+  projectId: string | null; // override ?? guessed
+  status: BoardStatus;
+  memo: string;
+}
+
+export interface TimelineEvent {
+  ts: number;
+  kind: "session" | "plan";
+  projectId: string | null;
+  realPath: string | null;
+  title: string;
+  filename?: string;
+}
+
+export interface WorkspaceProject extends ProjectRecall {
+  board: { status: BoardStatus | null; memo: string };
+  plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
+}
+
+interface HistoryEntry {
+  timestamp: number;
+  project: string; // 실제 절대경로
+  sessionId?: string;
+}
+
+// --- TTL 캐시 (무거운 스캔을 반복 요청에서 보호) ---
+function cached<T>(ttl: number, fn: () => Promise<T>): () => Promise<T> {
+  let data: T | undefined;
+  let at = 0;
+  let inflight: Promise<T> | null = null;
+  return () => {
+    const now = Date.now();
+    if (data !== undefined && now - at < ttl) return Promise.resolve(data);
+    if (inflight) return inflight;
+    inflight = fn().then(
+      (d) => {
+        data = d;
+        at = Date.now();
+        inflight = null;
+        return d;
+      },
+      (e) => {
+        inflight = null;
+        throw e;
+      },
+    );
+    return inflight;
+  };
+}
+
+// --- transcript 파싱 ---
+interface RecallAcc {
+  sessionId: string | null;
+  aiTitle: string | null;
+  lastPrompt: string | null;
+  lastAssistantSnippet: string | null;
+  cwd: string | null;
+  gitBranch: string | null;
+}
+
+function firstNonEmptyText(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  for (const c of content) {
+    if (c && c.type === "text" && typeof c.text === "string" && c.text.trim()) return c.text;
+  }
+  return null;
+}
+
+/** 한 줄(JSON)을 파싱해 acc의 "마지막 값"을 갱신. 순서대로 호출하면 최종값이 가장 마지막 등장값. */
+function applyLine(line: string, acc: RecallAcc) {
+  if (!line) return;
+  let o: any;
+  try {
+    o = JSON.parse(line);
+  } catch {
+    return;
+  }
+  switch (o?.type) {
+    case "ai-title":
+      if (typeof o.aiTitle === "string" && o.aiTitle.trim()) acc.aiTitle = o.aiTitle;
+      break;
+    case "last-prompt":
+      if (typeof o.lastPrompt === "string" && o.lastPrompt.trim()) acc.lastPrompt = o.lastPrompt;
+      break;
+    case "assistant": {
+      const text = firstNonEmptyText(o.message?.content);
+      if (text) acc.lastAssistantSnippet = text;
+      if (typeof o.cwd === "string") acc.cwd = o.cwd;
+      if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
+      if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
+      break;
+    }
+    case "user":
+      if (typeof o.cwd === "string") acc.cwd = o.cwd;
+      if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
+      if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
+      break;
+  }
+}
+
+interface TranscriptRef {
+  path: string;
+  mtime: number;
+  size: number;
+}
+
+async function findNewestTranscript(dir: string): Promise<TranscriptRef | null> {
+  let best: TranscriptRef | null = null;
+  async function walk(d: string) {
+    for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.name.endsWith(".jsonl")) {
+        const stat = await fs.stat(p).catch(() => null);
+        if (stat && (!best || stat.mtimeMs > best.mtime)) {
+          best = { path: p, mtime: stat.mtimeMs, size: stat.size };
+        }
+      }
+    }
+  }
+  await walk(dir);
+  return best;
+}
+
+async function readTail(p: string, size: number): Promise<{ text: string; truncated: boolean }> {
+  if (size <= RECALL_TAIL_BYTES) {
+    return { text: await fs.readFile(p, "utf8"), truncated: false };
+  }
+  const fh = await fs.open(p, "r");
+  try {
+    const buf = Buffer.alloc(RECALL_TAIL_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, RECALL_TAIL_BYTES, size - RECALL_TAIL_BYTES);
+    return { text: buf.toString("utf8", 0, bytesRead), truncated: true };
+  } finally {
+    await fh.close();
+  }
+}
+
+async function fullScan(p: string, acc: RecallAcc) {
+  const rl = readline.createInterface({
+    input: createReadStream(p, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) applyLine(line, acc);
+}
+
+function trunc(s: string | null): string | null {
+  if (!s) return s;
+  const t = s.trim();
+  return t.length > SNIPPET_MAX ? t.slice(0, SNIPPET_MAX) + "…" : t;
+}
+
+export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {
+  const newest = await findNewestTranscript(projectDir);
+  if (!newest) return null;
+
+  const acc: RecallAcc = {
+    sessionId: path.basename(newest.path, ".jsonl"), // 파일명 uuid = sessionId
+    aiTitle: null,
+    lastPrompt: null,
+    lastAssistantSnippet: null,
+    cwd: null,
+    gitBranch: null,
+  };
+
+  const { text, truncated } = await readTail(newest.path, newest.size);
+  let lines = text.split("\n");
+  if (truncated) lines = lines.slice(1); // 잘린 첫 줄 폐기
+  for (const line of lines) applyLine(line, acc);
+
+  // tail에 신호가 전무하면(드묾) 스트리밍 full-scan 1회 폴백
+  if (
+    truncated &&
+    !acc.aiTitle &&
+    !acc.lastPrompt &&
+    !acc.lastAssistantSnippet &&
+    newest.size <= RECALL_MAX_FULL_SCAN_BYTES
+  ) {
+    await fullScan(newest.path, acc);
+  }
+
+  return {
+    sessionId: acc.sessionId,
+    aiTitle: acc.aiTitle,
+    lastPrompt: trunc(acc.lastPrompt),
+    lastAssistantSnippet: trunc(acc.lastAssistantSnippet),
+    cwd: acc.cwd,
+    gitBranch: acc.gitBranch,
+    transcriptPath: newest.path,
+    transcriptMtime: newest.mtime,
+    truncatedScan: truncated,
+  };
+}
+
+// --- history.jsonl 인덱스 ---
+async function buildHistoryIndexUncached(): Promise<HistoryEntry[]> {
+  const p = guardPath(HISTORY_FILE);
+  if (!(await fs.access(p).then(() => true).catch(() => false))) return [];
+  const out: HistoryEntry[] = [];
+  const rl = readline.createInterface({
+    input: createReadStream(p, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
+    if (!line) continue;
+    try {
+      const o = JSON.parse(line);
+      if (typeof o.timestamp === "number" && typeof o.project === "string") {
+        out.push({
+          timestamp: o.timestamp,
+          project: o.project,
+          sessionId: typeof o.sessionId === "string" ? o.sessionId : undefined,
+        });
+      }
+    } catch {
+      /* 깨진 줄 skip */
+    }
+  }
+  out.sort((a, b) => a.timestamp - b.timestamp);
+  return out;
+}
+export const getHistoryIndex = cached(WORKSPACE_CACHE_TTL_MS, buildHistoryIndexUncached);
+
+// --- 프로젝트 회상 묶음 ---
+async function getProjectRecallsUncached(): Promise<ProjectRecall[]> {
+  const projects = await getProjects();
+  const out: ProjectRecall[] = [];
+  for (const proj of projects) {
+    const dir = path.join(PROJECTS_DIR, proj.id);
+    const recall = await readNewestSessionRecall(dir);
+    const realPath = recall?.cwd ?? guessOriginalPath(proj.id);
+    const todos = recall?.sessionId ? await getSessionTodos(recall.sessionId) : null;
+    out.push({
+      id: proj.id,
+      realPath,
+      gitBranch: recall?.gitBranch ?? null,
+      lastActivity: proj.lastActivity,
+      staleDays: proj.staleDays,
+      recall,
+      todos,
+    });
+  }
+  return out.sort((a, b) => b.lastActivity - a.lastActivity);
+}
+export const getProjectRecalls = cached(WORKSPACE_CACHE_TTL_MS, getProjectRecallsUncached);
+
+// sessionId → projectId(=flatten 디렉토리명). transcript 파일명(uuid)이 sessionId라
+// 각 프로젝트 디렉토리의 .jsonl 파일명만 훑으면 정확히 만들 수 있다(내용 안 읽음).
+async function buildSessionToProjectIdUncached(): Promise<Map<string, string>> {
+  const m = new Map<string, string>();
+  for (const entry of await fs.readdir(PROJECTS_DIR, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue;
+    const root = entry.name;
+    async function walk(d: string) {
+      for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) await walk(p);
+        else if (e.name.endsWith(".jsonl")) m.set(path.basename(e.name, ".jsonl"), root);
+      }
+    }
+    await walk(path.join(PROJECTS_DIR, root));
+  }
+  return m;
+}
+export const getSessionToProjectId = cached(WORKSPACE_CACHE_TTL_MS, buildSessionToProjectIdUncached);
+
+// --- plan ↔ project 자동추정 ---
+function normPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function buildRealToIdMap(recalls: ProjectRecall[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const r of recalls) {
+    if (r.realPath) m.set(normPath(r.realPath), r.id);
+  }
+  return m;
+}
+
+/** mtime에 시간적으로 가장 가까운 history 기록(윈도우 안일 때만) */
+function nearestEntry(mtime: number, idx: HistoryEntry[]): HistoryEntry | null {
+  if (idx.length === 0) return null;
+  let lo = 0;
+  let hi = idx.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (idx[mid].timestamp < mtime) lo = mid + 1;
+    else hi = mid;
+  }
+  let best: HistoryEntry | null = null;
+  let bestDelta = Infinity;
+  for (const j of [lo - 1, lo]) {
+    if (j >= 0 && j < idx.length) {
+      const d = Math.abs(idx[j].timestamp - mtime);
+      if (d < bestDelta) {
+        bestDelta = d;
+        best = idx[j];
+      }
+    }
+  }
+  if (!best || bestDelta > PLAN_GUESS_WINDOW_MS) return null;
+  return best;
+}
+
+export async function getEnrichedPlans(includeArchived = false): Promise<EnrichedPlan[]> {
+  const [plans, board, recalls, history, sessionToId] = await Promise.all([
+    getPlans(includeArchived),
+    readBoard(),
+    getProjectRecalls(),
+    getHistoryIndex(),
+    getSessionToProjectId(),
+  ]);
+  const realToId = buildRealToIdMap(recalls);
+  return plans.map((p) => {
+    // 1순위: 가장 가까운 history 기록의 sessionId → 그 세션 transcript가 있는 프로젝트
+    // 2순위: 그 기록의 실제 경로 ↔ recall cwd 정확 매칭
+    const e = nearestEntry(p.mtime, history);
+    let guessedProjectId: string | null = null;
+    if (e) {
+      guessedProjectId =
+        (e.sessionId ? sessionToId.get(e.sessionId) ?? null : null) ??
+        realToId.get(normPath(e.project)) ??
+        null;
+    }
+    const b = board.plans[p.filename] ?? {};
+    return {
+      ...p,
+      guessedProjectId,
+      projectOverride: b.projectOverride ?? null,
+      projectId: b.projectOverride ?? guessedProjectId,
+      status: b.status ?? "진행중",
+      memo: b.memo ?? "",
+    };
+  });
+}
+
+export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
+  const [recalls, board, plans] = await Promise.all([
+    getProjectRecalls(),
+    readBoard(),
+    getEnrichedPlans(false),
+  ]);
+  return recalls.map((r) => ({
+    ...r,
+    board: {
+      status: board.projects[r.id]?.status ?? null,
+      memo: board.projects[r.id]?.memo ?? "",
+    },
+    plans: plans
+      .filter((p) => p.projectId === r.id)
+      .map((p) => ({ filename: p.filename, title: p.title, status: p.status, archived: p.archived })),
+  }));
+}
+
+export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
+  const [recalls, plans] = await Promise.all([
+    getProjectRecalls(),
+    getEnrichedPlans(includeArchived),
+  ]);
+  const events: TimelineEvent[] = [];
+  for (const r of recalls) {
+    if (r.recall) {
+      events.push({
+        ts: r.recall.transcriptMtime,
+        kind: "session",
+        projectId: r.id,
+        realPath: r.realPath,
+        title: r.recall.aiTitle ?? r.recall.lastPrompt ?? "(제목 없음)",
+      });
+    }
+  }
+  for (const p of plans) {
+    events.push({
+      ts: p.mtime,
+      kind: "plan",
+      projectId: p.projectId,
+      realPath: null,
+      title: p.title,
+      filename: p.filename,
+    });
+  }
+  return events.sort((a, b) => b.ts - a.ts);
+}

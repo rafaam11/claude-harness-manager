@@ -15,5 +15,6 @@ __pycache__/
 
 # 비주얼 컴패니언 브레인스토밍 산출물
 .superpowers/
-e2e-cleanup.png
-e2e-overview.png
+
+# e2e 스모크 테스트 스크린샷
+e2e-*.png

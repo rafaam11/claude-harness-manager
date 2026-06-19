@@ -6,6 +6,7 @@ import Catalog from "./pages/Catalog";
 import Memory from "./pages/Memory";
 import Cleanup from "./pages/Cleanup";
 import ConfigEditor from "./pages/ConfigEditor";
+import UpdateBadge from "./components/UpdateBadge";
 
 const PAGES = {
   overview: { label: "Overview", el: <Overview /> },
@@ -67,6 +68,7 @@ export default function App() {
             {PAGES[k].label}
           </button>
         ))}
+        <UpdateBadge />
       </nav>
       <main>
         {ccRunning && (

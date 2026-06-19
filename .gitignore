@@ -1,17 +1,8 @@
 node_modules/
-dist/
+out/
+release/
 *.log
-
-# PyInstaller launcher 빌드 산출물
-launcher/build/
-launcher/dist/
-launcher/*.spec
-HarnessManagerLauncher.exe
-launcher.json
-
-# Python
-__pycache__/
-*.pyc
+.env
 
 # 비주얼 컴패니언 브레인스토밍 산출물
 .superpowers/

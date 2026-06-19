@@ -1,22 +1,65 @@
 {
   "name": "claude-harness-manager",
-  "private": true,
   "version": "0.1.0",
+  "description": "Claude Code 전역 환경(~/.claude)을 관리하는 로컬 전용 데스크톱 앱",
+  "main": "out/main/index.js",
+  "private": true,
+  "author": "uiop3847",
   "engines": {
     "node": ">=20.0.0"
   },
-  "workspaces": [
-    "server",
-    "web"
-  ],
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
-    "dev:server": "npm run dev -w server",
-    "dev:web": "npm run dev -w web",
-    "build": "npm run build -w server && npm run build -w web",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
+    "build": "npm run typecheck && electron-vite build",
+    "start": "electron-vite preview",
+    "icon": "node scripts/generate-icon.mjs",
+    "dist": "npm run build && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "gray-matter": "^4.0.3",
+    "marked": "^15.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vanilla-jsoneditor": "^3.12.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/node": "^22.13.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  },
+  "build": {
+    "appId": "com.digitrack.claudeharnessmanager",
+    "productName": "Claude Harness Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Harness Manager"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "digitrack-inc",
+      "repo": "claude-harness-manager"
+    }
   }
 }

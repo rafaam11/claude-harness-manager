@@ -1,3 +1,5 @@
+import type { ApiMethod, ApiResult } from "@shared/types";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -7,28 +9,18 @@ export class ApiError extends Error {
   }
 }
 
-async function handle<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(res.status, body.error ?? res.statusText);
-  }
-  return res.json() as Promise<T>;
+// 전송 계층만 IPC로 교체. 공개 표면(api.get/put/post, ApiError, fmt*)은 HTTP 시절과 동일하다.
+// main이 throw 대신 ApiResult 봉투를 resolve하므로 여기서 statusCode를 복원해 ApiError로 던진다.
+async function call<T>(method: ApiMethod, url: string, body?: unknown): Promise<T> {
+  const res: ApiResult = await window.api.invoke({ method, url, body });
+  if (!res.ok) throw new ApiError(res.statusCode, res.error);
+  return res.data as T;
 }
 
 export const api = {
-  get: <T>(url: string) => fetch(url).then((r) => handle<T>(r)),
-  put: <T>(url: string, body: unknown) =>
-    fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then((r) => handle<T>(r)),
-  post: <T>(url: string, body?: unknown) =>
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body === undefined ? "{}" : JSON.stringify(body),
-    }).then((r) => handle<T>(r)),
+  get: <T>(url: string) => call<T>("GET", url),
+  put: <T>(url: string, body: unknown) => call<T>("PUT", url, body),
+  post: <T>(url: string, body?: unknown) => call<T>("POST", url, body ?? {}),
 };
 
 export function fmtSize(bytes: number): string {

@@ -4,9 +4,6 @@ import path from "node:path";
 export const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 export const CLAUDE_JSON = path.join(os.homedir(), ".claude.json");
 
-export const HOST = "127.0.0.1";
-export const PORT = 7860;
-
 // 모든 파일 연산이 허용되는 경로. path-guard가 이 목록으로 검사한다.
 export const ALLOWED_ROOTS = [CLAUDE_HOME, CLAUDE_JSON];
 

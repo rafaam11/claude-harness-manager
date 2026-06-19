@@ -15,9 +15,9 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
 3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다. **Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).
 
-## 업데이트
+## 업데이트 (수동)
 
-앱 좌측 하단의 현재 버전 배지 옆 **"업데이트 확인"** 버튼을 누르면 GitHub Releases에서 새 버전을 확인하고, 있으면 자동으로 내려받는다. 다운로드가 끝나면 버튼이 **"재시작하여 적용"** 으로 바뀌고, 누르면 앱을 재시작하며 새 버전이 적용된다. 앱을 켤 때도 조용히 한 번 확인한다.
+이 저장소는 **비공개**라 앱이 자동으로 업데이트를 받지는 않는다. 대신 사이드바 좌측 하단 버전 배지 옆 **"새 버전 확인"** 버튼을 누르면 GitHub 릴리스 페이지가 브라우저로 열린다(GitHub에 로그인돼 있어야 보인다). 거기서 최신 **`Claude Harness Manager Setup x.y.z.exe`** 를 받아 실행하면 기존 설치 위에 **덮어쓰기 설치**된다.
 
 ## 주요 기능
 
@@ -92,8 +92,8 @@ npm run dev        # electron-vite dev (main/preload/renderer HMR + Electron 창
 | `npm run build` | typecheck + 프로덕션 번들(`out/`) |
 | `npm run typecheck` | TypeScript 타입 검사(node + web 2패스) |
 | `npm run icon` | `build/icon.ico`·`icon.png` 재생성 |
-| `npm run dist` | Windows 설치본 빌드 + GitHub Releases 퍼블리시(`release/`, `GH_TOKEN` 필요) |
+| `npm run dist` | Windows 설치본 빌드 → `release/`에 setup.exe 생성(로컬) |
 
 - 린트 도구·단위 테스트 프레임워크는 없다. 변경 검증의 1차 관문은 `npm run typecheck`, 2차는 `npm run build`.
-- 릴리스: 버전 bump 후 `GH_TOKEN`(repo write PAT)을 셸에 export하고 `npm run dist`. electron-updater가 동작하려면 Release에 `latest.yml`이 함께 올라가야 하므로 드래그앤드롭 대신 `--publish always` 경로를 쓴다.
+- 릴리스: `package.json` 버전 bump → `npm run dist` → `release/Claude Harness Manager Setup x.y.z.exe` 생성 → GitHub 릴리스에 **수동 업로드**(웹 드래그앤드롭 또는 `gh release create vX.Y.Z "release/Claude Harness Manager Setup X.Y.Z.exe"`).
 - 코드 구조·규약은 [CLAUDE.md](CLAUDE.md) 참조.

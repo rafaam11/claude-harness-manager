@@ -1,6 +1,6 @@
 {
   "name": "claude-harness-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Code 전역 환경(~/.claude)을 관리하는 로컬 전용 데스크톱 앱",
   "main": "out/main/index.js",
   "private": true,
@@ -14,10 +14,9 @@
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
     "icon": "node scripts/generate-icon.mjs",
-    "dist": "npm run build && electron-builder --win --publish always"
+    "dist": "npm run build && electron-builder --win"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9",
     "gray-matter": "^4.0.3",
     "marked": "^15.0.0",
     "react": "^18.3.1",
@@ -55,11 +54,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Claude Harness Manager"
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "digitrack-inc",
-      "repo": "claude-harness-manager"
     }
   }
 }

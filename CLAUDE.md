@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Claude Code 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 관리하는 로컬 전용 **데스크톱 앱**(Electron). 스킬/에이전트/커맨드/플러그인/MCP 서버 카탈로그 조회, 설정 파일 편집(JSON 트리 에디터), 규칙 기반 정리(아카이브)를 제공한다. 또한 여러 프로젝트에 걸친 **작업 회상 대시보드(Workspace)** 로 최근 작업한 프로젝트·계획·세션 흔적을 자동으로 모아 보여주고(주말 지나 돌아왔을 때 "어디까지 했는지" 회상용), 가벼운 상태/메모를 직접 단다. 사용자 자신의 머신에서만 동작하며 외부로 노출되지 않는 것을 전제로 설계됐다.
 
-설치형 NSIS 인스톨러(`Claude Harness Manager Setup x.y.z.exe`)로 배포하며, 앱 안의 **"업데이트 확인"**(electron-updater + GitHub Releases)으로 새 버전을 받는다.
+설치형 NSIS 인스톨러(`Claude Harness Manager Setup x.y.z.exe`)로 배포한다. 저장소가 **비공개**라 익명 자동 업데이트(electron-updater)는 불가능하므로 쓰지 않고, 사이드바의 **"새 버전 확인"** 버튼이 GitHub 릴리스 페이지를 OS 브라우저로 열어 사용자가 최신 setup.exe를 받아 **수동 설치(덮어쓰기)** 하게 한다.
 
 ## 명령어
 
@@ -18,7 +18,7 @@ npm run dev          # electron-vite dev (main/preload/renderer HMR + Electron �
 npm run build        # typecheck + electron-vite build → out/
 npm run typecheck    # tsc --noEmit (node 패스 + web 패스 2회)
 npm run icon         # scripts/generate-icon.mjs → build/icon.ico·icon.png
-npm run dist         # build + electron-builder --win --publish always (GH_TOKEN 필요)
+npm run dist         # build + electron-builder --win → release/에 setup.exe 생성(로컬, 퍼블리시 안 함)
 ```
 
 - **포트·로컬 서버 없음.** renderer ↔ main 통신은 전부 IPC다(`window.api.invoke`). dev에선 electron-vite가 renderer를 5173에 띄우지만 API 프록시는 없다.
@@ -41,23 +41,22 @@ npm run dist         # build + electron-builder --win --publish always (GH_TOKEN
 ### Main 프로세스 (`src/main/`, Electron + TypeScript ESM)
 
 - 진입점 `index.ts`: `requestSingleInstanceLock`(중복 실행 차단 + `second-instance`로 기존 창 focus), `BrowserWindow`(contextIsolation, sandbox:false, preload), `setupCsp`(prod에서만), 외부 링크는 `setWindowOpenHandler`/`will-navigate`로 OS 브라우저. dev면 `loadURL`(ELECTRON_RENDERER_URL), prod면 `loadFile`.
-- `ipc.ts`: **단일 채널 `api:invoke`** 디스패처가 renderer 요청을 받는다. throw 대신 `ApiResult` 봉투(`{ok:true,data}` / `{ok:false,statusCode,error}`)를 resolve해 statusCode를 무손실 전달한다(기존 Fastify setErrorHandler의 `err.statusCode ?? 500`이 여기로 들어왔다). updater IPC(`app:get-version`, `updater:check`, `updater:quit-and-install`)도 여기 등록.
+- `ipc.ts`: **단일 채널 `api:invoke`** 디스패처가 renderer 요청을 받는다. throw 대신 `ApiResult` 봉투(`{ok:true,data}` / `{ok:false,statusCode,error}`)를 resolve해 statusCode를 무손실 전달한다(기존 Fastify setErrorHandler의 `err.statusCode ?? 500`이 여기로 들어왔다). 버전/릴리스 IPC(`app:get-version`, `app:open-releases` — `shell.openExternal`로 릴리스 페이지 오픈)도 여기 등록.
 - `router.ts`: HTTP 라우트를 대체하는 **경량 라우터**. `{method, pattern, handler}[]` 테이블 + 세그먼트 매칭으로 `:name`/`:id`/`:filename` params 추출, query는 `URL.searchParams`. 핸들러는 `ctx={params,query,body}`를 받고 `reply.code(n).send({error})` 자리를 `throw new HttpError(n, msg)`로 대체한다. lib/services가 던지는 statusCode 보유 에러(path-guard 403, safe-write 409, json-validate 422, archive 404, plans 400)는 변환 없이 통과. 새 엔드포인트는 이 테이블에 추가한다.
-- `updater.ts`: electron-updater 배선. dev(`!app.isPackaged`)에선 비활성(항상 "최신"). prod에서 시작 시 `checkForUpdatesAndNotify()`(조용+OS 알림), 수동 버튼은 `checkForUpdates()`, 진행 상태를 `webContents.send('updater:status', ...)`로 push. **electron-updater는 CJS라 default import 후 구조분해**(`const { autoUpdater } = electronUpdater`).
 - `config.ts`: 모든 경로 상수·정책 값의 단일 출처(`ALLOWED_ROOTS`, `CONFIG_FILES`, `STALE_DAYS=30`, `AGENT_SIZE_WARN_BYTES=19KB`, `BACKUP_KEEP=20`, `TEMP_DIRS`, 그리고 Workspace용 `BOARD_FILE`, `RECALL_TAIL_BYTES=512KB`, `WORKSPACE_CACHE_TTL_MS=5s`, `PLAN_GUESS_WINDOW_MS=6h`). 포트/호스트 상수는 없다.
 - `services/`: 읽기 전용 도메인 로직 — `catalog`(skills/agents/commands 프론트매터 파싱 + `readCatalogContent`로 본문·전체 프론트매터 조회), `plugins`(installed_plugins·blocklist·settings 병합), `projects`(프로젝트 디렉토리 walk·stale 계산), `scan`(정리 후보 산출), `mcp`(`~/.claude.json`의 mcpServers 파싱 — 사용자/프로젝트 스코프 모두 수용, 읽기 전용). **Workspace용 읽기 서비스**: `plans`(`~/.claude/plans` 계획 스캔·첫 `#` 헤딩 제목 파싱), `recall`(`history.jsonl` 인덱스 + 프로젝트별 최신 transcript **tail-read**(끝 512KB)로 `ai-title`·마지막 프롬프트/응답 추출 + 계획↔프로젝트 시각 상관 자동추정[sessionId→projectId 우선], 5s TTL 모듈 캐시), `tasks`(세션별 `tasks/<sessionId>/*.json` todo 조회).
 
 ### Renderer (`src/renderer/src/`, React 18)
 
-- 라우터·상태관리 라이브러리 없음. `App.tsx`가 `useState`로 탭 6개(`PAGES`)를 직접 전환한다. 테마(다크/라이트)는 `data-theme` 속성 + localStorage. 사이드바 하단에 버전 배지 + "업데이트 확인" 버튼(`components/UpdateBadge.tsx`, `window.updater` 구독).
+- 라우터·상태관리 라이브러리 없음. `App.tsx`가 `useState`로 탭 6개(`PAGES`)를 직접 전환한다. 테마(다크/라이트)는 `data-theme` 속성 + localStorage. 사이드바 하단에 버전 배지 + "새 버전 확인" 버튼(`components/UpdateBadge.tsx`, `window.app.openReleases`로 GitHub 릴리스 페이지를 연다).
 - 런타임 의존성은 **최소를 지향하되 정당한 경우 추가**한다. 현재: 카탈로그 본문 마크다운 렌더에 `marked`, Config Editor JSON 트리/텍스트 편집에 `vanilla-jsoneditor`.
 - `src/api/client.ts`: `api.get/put/post` + `ApiError(status, message)` + `fmtSize`/`fmtDate`/`fmtRelative`. **공개 표면은 HTTP 시절과 동일하되 내부 전송 계층만 `window.api.invoke`로 교체됐다** — 페이지 코드는 `fetch('/api/...')`와 동일한 경로 문자열을 그대로 쓴다. main이 봉투를 resolve하면 statusCode를 복원해 `ApiError`로 던진다.
-- `src/preload/index.ts`(빌드는 `src/preload`, 타입 전역은 `index.d.ts`): `contextBridge`로 `window.api`(invoke)와 `window.updater`(getVersion/check/quitAndInstall/onStatus)를 노출.
+- `src/preload/index.ts`(빌드는 `src/preload`, 타입 전역은 `index.d.ts`): `contextBridge`로 `window.api`(invoke)와 `window.app`(getVersion/openReleases)을 노출.
 - 페이지별 책임: `Overview`(요약 카드), `Workspace`(작업 회상 대시보드 — 내부 서브탭 3개: **Projects**(최근순 프로젝트 카드 + 자동 회상 + 상태/메모 인라인 편집), **Plans**(계획을 상태별 4컬럼 칸반: 진행중/보류/완료/보관, 파일이 `_archive`면 항상 보관 컬럼; 프로젝트 자동연결+override·본문 마크다운), **Timeline**(날짜별 세션/계획 이벤트, "N일 공백" 구분선으로 주말 갭 가시화). 편집은 낙관적 업데이트→실패 시 재동기화, 메모는 blur 저장), `Catalog`(종류별 카드 블럭 + 단일 인라인 확장 — skill/agent/command 본문 마크다운·프론트매터, MCP 연결설정·시크릿 마스킹, plugin 상태; 모두 읽기 전용), `Memory`(프로젝트 파일 읽기 전용 브라우저), `Cleanup`(스캔→체크박스 선택→**dry-run 먼저**→실행→manifest 복구), `ConfigEditor`(settings JSON을 `vanilla-jsoneditor` 트리/텍스트 에디터로 편집 — 저장·백업·409 충돌 로직 유지).
 
 ### IPC 계약 (`src/shared/types.ts`)
 
-main과 preload/renderer가 함께 import하는 단일 출처(`@shared` alias). `ApiRequest`(method/url/body), `ApiResult` 봉투, `IpcChannels` 상수, `UpdaterStatus` 유니온, `RendererApi`/`UpdaterApi`.
+main과 preload/renderer가 함께 import하는 단일 출처(`@shared` alias). `ApiRequest`(method/url/body), `ApiResult` 봉투, `IpcChannels` 상수, `RendererApi`/`AppApi`.
 
 ### 설정 파일 정책 (`CONFIG_FILES`)
 
@@ -67,9 +66,9 @@ main과 preload/renderer가 함께 import하는 단일 출처(`@shared` alias). 
 ## 코드 규약 / 주의점
 
 - **ESM + `.js` 확장자**: lib/services의 상대 임포트는 NodeNext 시절의 `.js` 확장자를 유지한다(소스가 `.ts`여도 `from "./config.js"`). tsconfig는 `moduleResolution: Bundler`라 타입체크가 통과하고 esbuild가 번들 시 resolve한다 — 임의로 떼지 말 것.
-- **main 의존성은 `dependencies`에**: `gray-matter`·`electron-updater`는 `externalizeDepsPlugin`으로 external 처리되어 asar의 node_modules에서 require된다. devDependencies로 옮기면 패키징 시 빠진다.
+- **main 의존성은 `dependencies`에**: `gray-matter`는 `externalizeDepsPlugin`으로 external 처리되어 asar의 node_modules에서 require된다. devDependencies로 옮기면 패키징 시 빠진다.
 - **플랫폼 분기 코드**: `cc-detect.ts`는 `process.platform`으로 Windows는 `tasklist`(claude.exe), macOS/Linux는 `pgrep -x claude`로 CC 프로세스를 감지한다. `projects.ts`의 `guessOriginalPath`는 여전히 Windows 드라이브 경로 전용 — flatten된 디렉토리명(`D--hdx-agv`)을 `D:\hdx\agv`로 역추정하고(구분자 `-`/이름 `-` 구별 불가 → 추정값), 비-Windows 이름은 `null`. (배포 타깃은 Windows NSIS다.)
 - 코드 주석·식별자는 한국어 도메인 용어를 사용하는 기존 스타일을 유지한다.
 - `cleanup/execute`는 `category === "warn-only"` 항목 이동을 거부한다(대형 에이전트 경고는 표시용이지 이동 후보가 아님).
 - MCP 시크릿(env/headers)은 main이 값을 그대로 내려보내고 **renderer에서 마스킹+토글**한다(로컬 단독 전제). 마스킹을 우회해 로그/터미널에 값을 노출하지 말 것.
-- **자동 업데이트 퍼블리시**: `npm run dist`는 `GH_TOKEN`(repo write PAT)을 환경변수로 읽어 GitHub Releases에 `setup.exe`·`latest.yml`·`blockmap`을 올린다. 토큰은 셸 세션에만 export하고 커밋 금지(.gitignore `.env`). 코드서명이 없어 설치/업데이트 시 SmartScreen 경고가 뜨지만 electron-updater 동작 자체엔 지장 없다.
+- **배포(수동 업데이트)**: 저장소가 비공개라 익명 자동 업데이트가 불가능하므로 electron-updater를 쓰지 않는다. `npm run dist`로 `release/`에 setup.exe를 만들고 GitHub 릴리스에 **수동 업로드**한다(웹 드래그앤드롭 또는 `gh release create`). 받는 사람은 사이드바 "새 버전 확인"으로 릴리스 페이지를 열어(GitHub 로그인 상태) 최신 setup.exe를 받아 덮어쓰기 설치한다. 코드서명이 없어 설치 시 SmartScreen 경고가 뜬다(추가 정보 → 실행). 향후 공개로 전환하면 electron-updater 자동 업데이트를 복원할 수 있다(git 히스토리의 직전 커밋 참고).

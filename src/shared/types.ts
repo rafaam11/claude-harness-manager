@@ -20,28 +20,16 @@ export type ApiResult =
 export const IpcChannels = {
   apiInvoke: "api:invoke",
   appGetVersion: "app:get-version",
-  updaterCheck: "updater:check",
-  updaterQuitAndInstall: "updater:quit-and-install",
-  updaterStatus: "updater:status",
+  appOpenReleases: "app:open-releases",
 } as const;
-
-/** 자동 업데이트 진행 상태. main이 webContents.send로 push, UpdateBadge가 표시한다. */
-export type UpdaterStatus =
-  | { state: "idle" } // 최신(또는 dev라 비활성)
-  | { state: "checking" }
-  | { state: "available"; version: string }
-  | { state: "downloading"; percent: number }
-  | { state: "downloaded"; version: string }
-  | { state: "error"; message: string };
 
 export interface RendererApi {
   invoke: (req: ApiRequest) => Promise<ApiResult>;
 }
 
-export interface UpdaterApi {
+export interface AppApi {
+  /** 현재 앱 버전(app.getVersion). 사이드바 버전 배지에 표시. */
   getVersion: () => Promise<string>;
-  check: () => Promise<void>;
-  quitAndInstall: () => Promise<void>;
-  /** 상태 변경 구독. 반환된 함수를 호출하면 해제된다(언마운트 시). */
-  onStatus: (cb: (status: UpdaterStatus) => void) => () => void;
+  /** GitHub 릴리스 페이지를 OS 브라우저로 연다(수동 업데이트: 최신 setup.exe를 직접 받아 설치). */
+  openReleases: () => Promise<void>;
 }

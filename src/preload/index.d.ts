@@ -1,8 +1,8 @@
-import type { RendererApi, UpdaterApi } from "@shared/types";
+import type { AppApi, RendererApi } from "@shared/types";
 
 declare global {
   interface Window {
     api: RendererApi;
-    updater: UpdaterApi;
+    app: AppApi;
   }
 }

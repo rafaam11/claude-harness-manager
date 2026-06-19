@@ -87,10 +87,6 @@ nav button.nav-item:hover { color: var(--text); }
 }
 .update-btn:hover:not(:disabled) { border-color: var(--accent); }
 .update-btn:disabled { opacity: 0.55; cursor: default; }
-.update-badge .update-status { font-size: 11px; color: var(--muted); }
-.update-badge .update-status.available,
-.update-badge .update-status.downloaded { color: var(--accent); }
-.update-badge .update-status.error { color: #d2691e; }
 
 main { flex: 1; padding: 24px; max-width: 1100px; }
 h2 { font-size: 18px; margin: 0 0 16px; }

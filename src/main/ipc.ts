@@ -1,7 +1,9 @@
-import { app, ipcMain } from "electron";
+import { app, ipcMain, shell } from "electron";
 import { routeRequest } from "./router.js";
-import { checkForUpdates, quitAndInstall } from "./updater.js";
 import { IpcChannels, type ApiRequest, type ApiResult } from "@shared/types";
+
+// 비공개 저장소라 수동 업데이트: 버튼이 이 페이지를 OS 브라우저로 연다(로그인 상태면 최신 setup.exe를 받을 수 있다).
+const RELEASES_URL = "https://github.com/digitrack-inc/claude-harness-manager/releases/latest";
 
 /**
  * 모든 renderer API 호출의 단일 진입점. 기존 Fastify HTTP 라우팅을 대체한다.
@@ -19,6 +21,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(IpcChannels.appGetVersion, () => app.getVersion());
-  ipcMain.handle(IpcChannels.updaterCheck, () => checkForUpdates());
-  ipcMain.handle(IpcChannels.updaterQuitAndInstall, () => quitAndInstall());
+  ipcMain.handle(IpcChannels.appOpenReleases, () => {
+    void shell.openExternal(RELEASES_URL);
+  });
 }

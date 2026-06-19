@@ -1,7 +1,6 @@
 import { app, shell, BrowserWindow, session } from "electron";
 import { join } from "path";
 import { registerIpcHandlers } from "./ipc.js";
-import { initUpdater } from "./updater.js";
 
 /** 안전한 웹 스킴(http/https)일 때만 OS 브라우저로 연다. file:/javascript: 등은 무시. */
 function openExternalSafely(rawUrl: string): void {
@@ -97,7 +96,6 @@ if (!gotLock) {
     setupCsp();
     registerIpcHandlers();
     mainWindow = createWindow();
-    initUpdater(mainWindow);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();

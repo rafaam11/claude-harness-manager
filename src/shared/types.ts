@@ -21,6 +21,7 @@ export const IpcChannels = {
   apiInvoke: "api:invoke",
   appGetVersion: "app:get-version",
   appOpenReleases: "app:open-releases",
+  appOpenPath: "app:open-path",
 } as const;
 
 export interface RendererApi {
@@ -32,4 +33,6 @@ export interface AppApi {
   getVersion: () => Promise<string>;
   /** GitHub 릴리스 페이지를 OS 브라우저로 연다(수동 업데이트: 최신 setup.exe를 직접 받아 설치). */
   openReleases: () => Promise<void>;
+  /** 폴더 경로를 OS 파일 탐색기로 연다. 실패 시 에러 메시지, 성공 시 빈 문자열(shell.openPath 반환). */
+  openPath: (target: string) => Promise<string>;
 }

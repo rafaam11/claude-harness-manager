@@ -1,6 +1,5 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { CLAUDE_HOME, CONFIG_FILES, STALE_DAYS } from "./config.js";
+import { CONFIG_FILES } from "./config.js";
 import { readConfig, safeWrite, listBackups, restoreBackup } from "./lib/safe-write.js";
 import { detectClaude } from "./lib/cc-detect.js";
 import { archiveItems, restoreItem, listManifests } from "./lib/archive.js";
@@ -11,7 +10,7 @@ import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
 import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
 import { readPlanContent } from "./services/plans.js";
-import { setPlanField, setProjectField } from "./lib/board.js";
+import { setPlanField, setProjectField, type ProjectTrack } from "./lib/board.js";
 import type { ApiMethod, ApiRequest } from "@shared/types";
 
 /**
@@ -48,35 +47,6 @@ function configEntry(name: string) {
 
 // 라우트 테이블. 기존 server/src/routes/index.ts 의 핸들러 본문을 그대로 이식했다.
 const routes: Route[] = [
-  {
-    method: "GET",
-    pattern: "/api/overview",
-    handler: async () => {
-      const [catalog, plugins, projects, candidates, cc] = await Promise.all([
-        getCatalog(),
-        getPlugins(),
-        getProjects(),
-        scanCandidates(),
-        detectClaude(),
-      ]);
-      const harnessMd = await fs
-        .readFile(path.join(CLAUDE_HOME, "HARNESS.md"), "utf8")
-        .catch(() => "");
-      const lastAudit = harnessMd.match(/\*\*마지막 점검일\*\*:\s*([0-9-]+)/)?.[1] ?? null;
-      return {
-        skills: catalog.filter((c) => c.kind === "skill").length,
-        agents: catalog.filter((c) => c.kind === "agent").length,
-        commands: catalog.filter((c) => c.kind === "command").length,
-        agentWarnings: catalog.filter((c) => c.warn).length,
-        plugins: plugins.plugins.length,
-        projects: projects.length,
-        staleProjects: projects.filter((p) => p.staleDays >= STALE_DAYS).length,
-        cleanupCandidates: candidates.filter((c) => c.category !== "warn-only").length,
-        lastAudit,
-        ccRunning: cc.running,
-      };
-    },
-  },
   { method: "GET", pattern: "/api/cc-status", handler: async () => detectClaude() },
 
   // --- configs ---
@@ -188,8 +158,13 @@ const routes: Route[] = [
     method: "POST",
     pattern: "/api/workspace/board/project/:id",
     handler: async ({ params, body }) => {
-      const { status, memo } = body as { status?: string; memo?: string };
-      return setProjectField(params.id, { status, memo });
+      const { status, memo, nameOverride, tracks } = body as {
+        status?: string;
+        memo?: string;
+        nameOverride?: string | null;
+        tracks?: ProjectTrack[];
+      };
+      return setProjectField(params.id, { status, memo, nameOverride, tracks });
     },
   },
 

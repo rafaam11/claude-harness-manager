@@ -1,72 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDate, fmtRelative } from "../api/client";
-
-// --- 서버와 공유되는 형태 ---
-type BoardStatus = "진행중" | "보류" | "완료" | "보관";
-const STATUSES: BoardStatus[] = ["진행중", "보류", "완료", "보관"];
-
-interface SessionRecall {
-  sessionId: string | null;
-  aiTitle: string | null;
-  lastPrompt: string | null;
-  lastAssistantSnippet: string | null;
-  cwd: string | null;
-  gitBranch: string | null;
-  transcriptMtime: number;
-  truncatedScan: boolean;
-}
-interface SessionTodos {
-  total: number;
-  done: number;
-  items: { id: string; subject: string; status: string }[];
-}
-interface WorkspaceProject {
-  id: string;
-  realPath: string | null;
-  gitBranch: string | null;
-  lastActivity: number;
-  staleDays: number;
-  recall: SessionRecall | null;
-  todos: SessionTodos | null;
-  board: { status: BoardStatus | null; memo: string };
-  plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
-}
-interface EnrichedPlan {
-  filename: string;
-  title: string;
-  mtime: number;
-  archived: boolean;
-  guessedProjectId: string | null;
-  projectOverride: string | null;
-  projectId: string | null;
-  status: BoardStatus;
-  memo: string;
-}
-interface TimelineEvent {
-  ts: number;
-  kind: "session" | "plan";
-  projectId: string | null;
-  realPath: string | null;
-  title: string;
-  filename?: string;
-}
+import {
+  STATUSES,
+  buildProjNameMap,
+  displayName,
+  shortName,
+  type BoardStatus,
+  type EnrichedPlan,
+  type ProjectTrack,
+  type WorkspaceProject,
+} from "./workspace-shared";
 
 const SUBS = {
   projects: "Projects",
   plans: "Plans",
-  timeline: "Timeline",
 } as const;
 type SubKey = keyof typeof SUBS;
-
-/** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름 */
-function shortName(realPath: string | null, id: string): string {
-  if (realPath) {
-    const parts = realPath.replace(/\\/g, "/").split("/").filter(Boolean);
-    if (parts.length) return parts[parts.length - 1];
-  }
-  return id.replace(/^[A-Za-z]--/, "").replace(/-/g, "/");
-}
 
 function StatusTag({ s }: { s: BoardStatus }) {
   return <span className={`tag st-${STATUSES.indexOf(s)}`}>{s}</span>;
@@ -90,12 +40,18 @@ export default function Workspace() {
       </div>
       {sub === "projects" && <ProjectsView />}
       {sub === "plans" && <PlansView />}
-      {sub === "timeline" && <TimelineView />}
     </div>
   );
 }
 
 // ============================ Projects ============================
+type ProjectPatch = {
+  status?: BoardStatus;
+  memo?: string;
+  nameOverride?: string | null;
+  tracks?: ProjectTrack[];
+};
+
 function ProjectsView() {
   const [projects, setProjects] = useState<WorkspaceProject[] | null>(null);
   const [error, setError] = useState("");
@@ -109,13 +65,16 @@ function ProjectsView() {
     load();
   }, []);
 
-  async function patch(id: string, body: { status?: BoardStatus; memo?: string }) {
-    // 낙관적 업데이트
+  async function patch(id: string, body: ProjectPatch) {
+    // 낙관적 업데이트. body의 nameOverride는 해제용 null을 쓰므로 board(string)에는 ""로 정규화.
+    const boardPatch: Partial<WorkspaceProject["board"]> = {};
+    if (body.status !== undefined) boardPatch.status = body.status;
+    if (body.memo !== undefined) boardPatch.memo = body.memo;
+    if (body.nameOverride !== undefined) boardPatch.nameOverride = body.nameOverride ?? "";
+    if (body.tracks !== undefined) boardPatch.tracks = body.tracks;
     setProjects((prev) =>
       prev
-        ? prev.map((p) =>
-            p.id === id ? { ...p, board: { ...p.board, ...body } } : p,
-          )
+        ? prev.map((p) => (p.id === id ? { ...p, board: { ...p.board, ...boardPatch } } : p))
         : prev,
     );
     try {
@@ -126,6 +85,15 @@ function ProjectsView() {
     }
   }
 
+  async function openFolder(realPath: string) {
+    try {
+      const msg = await window.app.openPath(realPath);
+      if (msg) setError(`폴더 열기 실패: ${msg}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   if (error) return <div className="banner err">{error}</div>;
   if (!projects) return <div className="muted">불러오는 중…</div>;
   if (projects.length === 0) return <div className="muted">프로젝트 기록이 없습니다.</div>;
@@ -133,7 +101,7 @@ function ProjectsView() {
   return (
     <div className="ws-list">
       {projects.map((p) => (
-        <ProjectCard key={p.id} p={p} onPatch={patch} />
+        <ProjectCard key={p.id} p={p} onPatch={patch} onOpenFolder={openFolder} />
       ))}
     </div>
   );
@@ -142,15 +110,70 @@ function ProjectsView() {
 function ProjectCard({
   p,
   onPatch,
+  onOpenFolder,
 }: {
   p: WorkspaceProject;
-  onPatch: (id: string, body: { status?: BoardStatus; memo?: string }) => void;
+  onPatch: (id: string, body: ProjectPatch) => void;
+  onOpenFolder: (realPath: string) => void;
 }) {
   const r = p.recall;
+  const base = shortName(p.realPath, p.id);
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const startEditName = () => {
+    setNameDraft(p.board.nameOverride || "");
+    setEditingName(true);
+  };
+  const saveName = () => {
+    setEditingName(false);
+    onPatch(p.id, { nameOverride: nameDraft.trim() || null });
+  };
+
+  const [tracksOpen, setTracksOpen] = useState(false);
+  const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
+  const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+
   return (
     <div className="ws-card">
       <div className="ws-card-head">
-        <span className="ws-title">{shortName(p.realPath, p.id)}</span>
+        {editingName ? (
+          <>
+            <input
+              className="ws-title-input"
+              autoFocus
+              value={nameDraft}
+              placeholder={base}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveName();
+                else if (e.key === "Escape") setEditingName(false);
+              }}
+            />
+            <button className="ws-icon-btn" onClick={saveName} title="저장">
+              ✓
+            </button>
+            <button className="ws-icon-btn" onClick={() => setEditingName(false)} title="취소">
+              ✕
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="ws-title">{displayName(p)}</span>
+            <button className="ws-icon-btn" onClick={startEditName} title="이름 변경">
+              ✎
+            </button>
+            {p.realPath && (
+              <button
+                className="ws-icon-btn"
+                onClick={() => onOpenFolder(p.realPath!)}
+                title="폴더 열기"
+              >
+                📂
+              </button>
+            )}
+          </>
+        )}
         {p.gitBranch && <span className="t-tag">⎇ {p.gitBranch}</span>}
         <span className="ws-when">{fmtRelative(p.lastActivity)}</span>
         <select
@@ -207,6 +230,138 @@ function ProjectCard({
         placeholder="어디까지 했나 / 다음 할 일…"
         onSave={(memo) => onPatch(p.id, { memo })}
       />
+
+      <button className="ws-link" onClick={() => setTracksOpen(!tracksOpen)}>
+        {tracksOpen
+          ? "트랙 닫기 ▴"
+          : `트랙 / 할 일${totalTodos ? ` (${doneTodos}/${totalTodos})` : ""} ▾`}
+      </button>
+      {tracksOpen && (
+        <TrackEditor
+          tracks={p.board.tracks}
+          onSave={(tracks) => onPatch(p.id, { tracks })}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================ 트랙 / 할 일 ============================
+function TrackEditor({
+  tracks,
+  onSave,
+}: {
+  tracks: ProjectTrack[];
+  onSave: (tracks: ProjectTrack[]) => void;
+}) {
+  // 텍스트 편집은 로컬 draft에만 반영하고 blur 시 저장, 구조 변경(추가/삭제/토글)은 즉시 저장.
+  const [draft, setDraft] = useState(tracks);
+  useEffect(() => {
+    setDraft(tracks);
+  }, [tracks]);
+
+  const commit = (next: ProjectTrack[]) => {
+    setDraft(next);
+    onSave(next);
+  };
+  const updateTrackLocal = (id: string, patch: Partial<ProjectTrack>) =>
+    setDraft(draft.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  const commitTrack = (id: string, patch: Partial<ProjectTrack>) =>
+    commit(draft.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+
+  const addTrack = () =>
+    commit([...draft, { id: crypto.randomUUID(), title: "새 트랙", items: [] }]);
+  const removeTrack = (id: string) => commit(draft.filter((t) => t.id !== id));
+
+  return (
+    <div className="ws-tracks">
+      {draft.map((t) => (
+        <TrackRow
+          key={t.id}
+          track={t}
+          onLocal={(patch) => updateTrackLocal(t.id, patch)}
+          onCommit={(patch) => commitTrack(t.id, patch)}
+          onRemove={() => removeTrack(t.id)}
+        />
+      ))}
+      <button className="ws-track-add" onClick={addTrack}>
+        + 트랙 추가
+      </button>
+    </div>
+  );
+}
+
+function TrackRow({
+  track,
+  onLocal,
+  onCommit,
+  onRemove,
+}: {
+  track: ProjectTrack;
+  onLocal: (patch: Partial<ProjectTrack>) => void;
+  onCommit: (patch: Partial<ProjectTrack>) => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const done = track.items.filter((i) => i.done).length;
+
+  const addItem = () =>
+    onCommit({ items: [...track.items, { id: crypto.randomUUID(), text: "", done: false }] });
+  const updateItemLocal = (id: string, text: string) =>
+    onLocal({ items: track.items.map((i) => (i.id === id ? { ...i, text } : i)) });
+  const toggleItem = (id: string, value: boolean) =>
+    onCommit({ items: track.items.map((i) => (i.id === id ? { ...i, done: value } : i)) });
+  const commitItem = (id: string, text: string) =>
+    onCommit({ items: track.items.map((i) => (i.id === id ? { ...i, text } : i)) });
+  const removeItem = (id: string) =>
+    onCommit({ items: track.items.filter((i) => i.id !== id) });
+
+  return (
+    <div className="ws-track">
+      <div className="ws-track-head">
+        <button className="ws-track-toggle" onClick={() => setOpen(!open)}>
+          {open ? "▾" : "▸"}
+        </button>
+        <input
+          className="ws-track-title"
+          value={track.title}
+          placeholder="트랙 이름"
+          onChange={(e) => onLocal({ title: e.target.value })}
+          onBlur={(e) => onCommit({ title: e.target.value })}
+        />
+        <span className="ws-track-count muted">
+          {done}/{track.items.length}
+        </span>
+        <button className="ws-icon-btn" onClick={onRemove} title="트랙 삭제">
+          🗑
+        </button>
+      </div>
+      {open && (
+        <div className="ws-track-items">
+          {track.items.map((i) => (
+            <div className="ws-todo" key={i.id}>
+              <input
+                type="checkbox"
+                checked={i.done}
+                onChange={(e) => toggleItem(i.id, e.target.checked)}
+              />
+              <input
+                className={`ws-todo-text${i.done ? " done" : ""}`}
+                value={i.text}
+                placeholder="할 일…"
+                onChange={(e) => updateItemLocal(i.id, e.target.value)}
+                onBlur={(e) => commitItem(i.id, e.target.value)}
+              />
+              <button className="ws-icon-btn" onClick={() => removeItem(i.id)} title="삭제">
+                ✕
+              </button>
+            </div>
+          ))}
+          <button className="ws-todo-add" onClick={addItem}>
+            + 할 일 추가
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -234,11 +389,7 @@ function PlansView() {
       .catch(() => {});
   }, []);
 
-  const projName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of projects) m.set(p.id, shortName(p.realPath, p.id));
-    return m;
-  }, [projects]);
+  const projName = useMemo(() => buildProjNameMap(projects), [projects]);
 
   async function patch(
     filename: string,
@@ -364,7 +515,7 @@ function PlanCard({
           <option value="">자동: {guessedName}</option>
           {projects.map((pr) => (
             <option key={pr.id} value={pr.id}>
-              {shortName(pr.realPath, pr.id)}
+              {displayName(pr)}
             </option>
           ))}
         </select>
@@ -400,62 +551,6 @@ function PlanCard({
           }}
         />
       )}
-    </div>
-  );
-}
-
-// ============================ Timeline ============================
-function TimelineView() {
-  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api
-      .get<TimelineEvent[]>("/api/workspace/timeline")
-      .then(setEvents)
-      .catch((e) => setError(e.message));
-  }, []);
-
-  if (error) return <div className="banner err">{error}</div>;
-  if (!events) return <div className="muted">불러오는 중…</div>;
-  if (events.length === 0) return <div className="muted">활동 기록이 없습니다.</div>;
-
-  // 날짜별 그룹
-  const groups: { day: string; ms: number; items: TimelineEvent[] }[] = [];
-  for (const e of events) {
-    const day = fmtDate(e.ts);
-    const last = groups[groups.length - 1];
-    if (last && last.day === day) last.items.push(e);
-    else groups.push({ day, ms: e.ts, items: [e] });
-  }
-
-  return (
-    <div className="timeline">
-      {groups.map((g, i) => {
-        const prev = groups[i - 1];
-        const gapDays = prev
-          ? Math.round(
-              (new Date(prev.day).getTime() - new Date(g.day).getTime()) / 86400000,
-            )
-          : 0;
-        return (
-          <div key={g.day}>
-            {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
-            <div className="timeline-day">{g.day}</div>
-            {g.items.map((e, j) => (
-              <div className="timeline-item" key={j}>
-                <span className={`bdg ${e.kind === "plan" ? "bdg-plan" : "bdg-session"}`}>
-                  {e.kind === "plan" ? "PLAN" : "SESS"}
-                </span>
-                <span className="timeline-title">{e.title}</span>
-                <span className="timeline-proj muted">
-                  {e.projectId ? shortName(e.realPath, e.projectId) : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        );
-      })}
     </div>
   );
 }

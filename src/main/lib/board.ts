@@ -20,9 +20,23 @@ export interface PlanBoardEntry {
   memo?: string;
   projectOverride?: string;
 }
+/** 프로젝트 트랙(작업 갈래) 안의 할 일 한 줄. CC 세션과 무관한 앱 소유 데이터. */
+export interface ProjectTodo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+/** 한 프로젝트의 작업 갈래. 여러 트랙이 각자 체크리스트(items)를 가진다. */
+export interface ProjectTrack {
+  id: string;
+  title: string;
+  items: ProjectTodo[];
+}
 export interface ProjectBoardEntry {
   status?: BoardStatus;
   memo?: string;
+  nameOverride?: string;
+  tracks?: ProjectTrack[];
 }
 export interface BoardData {
   version: 1;
@@ -38,33 +52,63 @@ function asStatus(v: unknown): BoardStatus | undefined {
   return typeof v === "string" && STATUSES.includes(v) ? (v as BoardStatus) : undefined;
 }
 
+/** 신뢰할 수 없는 tracks 입력을 화이트리스트로 정제 — id 없는 트랙/항목, 형식 불량은 버린다. */
+function sanitizeTracks(raw: unknown): ProjectTrack[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ProjectTrack[] = [];
+  for (const t of raw) {
+    if (!t || typeof t !== "object") continue;
+    const tr = t as Record<string, unknown>;
+    if (typeof tr.id !== "string" || !tr.id) continue;
+    if (typeof tr.title !== "string") continue;
+    const items: ProjectTodo[] = [];
+    if (Array.isArray(tr.items)) {
+      for (const it of tr.items) {
+        if (!it || typeof it !== "object") continue;
+        const i = it as Record<string, unknown>;
+        if (typeof i.id !== "string" || !i.id) continue;
+        if (typeof i.text !== "string") continue;
+        items.push({ id: i.id, text: i.text, done: i.done === true });
+      }
+    }
+    out.push({ id: tr.id, title: tr.title, items });
+  }
+  return out;
+}
+
 /** 신뢰할 수 없는 입력(파일 내용/요청)을 board 스키마로 정제 — 화이트리스트 밖 값은 버린다. */
 function sanitize(parsed: unknown): BoardData {
   const board = emptyBoard();
   if (!parsed || typeof parsed !== "object") return board;
   const p = parsed as Record<string, unknown>;
 
-  const toEntry = (raw: unknown, withOverride: boolean): PlanBoardEntry => {
-    const e: PlanBoardEntry = {};
+  // plan/project 공용 정제. kind에 따라 plan 전용(projectOverride) / project 전용(nameOverride·tracks)을 분기.
+  const toEntry = (raw: unknown, kind: "plan" | "project"): PlanBoardEntry & ProjectBoardEntry => {
+    const e: PlanBoardEntry & ProjectBoardEntry = {};
     if (!raw || typeof raw !== "object") return e;
     const r = raw as Record<string, unknown>;
     const st = asStatus(r.status);
     if (st) e.status = st;
     if (typeof r.memo === "string" && r.memo) e.memo = r.memo;
-    if (withOverride && typeof r.projectOverride === "string" && r.projectOverride) {
+    if (kind === "plan" && typeof r.projectOverride === "string" && r.projectOverride) {
       e.projectOverride = r.projectOverride;
+    }
+    if (kind === "project") {
+      if (typeof r.nameOverride === "string" && r.nameOverride) e.nameOverride = r.nameOverride;
+      const tracks = sanitizeTracks(r.tracks);
+      if (tracks.length) e.tracks = tracks;
     }
     return e;
   };
 
   if (p.plans && typeof p.plans === "object") {
     for (const [k, v] of Object.entries(p.plans as Record<string, unknown>)) {
-      board.plans[k] = toEntry(v, true);
+      board.plans[k] = toEntry(v, "plan");
     }
   }
   if (p.projects && typeof p.projects === "object") {
     for (const [k, v] of Object.entries(p.projects as Record<string, unknown>)) {
-      board.projects[k] = toEntry(v, false);
+      board.projects[k] = toEntry(v, "project");
     }
   }
   return board;
@@ -150,7 +194,12 @@ export async function setPlanField(
 
 export async function setProjectField(
   id: string,
-  patch: { status?: string; memo?: string },
+  patch: {
+    status?: string;
+    memo?: string;
+    nameOverride?: string | null;
+    tracks?: ProjectTrack[];
+  },
 ): Promise<BoardData> {
   return withLock(async () => {
     const board = await readBoard();
@@ -162,6 +211,17 @@ export async function setProjectField(
     if (patch.memo !== undefined) {
       if (patch.memo) entry.memo = patch.memo;
       else delete entry.memo;
+    }
+    if (patch.nameOverride !== undefined) {
+      // null/"" 이면 override 해제(기본 이름으로 복귀)
+      if (patch.nameOverride) entry.nameOverride = patch.nameOverride;
+      else delete entry.nameOverride;
+    }
+    if (patch.tracks !== undefined) {
+      // 전체 교체. 빈 배열이면 키 제거(빈 엔트리는 pruneIfEmpty가 정리)
+      const tracks = sanitizeTracks(patch.tracks);
+      if (tracks.length) entry.tracks = tracks;
+      else delete entry.tracks;
     }
     board.projects[id] = entry;
     pruneIfEmpty(board.projects, id);

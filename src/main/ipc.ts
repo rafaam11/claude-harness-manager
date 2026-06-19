@@ -24,4 +24,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannels.appOpenReleases, () => {
     void shell.openExternal(RELEASES_URL);
   });
+  // 프로젝트 폴더를 OS 탐색기로 연다(로컬 단독 전제). 실패 시 에러 문자열을 그대로 돌려준다.
+  ipcMain.handle(IpcChannels.appOpenPath, (_e, target: string) => shell.openPath(target));
 }

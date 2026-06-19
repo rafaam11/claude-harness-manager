@@ -280,3 +280,43 @@ pre.viewer {
 .timeline-proj { font-size: 11px; flex-shrink: 0; }
 .bdg-session { background: #6366f1; }
 .bdg-plan { background: #10b981; }
+
+/* 카드 헤더 아이콘 버튼(이름 편집 ✎ · 폴더 열기 📂 · 저장/취소 · 트랙/할일 삭제) */
+.ws-icon-btn {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 13px; padding: 2px 4px; border-radius: 5px; line-height: 1;
+}
+.ws-icon-btn:hover { color: var(--accent); background: var(--active-bg); }
+.ws-title-input {
+  font-weight: 700; font-size: 14px; background: var(--editor-bg); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 3px 8px; min-width: 160px;
+}
+.ws-title-input:focus { outline: none; }
+
+/* 트랙(작업 갈래) / 할 일 체크리스트 */
+.ws-tracks { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.ws-track { border: 1px solid var(--border); border-radius: 7px; background: var(--panel); padding: 7px 9px; }
+.ws-track-head { display: flex; align-items: center; gap: 7px; }
+.ws-track-toggle { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.ws-track-title {
+  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  font-size: 12.5px; font-weight: 600; padding: 3px 4px; border-radius: 5px;
+}
+.ws-track-title:hover { background: var(--active-bg); }
+.ws-track-title:focus { outline: none; background: var(--editor-bg); }
+.ws-track-count { font-size: 11px; flex-shrink: 0; }
+.ws-track-items { margin: 6px 0 2px; padding-left: 14px; display: flex; flex-direction: column; gap: 4px; }
+.ws-todo { display: flex; align-items: center; gap: 7px; }
+.ws-todo input[type="checkbox"] { cursor: pointer; flex-shrink: 0; }
+.ws-todo-text {
+  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  font-size: 12px; padding: 2px 4px; border-radius: 5px;
+}
+.ws-todo-text:hover { background: var(--active-bg); }
+.ws-todo-text:focus { outline: none; background: var(--editor-bg); }
+.ws-todo-text.done { color: var(--muted); text-decoration: line-through; }
+.ws-track-add, .ws-todo-add {
+  align-self: flex-start; background: none; border: 1px dashed var(--border); color: var(--muted);
+  font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; margin-top: 2px;
+}
+.ws-track-add:hover, .ws-todo-add:hover { color: var(--accent); border-color: var(--accent); }

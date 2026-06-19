@@ -14,7 +14,7 @@ import { guardPath } from "../lib/path-guard.js";
 import { getProjects, guessOriginalPath } from "./projects.js";
 import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
-import { readBoard, type BoardStatus } from "../lib/board.js";
+import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 
 const SNIPPET_MAX = 280;
 
@@ -59,7 +59,7 @@ export interface TimelineEvent {
 }
 
 export interface WorkspaceProject extends ProjectRecall {
-  board: { status: BoardStatus | null; memo: string };
+  board: { status: BoardStatus | null; memo: string; nameOverride: string; tracks: ProjectTrack[] };
   plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
 }
 
@@ -391,6 +391,8 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
     board: {
       status: board.projects[r.id]?.status ?? null,
       memo: board.projects[r.id]?.memo ?? "",
+      nameOverride: board.projects[r.id]?.nameOverride ?? "",
+      tracks: board.projects[r.id]?.tracks ?? [],
     },
     plans: plans
       .filter((p) => p.projectId === r.id)
@@ -403,6 +405,9 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
     getProjectRecalls(),
     getEnrichedPlans(includeArchived),
   ]);
+  // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.
+  // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
+  const idToRealPath = new Map(recalls.map((r) => [r.id, r.realPath]));
   const events: TimelineEvent[] = [];
   for (const r of recalls) {
     if (r.recall) {
@@ -420,7 +425,7 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       ts: p.mtime,
       kind: "plan",
       projectId: p.projectId,
-      realPath: null,
+      realPath: p.projectId ? idToRealPath.get(p.projectId) ?? null : null,
       title: p.title,
       filename: p.filename,
     });

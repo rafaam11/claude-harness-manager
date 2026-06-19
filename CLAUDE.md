@@ -36,7 +36,7 @@ npm run dist         # build + electron-builder --win → release/에 setup.exe 
 3. **낙관적 동시성 + 백업** (`src/main/lib/safe-write.ts`) — 쓰기 파이프라인: 클라이언트가 보낸 `baseHash`와 현재 파일 sha256 대조(불일치 시 `ConflictError` **409**) → `validateConfig` 구조 검증 → 평문 `.bak` 백업(`BACKUP_DIR`에 20개 로테이션) → temp 파일 작성 → atomic rename.
 4. **삭제 없음, 아카이브만** (`src/main/lib/archive.ts`) — 정리는 파일을 `~/.claude/archive/<날짜>/<category>/`로 **이동**하고 `manifest.json`에 기록한다. `journal.json`에 이동 전(done=false)/후(done=true)를 남겨 중단 복구를 추적. 단건 `restoreItem`으로 원위치 복원 가능. 삭제 핸들러는 의도적으로 존재하지 않는다.
 
-쓰기 대상에는 사용자 환경 파일(settings.json 등) 외에 **앱 소유 데이터**도 있다 — Workspace의 수동 레이어 `~/.claude/harness-manager/board.json`(상태·메모·계획↔프로젝트 override; `src/main/lib/board.ts`). board.json은 CC가 외부에서 재작성하지 않으므로 `baseHash` 낙관적 동시성을 쓰지 않고, `withLock` 안에서 read-modify-write 필드 머지로 lost-update만 막는다(쓰기는 동일하게 atomic rename + `.bak` 백업 통과, `validateConfig` 대신 board 전용 경량 검증). 손상 시 손상본을 옆에 백업하고 기본값으로 생존한다(페이지가 죽지 않게).
+쓰기 대상에는 사용자 환경 파일(settings.json 등) 외에 **앱 소유 데이터**도 있다 — Workspace의 수동 레이어 `~/.claude/harness-manager/board.json`(프로젝트: 상태·메모·이름 override(`nameOverride`)·작업 트랙(`tracks`: 갈래별 할 일 체크리스트) / 계획: 상태·메모·계획↔프로젝트 override; `src/main/lib/board.ts`). board.json은 CC가 외부에서 재작성하지 않으므로 `baseHash` 낙관적 동시성을 쓰지 않고, `withLock` 안에서 read-modify-write 필드 머지로 lost-update만 막는다(쓰기는 동일하게 atomic rename + `.bak` 백업 통과, `validateConfig` 대신 board 전용 경량 검증). 손상 시 손상본을 옆에 백업하고 기본값으로 생존한다(페이지가 죽지 않게).
 
 ### Main 프로세스 (`src/main/`, Electron + TypeScript ESM)
 
@@ -51,8 +51,8 @@ npm run dist         # build + electron-builder --win → release/에 setup.exe 
 - 라우터·상태관리 라이브러리 없음. `App.tsx`가 `useState`로 탭 6개(`PAGES`)를 직접 전환한다. 테마(다크/라이트)는 `data-theme` 속성 + localStorage. 사이드바 하단에 버전 배지 + "새 버전 확인" 버튼(`components/UpdateBadge.tsx`, `window.app.openReleases`로 GitHub 릴리스 페이지를 연다).
 - 런타임 의존성은 **최소를 지향하되 정당한 경우 추가**한다. 현재: 카탈로그 본문 마크다운 렌더에 `marked`, Config Editor JSON 트리/텍스트 편집에 `vanilla-jsoneditor`.
 - `src/api/client.ts`: `api.get/put/post` + `ApiError(status, message)` + `fmtSize`/`fmtDate`/`fmtRelative`. **공개 표면은 HTTP 시절과 동일하되 내부 전송 계층만 `window.api.invoke`로 교체됐다** — 페이지 코드는 `fetch('/api/...')`와 동일한 경로 문자열을 그대로 쓴다. main이 봉투를 resolve하면 statusCode를 복원해 `ApiError`로 던진다.
-- `src/preload/index.ts`(빌드는 `src/preload`, 타입 전역은 `index.d.ts`): `contextBridge`로 `window.api`(invoke)와 `window.app`(getVersion/openReleases)을 노출.
-- 페이지별 책임: `Overview`(요약 카드), `Workspace`(작업 회상 대시보드 — 내부 서브탭 3개: **Projects**(최근순 프로젝트 카드 + 자동 회상 + 상태/메모 인라인 편집), **Plans**(계획을 상태별 4컬럼 칸반: 진행중/보류/완료/보관, 파일이 `_archive`면 항상 보관 컬럼; 프로젝트 자동연결+override·본문 마크다운), **Timeline**(날짜별 세션/계획 이벤트, "N일 공백" 구분선으로 주말 갭 가시화). 편집은 낙관적 업데이트→실패 시 재동기화, 메모는 blur 저장), `Catalog`(종류별 카드 블럭 + 단일 인라인 확장 — skill/agent/command 본문 마크다운·프론트매터, MCP 연결설정·시크릿 마스킹, plugin 상태; 모두 읽기 전용), `Memory`(프로젝트 파일 읽기 전용 브라우저), `Cleanup`(스캔→체크박스 선택→**dry-run 먼저**→실행→manifest 복구), `ConfigEditor`(settings JSON을 `vanilla-jsoneditor` 트리/텍스트 에디터로 편집 — 저장·백업·409 충돌 로직 유지).
+- `src/preload/index.ts`(빌드는 `src/preload`, 타입 전역은 `index.d.ts`): `contextBridge`로 `window.api`(invoke)와 `window.app`(getVersion/openReleases/openPath — openPath는 `shell.openPath`로 프로젝트 폴더를 OS 탐색기에서 연다)을 노출.
+- 페이지별 책임: `Timeline`(날짜별 세션/계획 이벤트, "N일 공백" 구분선으로 주말 갭 가시화 — 기본 진입 탭), `Workspace`(작업 회상 대시보드 — 내부 서브탭 2개: **Projects**(최근순 프로젝트 카드 + 자동 회상 + 상태/메모 인라인 편집 + 이름 변경(`nameOverride`)·폴더 열기·접이식 **트랙/할 일** 체크리스트 편집), **Plans**(계획을 상태별 4컬럼 칸반: 진행중/보류/완료/보관, 파일이 `_archive`면 항상 보관 컬럼; 프로젝트 자동연결+override·본문 마크다운). 편집은 낙관적 업데이트→실패 시 재동기화, 텍스트는 blur 저장·구조 변경(추가/삭제/토글)은 즉시 저장). 타입·이름 헬퍼는 `pages/workspace-shared.ts`에서 Timeline과 공유), `Catalog`(종류별 카드 블럭 + 단일 인라인 확장 — skill/agent/command 본문 마크다운·프론트매터, MCP 연결설정·시크릿 마스킹, plugin 상태; 모두 읽기 전용), `Memory`(프로젝트 파일 읽기 전용 브라우저), `Cleanup`(스캔→체크박스 선택→**dry-run 먼저**→실행→manifest 복구), `ConfigEditor`(settings JSON을 `vanilla-jsoneditor` 트리/텍스트 에디터로 편집 — 저장·백업·409 충돌 로직 유지).
 
 ### IPC 계약 (`src/shared/types.ts`)
 

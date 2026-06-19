@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
-import Overview from "./pages/Overview";
+import Timeline from "./pages/Timeline";
 import Workspace from "./pages/Workspace";
 import Catalog from "./pages/Catalog";
 import Memory from "./pages/Memory";
@@ -9,7 +9,7 @@ import ConfigEditor from "./pages/ConfigEditor";
 import UpdateBadge from "./components/UpdateBadge";
 
 const PAGES = {
-  overview: { label: "Overview", el: <Overview /> },
+  timeline: { label: "Timeline", el: <Timeline /> },
   workspace: { label: "Workspace", el: <Workspace /> },
   catalog: { label: "Catalog", el: <Catalog /> },
   memory: { label: "Memory", el: <Memory /> },
@@ -21,7 +21,7 @@ type PageKey = keyof typeof PAGES;
 type Theme = "dark" | "light";
 
 export default function App() {
-  const [page, setPage] = useState<PageKey>("overview");
+  const [page, setPage] = useState<PageKey>("timeline");
   const [ccRunning, setCcRunning] = useState(false);
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem("hm-theme") as Theme) || "dark",

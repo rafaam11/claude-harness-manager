@@ -10,7 +10,7 @@ import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
 import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
 import { readPlanContent } from "./services/plans.js";
-import { setPlanField, setProjectField, type ProjectTrack } from "./lib/board.js";
+import { setPlanField, setProjectField, setSessionField, type ProjectTrack } from "./lib/board.js";
 import type { ApiMethod, ApiRequest } from "@shared/types";
 
 /**
@@ -165,6 +165,14 @@ const routes: Route[] = [
         tracks?: ProjectTrack[];
       };
       return setProjectField(params.id, { status, memo, nameOverride, tracks });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/workspace/board/session/:sessionId",
+    handler: async ({ params, body }) => {
+      const { status, memo } = body as { status?: string; memo?: string };
+      return setSessionField(params.sessionId, { status, memo });
     },
   },
 

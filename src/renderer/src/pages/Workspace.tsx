@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDate, fmtRelative } from "../api/client";
 import {
@@ -211,19 +211,13 @@ function ProjectCard({
         <div className="muted ws-recall">최근 세션 기록 없음</div>
       )}
 
-      <div className="ws-chips">
-        {p.todos && (
+      {p.todos && (
+        <div className="ws-chips">
           <span className={`tag ${p.todos.done === p.todos.total ? "ok" : "muted"}`}>
             ✓ 할일 {p.todos.done}/{p.todos.total}
           </span>
-        )}
-        {p.plans.map((pl) => (
-          <span className="ws-planchip" key={pl.filename} title={pl.title}>
-            <StatusTag s={pl.status} />
-            <span className="ws-planchip-t">{pl.title}</span>
-          </span>
-        ))}
-      </div>
+        </div>
+      )}
 
       <MemoBox
         value={p.board.memo}
@@ -231,7 +225,11 @@ function ProjectCard({
         onSave={(memo) => onPatch(p.id, { memo })}
       />
 
-      <button className="ws-link" onClick={() => setTracksOpen(!tracksOpen)}>
+      <button
+        className="ws-link"
+        onClick={() => setTracksOpen(!tracksOpen)}
+        title="작업 갈래별 할 일 체크리스트"
+      >
         {tracksOpen
           ? "트랙 닫기 ▴"
           : `트랙 / 할 일${totalTodos ? ` (${doneTodos}/${totalTodos})` : ""} ▾`}
@@ -247,6 +245,24 @@ function ProjectCard({
 }
 
 // ============================ 트랙 / 할 일 ============================
+type SaveState = "idle" | "editing" | "saved";
+
+/** 두 트랙 배열의 내용이 같은지(얕은 비교). 외부 변경 감지 / 내 저장 에코 식별에 쓴다. */
+function sameTracks(a: ProjectTrack[], b: ProjectTrack[] | null): boolean {
+  if (!b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.id !== y.id || x.title !== y.title || x.items.length !== y.items.length) return false;
+    for (let j = 0; j < x.items.length; j++) {
+      const p = x.items[j];
+      const q = y.items[j];
+      if (p.id !== q.id || p.text !== q.text || p.done !== q.done) return false;
+    }
+  }
+  return true;
+}
+
 function TrackEditor({
   tracks,
   onSave,
@@ -254,24 +270,75 @@ function TrackEditor({
   tracks: ProjectTrack[];
   onSave: (tracks: ProjectTrack[]) => void;
 }) {
-  // 텍스트 편집은 로컬 draft에만 반영하고 blur 시 저장, 구조 변경(추가/삭제/토글)은 즉시 저장.
+  // 단일 저장 모델: 텍스트는 700ms 디바운스, 구조 변경(추가/삭제/토글)·blur는 즉시 flush.
   const [draft, setDraft] = useState(tracks);
+  const [focusId, setFocusId] = useState<string | null>(null); // 방금 추가한 트랙/할 일에 포커스
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const dirtyRef = useRef(false); // 로컬 미저장 편집 존재
+  const pendingRef = useRef<ProjectTrack[] | null>(null); // 방금 보낸 값(낙관적 에코 식별)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+
+  // 진짜 외부 변경(서버 재동기화)만 draft에 반영. 타이핑 중·내 저장 에코는 무시(기존 리셋 버그 차단).
   useEffect(() => {
+    if (dirtyRef.current) return;
+    if (sameTracks(tracks, pendingRef.current)) return;
     setDraft(tracks);
   }, [tracks]);
 
-  const commit = (next: ProjectTrack[]) => {
-    setDraft(next);
-    onSave(next);
-  };
-  const updateTrackLocal = (id: string, patch: Partial<ProjectTrack>) =>
-    setDraft(draft.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  const commitTrack = (id: string, patch: Partial<ProjectTrack>) =>
-    commit(draft.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  // 언마운트(트랙 패널 접기 등) 시 미저장 텍스트 flush
+  useEffect(
+    () => () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        onSaveRef.current(draftRef.current);
+      }
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    },
+    [],
+  );
 
-  const addTrack = () =>
-    commit([...draft, { id: crypto.randomUUID(), title: "새 트랙", items: [] }]);
-  const removeTrack = (id: string) => commit(draft.filter((t) => t.id !== id));
+  const flushSave = (next: ProjectTrack[]) => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    pendingRef.current = next;
+    dirtyRef.current = false;
+    onSave(next);
+    setSaveState("saved");
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSaveState("idle"), 2000);
+  };
+  const scheduleSave = (next: ProjectTrack[]) => {
+    setDraft(next);
+    dirtyRef.current = true;
+    setSaveState("editing");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => flushSave(next), 700);
+  };
+  const commitNow = (next: ProjectTrack[]) => {
+    setDraft(next);
+    flushSave(next);
+  };
+  const flushNow = () => {
+    if (saveTimer.current) flushSave(draftRef.current);
+  };
+
+  const updateTrack = (id: string, patch: Partial<ProjectTrack>, immediate: boolean) => {
+    const next = draft.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    immediate ? commitNow(next) : scheduleSave(next);
+  };
+  const addTrack = () => {
+    const id = crypto.randomUUID();
+    setFocusId(id);
+    commitNow([...draft, { id, title: "", items: [] }]);
+  };
+  const removeTrack = (id: string) => commitNow(draft.filter((t) => t.id !== id));
 
   return (
     <div className="ws-tracks">
@@ -279,42 +346,69 @@ function TrackEditor({
         <TrackRow
           key={t.id}
           track={t}
-          onLocal={(patch) => updateTrackLocal(t.id, patch)}
-          onCommit={(patch) => commitTrack(t.id, patch)}
+          focusId={focusId}
+          requestFocus={setFocusId}
+          onTitle={(title) => updateTrack(t.id, { title }, false)}
+          onItems={(items, immediate) => updateTrack(t.id, { items }, immediate)}
           onRemove={() => removeTrack(t.id)}
+          onFlush={flushNow}
         />
       ))}
-      <button className="ws-track-add" onClick={addTrack}>
-        + 트랙 추가
-      </button>
+      {draft.length === 0 && (
+        <p className="ws-track-hint">
+          트랙 = 이 프로젝트의 작업 갈래(예: 백엔드 / 리팩터). 갈래별로 할 일을 묶어요. 가벼운 진행
+          메모는 위 메모 칸, 긴 설계는 Plans를 쓰세요.
+        </p>
+      )}
+      <div className="ws-track-foot">
+        <button className="ws-track-add" onClick={addTrack}>
+          + 트랙 추가
+        </button>
+        <span className={`ws-save-cue${saveState === "idle" ? " hidden" : ""}`}>
+          {saveState === "editing" ? "편집 중…" : saveState === "saved" ? "저장됨 ✓" : ""}
+        </span>
+      </div>
     </div>
   );
 }
 
 function TrackRow({
   track,
-  onLocal,
-  onCommit,
+  focusId,
+  requestFocus,
+  onTitle,
+  onItems,
   onRemove,
+  onFlush,
 }: {
   track: ProjectTrack;
-  onLocal: (patch: Partial<ProjectTrack>) => void;
-  onCommit: (patch: Partial<ProjectTrack>) => void;
+  focusId: string | null;
+  requestFocus: (id: string) => void;
+  onTitle: (title: string) => void;
+  onItems: (items: ProjectTrack["items"], immediate: boolean) => void;
   onRemove: () => void;
+  onFlush: () => void;
 }) {
   const [open, setOpen] = useState(true);
   const done = track.items.filter((i) => i.done).length;
+  const total = track.items.length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
 
-  const addItem = () =>
-    onCommit({ items: [...track.items, { id: crypto.randomUUID(), text: "", done: false }] });
-  const updateItemLocal = (id: string, text: string) =>
-    onLocal({ items: track.items.map((i) => (i.id === id ? { ...i, text } : i)) });
-  const toggleItem = (id: string, value: boolean) =>
-    onCommit({ items: track.items.map((i) => (i.id === id ? { ...i, done: value } : i)) });
-  const commitItem = (id: string, text: string) =>
-    onCommit({ items: track.items.map((i) => (i.id === id ? { ...i, text } : i)) });
+  const setItem = (id: string, patch: { text?: string; done?: boolean }, immediate: boolean) =>
+    onItems(
+      track.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+      immediate,
+    );
+  const addItem = () => {
+    const id = crypto.randomUUID();
+    requestFocus(id);
+    onItems([...track.items, { id, text: "", done: false }], true);
+  };
   const removeItem = (id: string) =>
-    onCommit({ items: track.items.filter((i) => i.id !== id) });
+    onItems(
+      track.items.filter((i) => i.id !== id),
+      true,
+    );
 
   return (
     <div className="ws-track">
@@ -326,12 +420,20 @@ function TrackRow({
           className="ws-track-title"
           value={track.title}
           placeholder="트랙 이름"
-          onChange={(e) => onLocal({ title: e.target.value })}
-          onBlur={(e) => onCommit({ title: e.target.value })}
+          autoFocus={focusId === track.id}
+          onChange={(e) => onTitle(e.target.value)}
+          onBlur={onFlush}
         />
-        <span className="ws-track-count muted">
-          {done}/{track.items.length}
-        </span>
+        {total > 0 && (
+          <>
+            <div className="ws-track-bar" title={`${done}/${total}`}>
+              <span className={pct === 100 ? "full" : ""} style={{ width: `${pct}%` }} />
+            </div>
+            <span className="ws-track-count muted">
+              {done}/{total}
+            </span>
+          </>
+        )}
         <button className="ws-icon-btn" onClick={onRemove} title="트랙 삭제">
           🗑
         </button>
@@ -343,14 +445,15 @@ function TrackRow({
               <input
                 type="checkbox"
                 checked={i.done}
-                onChange={(e) => toggleItem(i.id, e.target.checked)}
+                onChange={(e) => setItem(i.id, { done: e.target.checked }, true)}
               />
               <input
                 className={`ws-todo-text${i.done ? " done" : ""}`}
                 value={i.text}
                 placeholder="할 일…"
-                onChange={(e) => updateItemLocal(i.id, e.target.value)}
-                onBlur={(e) => commitItem(i.id, e.target.value)}
+                autoFocus={focusId === i.id}
+                onChange={(e) => setItem(i.id, { text: e.target.value }, false)}
+                onBlur={onFlush}
               />
               <button className="ws-icon-btn" onClick={() => removeItem(i.id)} title="삭제">
                 ✕

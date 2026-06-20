@@ -66,6 +66,8 @@ export interface TimelineEvent {
   realPath: string | null;
   title: string;
   filename?: string;
+  sessionId?: string; // 세션 이벤트에만. 상태 드롭다운 저장 키.
+  status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
 }
 
 /** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름(경로 마지막 세그먼트) */

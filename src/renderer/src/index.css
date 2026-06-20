@@ -257,8 +257,6 @@ pre.viewer {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ws-line-k { color: var(--accent); font-weight: 600; margin-right: 5px; }
 .ws-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.ws-planchip { display: inline-flex; align-items: center; gap: 4px; max-width: 320px; }
-.ws-planchip-t { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Plans 칸반 */
 .kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
@@ -273,11 +271,19 @@ pre.viewer {
 
 /* Timeline */
 .timeline { font-size: 13px; }
+.timeline-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.timeline-chip {
+  background: var(--active-bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 12px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.timeline-chip.off { opacity: 0.45; text-decoration: line-through; }
 .timeline-day { font-weight: 700; color: var(--accent); margin: 16px 0 6px; font-size: 13px; }
 .timeline-gap { color: var(--muted); font-size: 11px; text-align: center; margin: 10px 0; opacity: 0.7; }
 .timeline-item { display: flex; align-items: center; gap: 9px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.timeline-time { font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .timeline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-proj { font-size: 11px; flex-shrink: 0; }
+.timeline-item .ws-select { flex-shrink: 0; }
 .bdg-session { background: #6366f1; }
 .bdg-plan { background: #10b981; }
 
@@ -294,29 +300,46 @@ pre.viewer {
 .ws-title-input:focus { outline: none; }
 
 /* 트랙(작업 갈래) / 할 일 체크리스트 */
-.ws-tracks { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.ws-track { border: 1px solid var(--border); border-radius: 7px; background: var(--panel); padding: 7px 9px; }
+.ws-tracks { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ws-track { padding: 2px 0; }
 .ws-track-head { display: flex; align-items: center; gap: 7px; }
 .ws-track-toggle { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+/* 입력칸은 옅은 밑줄로 "편집 가능"을 암시(레이아웃 점프 방지로 1px transparent 자리 확보) */
 .ws-track-title {
-  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  flex: 1; min-width: 0; background: none; color: var(--text);
   font-size: 12.5px; font-weight: 600; padding: 3px 4px; border-radius: 5px;
+  border: 1px solid transparent; border-bottom: 1px solid var(--border);
 }
 .ws-track-title:hover { background: var(--active-bg); }
-.ws-track-title:focus { outline: none; background: var(--editor-bg); }
+.ws-track-title:focus { outline: none; background: var(--editor-bg); border: 1px solid var(--accent); }
+.ws-track-bar { width: 42px; height: 4px; border-radius: 2px; background: var(--active-bg); overflow: hidden; flex-shrink: 0; }
+.ws-track-bar > span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.ws-track-bar > span.full { background: var(--ok); }
 .ws-track-count { font-size: 11px; flex-shrink: 0; }
-.ws-track-items { margin: 6px 0 2px; padding-left: 14px; display: flex; flex-direction: column; gap: 4px; }
+.ws-track-items {
+  margin: 4px 0 2px 6px; padding-left: 14px; border-left: 2px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
 .ws-todo { display: flex; align-items: center; gap: 7px; }
 .ws-todo input[type="checkbox"] { cursor: pointer; flex-shrink: 0; }
 .ws-todo-text {
-  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  flex: 1; min-width: 0; background: none; color: var(--text);
   font-size: 12px; padding: 2px 4px; border-radius: 5px;
+  border: 1px solid transparent; border-bottom: 1px solid var(--border);
 }
 .ws-todo-text:hover { background: var(--active-bg); }
-.ws-todo-text:focus { outline: none; background: var(--editor-bg); }
+.ws-todo-text:focus { outline: none; background: var(--editor-bg); border: 1px solid var(--accent); }
 .ws-todo-text.done { color: var(--muted); text-decoration: line-through; }
+/* 삭제 버튼은 평상시 숨기고 행 hover/focus 시 노출(번잡함 완화, 키보드는 focus-within) */
+.ws-track-head .ws-icon-btn, .ws-todo .ws-icon-btn { opacity: 0; transition: opacity .12s; }
+.ws-track-head:hover .ws-icon-btn, .ws-track-head:focus-within .ws-icon-btn,
+.ws-todo:hover .ws-icon-btn, .ws-todo:focus-within .ws-icon-btn { opacity: 1; }
 .ws-track-add, .ws-todo-add {
   align-self: flex-start; background: none; border: 1px dashed var(--border); color: var(--muted);
   font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; margin-top: 2px;
 }
 .ws-track-add:hover, .ws-todo-add:hover { color: var(--accent); border-color: var(--accent); }
+.ws-track-foot { display: flex; align-items: center; gap: 8px; }
+.ws-save-cue { font-size: 11px; color: var(--muted); margin-left: auto; transition: opacity .2s; }
+.ws-save-cue.hidden { opacity: 0; }
+.ws-track-hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin: 4px 0 8px; }

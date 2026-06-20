@@ -56,6 +56,8 @@ export interface TimelineEvent {
   realPath: string | null;
   title: string;
   filename?: string;
+  sessionId?: string; // 세션 이벤트에만. 상태 드롭다운 저장 키.
+  status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
 }
 
 export interface WorkspaceProject extends ProjectRecall {
@@ -401,9 +403,10 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
-  const [recalls, plans] = await Promise.all([
+  const [recalls, plans, board] = await Promise.all([
     getProjectRecalls(),
     getEnrichedPlans(includeArchived),
+    readBoard(),
   ]);
   // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.
   // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
@@ -411,12 +414,20 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   const events: TimelineEvent[] = [];
   for (const r of recalls) {
     if (r.recall) {
+      const sid = r.recall.sessionId;
+      // 자동추정 우선순위: 세션 직접 지정(override) → 프로젝트 상태 상속(자동) → "진행중"
+      const status: BoardStatus =
+        (sid ? board.sessions[sid]?.status : undefined) ??
+        board.projects[r.id]?.status ??
+        "진행중";
       events.push({
         ts: r.recall.transcriptMtime,
         kind: "session",
         projectId: r.id,
         realPath: r.realPath,
         title: r.recall.aiTitle ?? r.recall.lastPrompt ?? "(제목 없음)",
+        sessionId: sid ?? undefined,
+        status,
       });
     }
   }
@@ -428,6 +439,7 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       realPath: p.projectId ? idToRealPath.get(p.projectId) ?? null : null,
       title: p.title,
       filename: p.filename,
+      status: p.status,
     });
   }
   return events.sort((a, b) => b.ts - a.ts);

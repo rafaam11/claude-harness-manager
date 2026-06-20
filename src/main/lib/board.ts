@@ -38,14 +38,20 @@ export interface ProjectBoardEntry {
   nameOverride?: string;
   tracks?: ProjectTrack[];
 }
+/** Timeline 세션 이벤트의 수동 레이어. sessionId(uuid)를 키로 한 flat 맵에 담는다. */
+export interface SessionBoardEntry {
+  status?: BoardStatus;
+  memo?: string;
+}
 export interface BoardData {
   version: 1;
   plans: Record<string, PlanBoardEntry>;
   projects: Record<string, ProjectBoardEntry>;
+  sessions: Record<string, SessionBoardEntry>;
 }
 
 function emptyBoard(): BoardData {
-  return { version: 1, plans: {}, projects: {} };
+  return { version: 1, plans: {}, projects: {}, sessions: {} };
 }
 
 function asStatus(v: unknown): BoardStatus | undefined {
@@ -109,6 +115,17 @@ function sanitize(parsed: unknown): BoardData {
   if (p.projects && typeof p.projects === "object") {
     for (const [k, v] of Object.entries(p.projects as Record<string, unknown>)) {
       board.projects[k] = toEntry(v, "project");
+    }
+  }
+  // 세션은 status/memo만 살린다(plan/project와 키가 달라 별도 정제).
+  if (p.sessions && typeof p.sessions === "object") {
+    for (const [k, v] of Object.entries(p.sessions as Record<string, unknown>)) {
+      const r = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+      const e: SessionBoardEntry = {};
+      const st = asStatus(r.status);
+      if (st) e.status = st;
+      if (typeof r.memo === "string" && r.memo) e.memo = r.memo;
+      board.sessions[k] = e;
     }
   }
   return board;
@@ -225,6 +242,28 @@ export async function setProjectField(
     }
     board.projects[id] = entry;
     pruneIfEmpty(board.projects, id);
+    await writeBoardAtomic(board);
+    return board;
+  });
+}
+
+export async function setSessionField(
+  sessionId: string,
+  patch: { status?: string; memo?: string },
+): Promise<BoardData> {
+  return withLock(async () => {
+    const board = await readBoard();
+    const entry: SessionBoardEntry = { ...board.sessions[sessionId] };
+    if (patch.status !== undefined) {
+      const st = asStatus(patch.status);
+      if (st) entry.status = st;
+    }
+    if (patch.memo !== undefined) {
+      if (patch.memo) entry.memo = patch.memo;
+      else delete entry.memo;
+    }
+    board.sessions[sessionId] = entry;
+    pruneIfEmpty(board.sessions, sessionId);
     await writeBoardAtomic(board);
     return board;
   });

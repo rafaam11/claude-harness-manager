@@ -33,6 +33,22 @@ export function fmtDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** 로컬 타임존 YYYY-MM-DD. Timeline 그룹 키(전역 fmtDate는 UTC라 시각과 어긋나므로 분리). */
+export function fmtDay(ms: number): string {
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/** 로컬 타임존 HH:MM. Timeline 항목의 시각 표시용. */
+export function fmtTime(ms: number): string {
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 /** "오늘/어제/N일 전" 형태의 상대 시간. 회상 표면에서 "마지막 활동"을 직관적으로 보여준다. */
 export function fmtRelative(ms: number): string {
   if (!ms) return "—";

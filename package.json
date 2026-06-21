@@ -1,6 +1,6 @@
 {
   "name": "claude-harness-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Claude Code 전역 환경(~/.claude)을 관리하는 로컬 전용 데스크톱 앱",
   "main": "out/main/index.js",
   "private": true,

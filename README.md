@@ -1,4 +1,15 @@
-# claude-harness-manager
+<p align="center">
+  <img src="docs/banner.svg" alt="Claude Harness Manager" width="100%">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Electron-34-2b2a28?logo=electron&logoColor=9feaf9" alt="Electron 34">
+  <img src="https://img.shields.io/badge/React-18-1c2230?logo=react&logoColor=61dafb" alt="React 18">
+  <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
+  <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/version-0.4.0-e8825f" alt="version 0.4.0">
+  <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
+</p>
 
 Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한 화면에서 조회·편집·정리하는 **로컬 전용 데스크톱 앱**(Electron).
 
@@ -8,6 +19,20 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - 여러 프로젝트의 최근 작업·계획·세션을 **작업 회상 대시보드(Workspace)** 로 모아 보고, **프로젝트별 git 작업**(상태·diff·커밋·브랜치·그래프·merge/rebase·push/pull)까지 그 자리에서 처리한다.
 
 네트워크 포트를 열지 않고(렌더러↔백엔드는 Electron IPC), 환경 파일 연산은 `~/.claude` 경로 안에서만, git 작업은 `git rev-parse`로 검증된 저장소 경로에서만 일어난다(모두 로컬 CLI 호출, 외부로 노출되지 않는다). 받는 사람은 **각자 자기 PC**에서 실행해 **자기 `~/.claude`**를 관리한다(데이터는 공유되지 않는다).
+
+## 미리보기
+
+> 아래는 레이아웃을 보여주는 **와이어프레임 목업**입니다. 실제 스크린샷으로 교체하려면 `docs/images/`에 png를 넣고 해당 `src`를 바꾸세요.
+
+<!-- 실제 스크린샷으로 교체: docs/images/workspace-git.png -->
+<p align="center"><img src="docs/mockup-workspace-git.svg" alt="Workspace — Git 모드" width="100%"></p>
+
+<p align="center"><em>Workspace 디테일에서 <code>[Git]</code> 모드 — 변경/커밋/그래프/브랜치를 그 자리에서.</em></p>
+
+<!-- 실제 스크린샷으로 교체: docs/images/workspace-overview.png -->
+<p align="center"><img src="docs/mockup-workspace-overview.svg" alt="Workspace — 개요 모드" width="100%"></p>
+
+<p align="center"><em><code>[개요]</code> 모드 — 자동 회상 · 메모 · 트랙/할 일 · 계획 · 메모리 브라우저.</em></p>
 
 ## 빠른 시작 (Windows)
 
@@ -69,6 +94,12 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **저장** 시 현재본을 `.bak` 로 백업(20개 로테이션)한 뒤 원자적으로 교체한다. 파일이 외부에서 바뀌면 충돌(409)을 감지해 덮어쓰지 않는다.
 - 하단 **백업** 목록에서 이전 버전으로 **복원**한다.
 - **`.claude.json` 은 읽기 전용** 이다(Claude Code가 상시 재작성하므로 충돌을 막기 위함 — 수동 절차로만 수정).
+
+## 아키텍처
+
+<p align="center"><img src="docs/architecture.svg" alt="아키텍처 다이어그램" width="100%"></p>
+
+renderer는 실제 경로를 모른 채 요청(또는 projectId)만 보내고, main의 경량 `router`가 받아 services/lib로 위임한다. 모든 변경은 안전 모델(path-guard · lock · safe-write · archive · git repo-guard)을 통과한다. 내부 구조·규약은 [CLAUDE.md](CLAUDE.md) 참조.
 
 ## 안전장치
 

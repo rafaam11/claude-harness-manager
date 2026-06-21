@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Workspace 개요 모드 (와이어프레임 목업)">
+  <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── nav ── -->
+  <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
+  <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
+  <text x="20" y="78" font-size="12.5" fill="#9aa3b2">Timeline</text>
+  <rect x="0" y="92" width="151" height="28" fill="#222834"/>
+  <rect x="0" y="92" width="3" height="28" fill="#e8825f"/>
+  <text x="20" y="111" font-size="12.5" fill="#f3f5f9">Workspace</text>
+  <text x="20" y="146" font-size="12.5" fill="#9aa3b2">Catalog</text>
+  <text x="20" y="180" font-size="12.5" fill="#9aa3b2">Cleanup</text>
+  <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+
+  <!-- ── page title ── -->
+  <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">Workspace</text>
+
+  <!-- ── master list ── -->
+  <rect x="170" y="56" width="180" height="50" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="184" y="80" font-size="12.5" font-weight="600" fill="#f3f5f9">my-app</text>
+  <text x="184" y="97" font-size="10.5" fill="#9aa3b2">2시간 전 · ✓ 3/5</text>
+  <rect x="170" y="114" width="180" height="50" rx="8" fill="#222834" stroke="#e8825f"/>
+  <text x="184" y="138" font-size="12.5" font-weight="600" fill="#f3f5f9">harness-manager</text>
+  <text x="184" y="155" font-size="10.5" fill="#9aa3b2">방금 전 · 📄 2</text>
+  <rect x="170" y="172" width="180" height="50" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="184" y="196" font-size="12.5" font-weight="600" fill="#f3f5f9">agv-control</text>
+  <text x="184" y="213" font-size="10.5" fill="#9aa3b2">어제</text>
+  <rect x="170" y="230" width="180" height="32" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="184" y="250" font-size="11.5" fill="#9aa3b2">📋 미연결 계획  3</text>
+
+  <!-- ── detail panel ── -->
+  <rect x="366" y="56" width="578" height="528" rx="9" fill="#15191f" stroke="#313742"/>
+  <text x="386" y="86" font-size="15" font-weight="700" fill="#f3f5f9">harness-manager</text>
+  <rect x="556" y="70" width="50" height="20" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="581" y="84" font-size="10.5" fill="#9aa3b2" text-anchor="middle">⎇ dev</text>
+  <rect x="838" y="70" width="86" height="22" rx="6" fill="#1d3324"/>
+  <text x="881" y="85" font-size="10.5" fill="#5fb878" text-anchor="middle">진행중 ▾</text>
+
+  <!-- mode tabs -->
+  <text x="386" y="116" font-size="13" font-weight="700" fill="#e8825f">개요</text>
+  <rect x="384" y="124" width="38" height="2" fill="#e8825f"/>
+  <text x="440" y="116" font-size="13" fill="#9aa3b2">Git</text>
+  <line x1="386" y1="126" x2="924" y2="126" stroke="#313742"/>
+
+  <text x="386" y="146" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">D:\3_Hobby_ws\claude-harness-manager</text>
+
+  <!-- recall box -->
+  <rect x="386" y="158" width="538" height="84" rx="8" fill="#171b22" stroke="#313742"/>
+  <rect x="386" y="158" width="3" height="84" fill="#e8825f"/>
+  <text x="402" y="180" font-size="12" font-weight="600" fill="#f3f5f9">📌 Workspace Git 모드 흡수 + v0.4.0 배포</text>
+  <text x="402" y="202" font-size="11" fill="#9aa3b2"><tspan fill="#e8825f">마지막 입력</tspan>  README 에 그림이 좀 들어갔으면 좋겠는데…</text>
+  <text x="402" y="224" font-size="11" fill="#9aa3b2"><tspan fill="#e8825f">마지막 응답</tspan>  배너·배지·아키텍처 다이어그램 SVG를 만들었습니다…</text>
+
+  <!-- memo -->
+  <rect x="386" y="252" width="538" height="38" rx="6" fill="#0b0e12" stroke="#313742"/>
+  <text x="398" y="275" font-size="11" fill="#9aa3b2">어디까지 했나 / 다음 할 일… (메모)</text>
+
+  <!-- tracks -->
+  <text x="386" y="316" font-size="12" font-weight="700" fill="#f3f5f9">트랙 / 할 일</text>
+  <text x="386" y="340" font-size="12" fill="#f3f5f9">▾ git 흡수</text>
+  <rect x="470" y="332" width="60" height="5" rx="2.5" fill="#222834"/>
+  <rect x="470" y="332" width="44" height="5" rx="2.5" fill="#5fb878"/>
+  <text x="540" y="340" font-size="10.5" fill="#9aa3b2">2/3</text>
+  <text x="410" y="362" font-size="11" fill="#9aa3b2">☑ main 서비스 포팅</text>
+  <text x="410" y="380" font-size="11" fill="#9aa3b2">☑ Git 모드 UI</text>
+  <text x="410" y="398" font-size="11" fill="#9aa3b2">☐ 실시간 감시(후속)</text>
+  <text x="386" y="420" font-size="12" fill="#9aa3b2">▸ 문서</text>
+
+  <!-- plans -->
+  <line x1="386" y1="436" x2="924" y2="436" stroke="#313742"/>
+  <text x="386" y="458" font-size="12" font-weight="700" fill="#f3f5f9">Plans  2</text>
+  <text x="386" y="482" font-size="11.5" fill="#9aa3b2">▸ DT_GitManager 흡수 계획</text>
+  <rect x="600" y="471" width="48" height="16" rx="8" fill="#1d3324"/>
+  <text x="624" y="483" font-size="9.5" fill="#5fb878" text-anchor="middle">완료</text>
+
+  <!-- memory/files -->
+  <line x1="386" y1="500" x2="924" y2="500" stroke="#313742"/>
+  <text x="386" y="522" font-size="12" font-weight="700" fill="#f3f5f9">▸ 메모리 / 파일</text>
+
+  <text x="386" y="566" font-size="10.5" fill="#5a6675">개요 모드 — 자동 회상 · 메모 · 트랙/할 일 · 계획 · 메모리 브라우저 (와이어프레임)</text>
+</svg>

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="claude-harness-manager 아키텍처">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a6675"/>
+    </marker>
+  </defs>
+  <rect width="960" height="470" rx="14" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── top flow: renderer ↔ ipc ↔ main ── -->
+  <rect x="32" y="58" width="272" height="150" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="48" y="85" font-size="15" font-weight="700" fill="#f3f5f9">Renderer · React 18</text>
+  <text x="48" y="112" font-size="11.5" fill="#9aa3b2">탭: Timeline · Workspace ·</text>
+  <text x="48" y="130" font-size="11.5" fill="#9aa3b2">Catalog · Cleanup · Config</text>
+  <text x="48" y="156" font-size="11.5" fill="#9aa3b2">Workspace 내장 Git 모드</text>
+  <text x="48" y="188" font-size="11.5" fill="#9aa3b2">api/client · <tspan fill="#e8825f">get/put/post</tspan></text>
+
+  <rect x="344" y="58" width="248" height="150" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="360" y="85" font-size="15" font-weight="700" fill="#f3f5f9">preload · IPC</text>
+  <text x="360" y="112" font-size="11.5" fill="#9aa3b2">contextBridge →</text>
+  <text x="360" y="130" font-size="11.5" fill="#9aa3b2">window.api / window.app</text>
+  <text x="360" y="160" font-size="11.5" fill="#e8825f">단일 채널 api:invoke</text>
+  <text x="360" y="188" font-size="11.5" fill="#9aa3b2">ApiResult 봉투(statusCode 보존)</text>
+
+  <rect x="632" y="58" width="296" height="150" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="648" y="85" font-size="15" font-weight="700" fill="#f3f5f9">Main · Electron</text>
+  <text x="648" y="112" font-size="11.5" fill="#9aa3b2">router — 경량 라우트 테이블</text>
+  <text x="648" y="130" font-size="11.5" fill="#9aa3b2">services: catalog · recall · git…</text>
+  <text x="648" y="148" font-size="11.5" fill="#9aa3b2">lib: board · safe-write · archive…</text>
+  <text x="648" y="188" font-size="11.5" fill="#9aa3b2">시스템 <tspan fill="#e8825f">git CLI</tspan> 직접 호출</text>
+
+  <!-- request/response arrows -->
+  <line x1="304" y1="133" x2="344" y2="133" stroke="#5a6675" stroke-width="1.6" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <line x1="592" y1="133" x2="632" y2="133" stroke="#5a6675" stroke-width="1.6" marker-start="url(#arr)" marker-end="url(#arr)"/>
+
+  <!-- down to safety model -->
+  <line x1="780" y1="208" x2="780" y2="258" stroke="#5a6675" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#arr)"/>
+
+  <!-- ── safety model ── -->
+  <text x="32" y="246" font-size="13" font-weight="600" fill="#9aa3b2">안전 모델 — 모든 변경은 이 불변식을 통과한다</text>
+
+  <rect x="32" y="262" width="168" height="146" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="48" y="290" font-size="13" font-weight="700" fill="#f3f5f9">path-guard</text>
+  <text x="48" y="316" font-size="11.5" fill="#9aa3b2">경로 allowlist</text>
+  <text x="48" y="334" font-size="11.5" fill="#9aa3b2">(~/.claude)</text>
+  <text x="48" y="362" font-size="11.5" fill="#e8825f">위반 403</text>
+
+  <rect x="214" y="262" width="168" height="146" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="230" y="290" font-size="13" font-weight="700" fill="#f3f5f9">lock</text>
+  <text x="230" y="316" font-size="11.5" fill="#9aa3b2">쓰기 직렬화</text>
+  <text x="230" y="334" font-size="11.5" fill="#9aa3b2">in-process 뮤텍스</text>
+  <text x="230" y="362" font-size="11.5" fill="#9aa3b2">단일 인스턴스 락</text>
+
+  <rect x="396" y="262" width="168" height="146" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="412" y="290" font-size="13" font-weight="700" fill="#f3f5f9">safe-write</text>
+  <text x="412" y="316" font-size="11.5" fill="#9aa3b2">baseHash 대조</text>
+  <text x="412" y="334" font-size="11.5" fill="#e8825f">충돌 409</text>
+  <text x="412" y="362" font-size="11.5" fill="#9aa3b2">.bak · atomic rename</text>
+
+  <rect x="578" y="262" width="168" height="146" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="594" y="290" font-size="13" font-weight="700" fill="#f3f5f9">archive</text>
+  <text x="594" y="316" font-size="11.5" fill="#9aa3b2">삭제 없음</text>
+  <text x="594" y="334" font-size="11.5" fill="#9aa3b2">이동 + manifest</text>
+  <text x="594" y="362" font-size="11.5" fill="#9aa3b2">단건 복구</text>
+
+  <rect x="760" y="262" width="168" height="146" rx="10" fill="#1c2230" stroke="#313742"/>
+  <text x="776" y="290" font-size="13" font-weight="700" fill="#f3f5f9">git repo-guard</text>
+  <text x="776" y="316" font-size="11.5" fill="#9aa3b2">rev-parse 검증</text>
+  <text x="776" y="334" font-size="11.5" fill="#9aa3b2">toplevel 경로만</text>
+  <text x="776" y="362" font-size="11.5" fill="#9aa3b2">projectId로 해석</text>
+
+  <text x="32" y="440" font-size="11" fill="#5a6675">renderer는 경로를 모른 채 projectId만 전달 · main이 해석·검증 후 git CLI 실행</text>
+</svg>

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 200" width="920" height="200" role="img" aria-label="Claude Harness Manager">
+  <defs>
+    <linearGradient id="chm-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171b22"/>
+      <stop offset="1" stop-color="#0f1318"/>
+    </linearGradient>
+    <linearGradient id="chm-logobg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2a28"/>
+      <stop offset="1" stop-color="#1a1a19"/>
+    </linearGradient>
+  </defs>
+  <rect width="920" height="200" rx="18" fill="url(#chm-bg)"/>
+  <rect x="0.5" y="0.5" width="919" height="199" rx="17.5" fill="none" stroke="#313742"/>
+
+  <!-- logo (icon motif from scripts/generate-icon.mjs) -->
+  <g transform="translate(56,58) scale(3.5)">
+    <rect x="1.32" y="1.32" width="21.36" height="21.36" rx="5.4" fill="url(#chm-logobg)"/>
+    <g fill="none" stroke="#d97757" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="7.5,6.5 13.5,12 7.5,17.5"/>
+      <line x1="13.5" y1="17.5" x2="18.5" y2="17.5"/>
+    </g>
+  </g>
+
+  <!-- title + tagline -->
+  <text x="186" y="92" font-family="Segoe UI, system-ui, sans-serif" font-size="40" font-weight="700" fill="#f3f5f9">Claude Harness Manager</text>
+  <text x="188" y="125" font-family="Segoe UI, system-ui, sans-serif" font-size="18" fill="#9aa3b2">~/.claude 환경 조회·편집·정리  ·  프로젝트 Git 작업 — 로컬 전용 데스크톱 앱</text>
+
+  <!-- chips -->
+  <g font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="600">
+    <rect x="188" y="146" width="86" height="25" rx="12.5" fill="#1c2230" stroke="#313742"/>
+    <text x="231" y="163" fill="#e8825f" text-anchor="middle">Electron</text>
+    <rect x="282" y="146" width="82" height="25" rx="12.5" fill="#1c2230" stroke="#313742"/>
+    <text x="323" y="163" fill="#e8825f" text-anchor="middle">React 18</text>
+    <rect x="372" y="146" width="96" height="25" rx="12.5" fill="#1c2230" stroke="#313742"/>
+    <text x="420" y="163" fill="#e8825f" text-anchor="middle">로컬 전용</text>
+  </g>
+</svg>

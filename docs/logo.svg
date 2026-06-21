@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="120" height="120" role="img" aria-label="Claude Harness Manager logo">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2a28"/>
+      <stop offset="1" stop-color="#1a1a19"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.32" y="1.32" width="21.36" height="21.36" rx="5.4" fill="url(#lg)"/>
+  <g fill="none" stroke="#d97757" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="7.5,6.5 13.5,12 7.5,17.5"/>
+    <line x1="13.5" y1="17.5" x2="18.5" y2="17.5"/>
+  </g>
+</svg>

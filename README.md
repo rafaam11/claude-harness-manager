@@ -22,14 +22,10 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 ## 미리보기
 
-> 아래는 레이아웃을 보여주는 **와이어프레임 목업**입니다. 실제 스크린샷으로 교체하려면 `docs/images/`에 png를 넣고 해당 `src`를 바꾸세요.
-
-<!-- 실제 스크린샷으로 교체: docs/images/workspace-git.png -->
 <p align="center"><img src="docs/mockup-workspace-git.svg" alt="Workspace — Git 모드" width="100%"></p>
 
 <p align="center"><em>Workspace 디테일에서 <code>[Git]</code> 모드 — 변경/커밋/그래프/브랜치를 그 자리에서.</em></p>
 
-<!-- 실제 스크린샷으로 교체: docs/images/workspace-overview.png -->
 <p align="center"><img src="docs/mockup-workspace-overview.svg" alt="Workspace — 개요 모드" width="100%"></p>
 
 <p align="center"><em><code>[개요]</code> 모드 — 자동 회상 · 메모 · 트랙/할 일 · 계획 · 메모리 브라우저.</em></p>

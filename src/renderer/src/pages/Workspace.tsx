@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
-import { api, fmtDate, fmtRelative } from "../api/client";
+import { api, fmtDate, fmtRelative, fmtSize } from "../api/client";
 import {
   STATUSES,
   buildProjNameMap,
@@ -12,61 +12,71 @@ import {
   type WorkspaceProject,
 } from "./workspace-shared";
 
-const SUBS = {
-  projects: "Projects",
-  plans: "Plans",
-} as const;
-type SubKey = keyof typeof SUBS;
+// 왼쪽 마스터 목록의 '미연결 계획' 가상 항목 식별자(프로젝트 id와 충돌 안 나는 센티넬)
+const UNASSIGNED = "__unassigned__";
 
-function StatusTag({ s }: { s: BoardStatus }) {
-  return <span className={`tag st-${STATUSES.indexOf(s)}`}>{s}</span>;
-}
-
-export default function Workspace() {
-  const [sub, setSub] = useState<SubKey>("projects");
-  return (
-    <div>
-      <h2>Workspace</h2>
-      <div className="ws-subtabs">
-        {(Object.keys(SUBS) as SubKey[]).map((k) => (
-          <button
-            key={k}
-            className={`ws-subtab${sub === k ? " active" : ""}`}
-            onClick={() => setSub(k)}
-          >
-            {SUBS[k]}
-          </button>
-        ))}
-      </div>
-      {sub === "projects" && <ProjectsView />}
-      {sub === "plans" && <PlansView />}
-    </div>
-  );
-}
-
-// ============================ Projects ============================
 type ProjectPatch = {
   status?: BoardStatus;
   memo?: string;
   nameOverride?: string | null;
   tracks?: ProjectTrack[];
 };
+type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: string | null };
 
-function ProjectsView() {
+function StatusTag({ s }: { s: BoardStatus }) {
+  return <span className={`tag st-${STATUSES.indexOf(s)}`}>{s}</span>;
+}
+
+// ============================ 루트: 좌우 2단 마스터-디테일 ============================
+export default function Workspace() {
   const [projects, setProjects] = useState<WorkspaceProject[] | null>(null);
+  const [plans, setPlans] = useState<EnrichedPlan[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const load = () =>
+  const loadProjects = () =>
     api
       .get<WorkspaceProject[]>("/api/workspace/projects")
       .then(setProjects)
       .catch((e) => setError(e.message));
+  // 보관 계획도 항상 흐리게 함께 보여주므로 archived=1로 한 번에 가져온다.
+  const loadPlans = () =>
+    api
+      .get<EnrichedPlan[]>("/api/workspace/plans?archived=1")
+      .then(setPlans)
+      .catch((e) => setError(e.message));
   useEffect(() => {
-    load();
+    loadProjects();
+    loadPlans();
   }, []);
 
-  async function patch(id: string, body: ProjectPatch) {
-    // 낙관적 업데이트. body의 nameOverride는 해제용 null을 쓰므로 board(string)에는 ""로 정규화.
+  // 최근 활동순 정렬(회상 대시보드 목적)
+  const sorted = useMemo(
+    () => (projects ? [...projects].sort((a, b) => b.lastActivity - a.lastActivity) : []),
+    [projects],
+  );
+
+  // 계획을 projectId(override ?? guessed)로 그룹핑. null이면 미연결.
+  const plansByProject = useMemo(() => {
+    const m = new Map<string, EnrichedPlan[]>();
+    for (const pl of plans ?? []) {
+      const key = pl.projectId ?? UNASSIGNED;
+      const arr = m.get(key);
+      if (arr) arr.push(pl);
+      else m.set(key, [pl]);
+    }
+    return m;
+  }, [plans]);
+
+  const projName = useMemo(() => buildProjNameMap(sorted), [sorted]);
+
+  // 기본 선택: 정렬 후 첫(가장 최근) 프로젝트
+  useEffect(() => {
+    if (selectedId === null && sorted.length) setSelectedId(sorted[0].id);
+  }, [sorted, selectedId]);
+
+  async function patchProject(id: string, body: ProjectPatch) {
+    // 낙관적 업데이트. nameOverride는 해제용 null을 쓰므로 board(string)에는 ""로 정규화.
     const boardPatch: Partial<WorkspaceProject["board"]> = {};
     if (body.status !== undefined) boardPatch.status = body.status;
     if (body.memo !== undefined) boardPatch.memo = body.memo;
@@ -81,7 +91,19 @@ function ProjectsView() {
       await api.post(`/api/workspace/board/project/${encodeURIComponent(id)}`, body);
     } catch (e) {
       setError((e as Error).message);
-      load(); // 실패 시 서버 상태로 재동기화
+      loadProjects(); // 실패 시 서버 상태로 재동기화
+    }
+  }
+
+  async function patchPlan(filename: string, body: PlanPatch) {
+    setPlans((prev) =>
+      prev ? prev.map((p) => (p.filename === filename ? applyPlanPatch(p, body) : p)) : prev,
+    );
+    try {
+      await api.post(`/api/workspace/board/plan/${encodeURIComponent(filename)}`, body);
+    } catch (e) {
+      setError((e as Error).message);
+      loadPlans();
     }
   }
 
@@ -95,25 +117,126 @@ function ProjectsView() {
   }
 
   if (error) return <div className="banner err">{error}</div>;
-  if (!projects) return <div className="muted">불러오는 중…</div>;
-  if (projects.length === 0) return <div className="muted">프로젝트 기록이 없습니다.</div>;
+  if (!projects || !plans) return <div className="muted">불러오는 중…</div>;
+
+  const unassigned = plansByProject.get(UNASSIGNED) ?? [];
+  const selectedProject =
+    selectedId && selectedId !== UNASSIGNED ? sorted.find((p) => p.id === selectedId) ?? null : null;
 
   return (
-    <div className="ws-list">
-      {projects.map((p) => (
-        <ProjectCard key={p.id} p={p} onPatch={patch} onOpenFolder={openFolder} />
-      ))}
+    <div>
+      <h2>Workspace</h2>
+      {projects.length === 0 && unassigned.length === 0 ? (
+        <div className="muted">프로젝트 기록이 없습니다.</div>
+      ) : (
+        <div className="ws-split">
+          <div className="ws-master">
+            {sorted.map((p) => (
+              <ProjectMasterCard
+                key={p.id}
+                p={p}
+                planCount={(plansByProject.get(p.id) ?? []).length}
+                active={selectedId === p.id}
+                onSelect={() => setSelectedId(p.id)}
+              />
+            ))}
+            <button
+              className={`ws-master-item unassigned${selectedId === UNASSIGNED ? " active" : ""}`}
+              onClick={() => setSelectedId(UNASSIGNED)}
+            >
+              📋 미연결 계획 <span className="cat-count">{unassigned.length}</span>
+            </button>
+          </div>
+
+          <div className="ws-detail">
+            {selectedId === UNASSIGNED ? (
+              <UnassignedDetail
+                plans={unassigned}
+                projects={sorted}
+                projName={projName}
+                onPatchPlan={patchPlan}
+              />
+            ) : selectedProject ? (
+              <ProjectDetail
+                key={selectedProject.id}
+                p={selectedProject}
+                plans={plansByProject.get(selectedProject.id) ?? []}
+                projects={sorted}
+                projName={projName}
+                onPatch={patchProject}
+                onPatchPlan={patchPlan}
+                onOpenFolder={openFolder}
+              />
+            ) : (
+              <div className="muted">왼쪽에서 프로젝트를 선택하세요.</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ProjectCard({
+function applyPlanPatch(p: EnrichedPlan, body: PlanPatch): EnrichedPlan {
+  const next = { ...p };
+  if (body.status) next.status = body.status;
+  if (body.memo !== undefined) next.memo = body.memo;
+  if (body.projectOverride !== undefined) {
+    next.projectOverride = body.projectOverride || null;
+    next.projectId = next.projectOverride ?? p.guessedProjectId;
+  }
+  return next;
+}
+
+// ============================ 왼쪽 마스터: 프로젝트 컴팩트 카드 ============================
+function ProjectMasterCard({
   p,
+  planCount,
+  active,
+  onSelect,
+}: {
+  p: WorkspaceProject;
+  planCount: number;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
+  const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+  return (
+    <button className={`ws-master-item${active ? " active" : ""}`} onClick={onSelect}>
+      <div className="ws-mi-head">
+        <span className="ws-mi-name">{displayName(p)}</span>
+        {p.board.status && <StatusTag s={p.board.status} />}
+      </div>
+      <div className="ws-mi-meta">
+        <span>{fmtRelative(p.lastActivity)}</span>
+        {totalTodos > 0 && (
+          <span>
+            ✓ {doneTodos}/{totalTodos}
+          </span>
+        )}
+        {planCount > 0 && <span>📄 {planCount}</span>}
+      </div>
+    </button>
+  );
+}
+
+// ============================ 오른쪽 디테일: 프로젝트 상세 ============================
+function ProjectDetail({
+  p,
+  plans,
+  projects,
+  projName,
   onPatch,
+  onPatchPlan,
   onOpenFolder,
 }: {
   p: WorkspaceProject;
+  plans: EnrichedPlan[];
+  projects: WorkspaceProject[];
+  projName: Map<string, string>;
   onPatch: (id: string, body: ProjectPatch) => void;
+  onPatchPlan: (filename: string, body: PlanPatch) => void;
   onOpenFolder: (realPath: string) => void;
 }) {
   const r = p.recall;
@@ -130,12 +253,8 @@ function ProjectCard({
     onPatch(p.id, { nameOverride: nameDraft.trim() || null });
   };
 
-  const [tracksOpen, setTracksOpen] = useState(false);
-  const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
-  const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
-
   return (
-    <div className="ws-card">
+    <div className="ws-detail-inner">
       <div className="ws-card-head">
         {editingName ? (
           <>
@@ -179,9 +298,7 @@ function ProjectCard({
         <select
           className="ws-select"
           value={p.board.status ?? ""}
-          onChange={(e) =>
-            onPatch(p.id, { status: (e.target.value || "진행중") as BoardStatus })
-          }
+          onChange={(e) => onPatch(p.id, { status: (e.target.value || "진행중") as BoardStatus })}
         >
           <option value="">상태 없음</option>
           {STATUSES.map((s) => (
@@ -197,13 +314,19 @@ function ProjectCard({
         <div className="ws-recall">
           {r.aiTitle && <div className="ws-aititle">📌 {r.aiTitle}</div>}
           {r.lastPrompt && (
-            <div className="ws-line">
+            <div className="ws-line ws-line-full">
               <span className="ws-line-k">마지막 입력</span> {r.lastPrompt}
             </div>
           )}
           {r.lastAssistantSnippet && (
             <div className="ws-line">
-              <span className="ws-line-k">마지막 응답</span> {r.lastAssistantSnippet}
+              <span className="ws-line-k">마지막 응답</span>
+              <div
+                className="md-body ws-snippet-md"
+                dangerouslySetInnerHTML={{
+                  __html: marked.parse(r.lastAssistantSnippet, { breaks: true }) as string,
+                }}
+              />
             </div>
           )}
         </div>
@@ -225,20 +348,262 @@ function ProjectCard({
         onSave={(memo) => onPatch(p.id, { memo })}
       />
 
-      <button
-        className="ws-link"
-        onClick={() => setTracksOpen(!tracksOpen)}
-        title="작업 갈래별 할 일 체크리스트"
-      >
-        {tracksOpen
-          ? "트랙 닫기 ▴"
-          : `트랙 / 할 일${totalTodos ? ` (${doneTodos}/${totalTodos})` : ""} ▾`}
+      <TrackEditor tracks={p.board.tracks} onSave={(tracks) => onPatch(p.id, { tracks })} />
+
+      <div className="ws-plans-head">
+        Plans <span className="cat-count">{plans.length}</span>
+      </div>
+      {plans.length === 0 ? (
+        <div className="muted">연결된 계획이 없습니다.</div>
+      ) : (
+        plans.map((pl) => (
+          <PlanRow
+            key={pl.filename}
+            p={pl}
+            projects={projects}
+            projName={projName}
+            onPatch={onPatchPlan}
+          />
+        ))
+      )}
+
+      <MemorySection projectId={p.id} />
+    </div>
+  );
+}
+
+// ============================ 메모리 / 파일 브라우저(프로젝트 디렉토리) ============================
+interface FileInfo {
+  path: string;
+  size: number;
+  mtime: number;
+}
+// 경로에 memory 폴더가 포함된 파일(Windows/POSIX 구분자 모두)
+const MEMORY_RE = /(^|[\\/])memory[\\/]/;
+
+function MemorySection({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<FileInfo[] | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [content, setContent] = useState<{ path: string; text: string; truncated: boolean } | null>(
+    null,
+  );
+  const [error, setError] = useState("");
+
+  async function toggleOpen() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (files === null) {
+      try {
+        setFiles(
+          await api.get<FileInfo[]>(`/api/projects/${encodeURIComponent(projectId)}/files`),
+        );
+      } catch (e) {
+        setError((e as Error).message);
+        setFiles([]);
+      }
+    }
+  }
+
+  async function openFile(rel: string) {
+    try {
+      const d = await api.get<{ content: string; truncated: boolean }>(
+        `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(rel)}`,
+      );
+      setContent({ path: rel, text: d.content, truncated: d.truncated });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const memoryCount = files ? files.filter((f) => MEMORY_RE.test(f.path)).length : 0;
+  const base = files ? (showAll ? files : files.filter((f) => MEMORY_RE.test(f.path))) : [];
+  const shown = [...base].sort((a, b) => b.mtime - a.mtime); // 최신순
+
+  return (
+    <>
+      <button className="ws-section-toggle" onClick={toggleOpen}>
+        <span className="ws-plan-caret">{open ? "▾" : "▸"}</span>
+        메모리 / 파일
+        {files && <span className="cat-count">{showAll ? files.length : memoryCount}</span>}
       </button>
-      {tracksOpen && (
-        <TrackEditor
-          tracks={p.board.tracks}
-          onSave={(tracks) => onPatch(p.id, { tracks })}
-        />
+      {open && (
+        <div className="ws-files">
+          {error && <div className="banner err">{error}</div>}
+          <label className="ws-toggle">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+            />
+            전체 파일 보기 (트랜스크립트 포함)
+          </label>
+          {files === null ? (
+            <div className="muted">불러오는 중…</div>
+          ) : shown.length === 0 ? (
+            <div className="muted">
+              {showAll ? "파일이 없습니다." : "memory 파일이 없습니다. '전체 파일 보기'를 켜보세요."}
+            </div>
+          ) : (
+            <div className="ws-files-list">
+              {shown.map((f) => (
+                <button
+                  key={f.path}
+                  className="ws-file-row"
+                  onClick={() => openFile(f.path)}
+                  title={f.path}
+                >
+                  <span className="ws-file-path mono">{f.path}</span>
+                  <span className="ws-file-meta muted">
+                    {fmtSize(f.size)} · {fmtDate(f.mtime)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {content && (
+            <div className="ws-file-content">
+              <div className="ws-file-content-head mono">
+                <span className="ws-file-path">{content.path}</span>
+                {content.truncated && <span className="tag warn">앞부분만</span>}
+                <button className="ws-icon-btn" onClick={() => setContent(null)} title="닫기">
+                  ✕
+                </button>
+              </div>
+              <pre className="viewer">{content.text}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================ 오른쪽 디테일: 미연결 계획 ============================
+function UnassignedDetail({
+  plans,
+  projects,
+  projName,
+  onPatchPlan,
+}: {
+  plans: EnrichedPlan[];
+  projects: WorkspaceProject[];
+  projName: Map<string, string>;
+  onPatchPlan: (filename: string, body: PlanPatch) => void;
+}) {
+  return (
+    <div className="ws-detail-inner">
+      <div className="ws-plans-head no-top">
+        📋 미연결 계획 <span className="cat-count">{plans.length}</span>
+      </div>
+      <p className="ws-track-hint">
+        어떤 프로젝트와도 자동 연결되지 않은 계획입니다. 각 계획의 드롭다운으로 프로젝트에 연결하세요.
+      </p>
+      {plans.length === 0 ? (
+        <div className="muted">미연결 계획이 없습니다.</div>
+      ) : (
+        plans.map((pl) => (
+          <PlanRow
+            key={pl.filename}
+            p={pl}
+            projects={projects}
+            projName={projName}
+            onPatch={onPatchPlan}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+// ============================ 계획 행(컴팩트 + 클릭 펼침) ============================
+function PlanRow({
+  p,
+  projects,
+  projName,
+  onPatch,
+}: {
+  p: EnrichedPlan;
+  projects: WorkspaceProject[];
+  projName: Map<string, string>;
+  onPatch: (filename: string, body: PlanPatch) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState<string | null>(null);
+  const guessedName = p.guessedProjectId
+    ? projName.get(p.guessedProjectId) ?? p.guessedProjectId
+    : "없음";
+
+  async function toggleBody() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (body === null) {
+      try {
+        const c = await api.get<{ raw: string }>(
+          `/api/workspace/plan/content?filename=${encodeURIComponent(p.filename)}&archived=${
+            p.archived ? 1 : 0
+          }`,
+        );
+        setBody(c.raw);
+      } catch {
+        setBody("(본문을 불러오지 못했습니다)");
+      }
+    }
+  }
+
+  return (
+    <div className={`ws-plan-row${p.archived ? " archived" : ""}`}>
+      <button className="ws-plan-row-head" onClick={toggleBody}>
+        <span className="ws-plan-caret">{open ? "▾" : "▸"}</span>
+        {p.archived && <span className="t-tag">📦</span>}
+        <span className="ws-plan-title">{p.title}</span>
+        <StatusTag s={p.archived ? "보관" : p.status} />
+        <span className="ws-plan-date">{fmtDate(p.mtime)}</span>
+      </button>
+      {open && (
+        <div className="ws-plan-body-wrap">
+          <div className="ws-plan-controls">
+            <select
+              className="ws-select grow"
+              value={p.projectOverride ?? ""}
+              onChange={(e) => onPatch(p.filename, { projectOverride: e.target.value || null })}
+              title="연결된 프로젝트 (수동 지정)"
+            >
+              <option value="">자동: {guessedName}</option>
+              {projects.map((pr) => (
+                <option key={pr.id} value={pr.id}>
+                  {displayName(pr)}
+                </option>
+              ))}
+            </select>
+            {!p.archived && (
+              <select
+                className="ws-select"
+                value={p.status}
+                onChange={(e) => onPatch(p.filename, { status: e.target.value as BoardStatus })}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <MemoBox value={p.memo} placeholder="메모…" onSave={(memo) => onPatch(p.filename, { memo })} />
+          <div
+            className="md-body ws-planbody"
+            dangerouslySetInnerHTML={{
+              __html: marked.parse(body ?? "불러오는 중…") as string,
+            }}
+          />
+        </div>
       )}
     </div>
   );
@@ -290,7 +655,7 @@ function TrackEditor({
     setDraft(tracks);
   }, [tracks]);
 
-  // 언마운트(트랙 패널 접기 등) 시 미저장 텍스트 flush
+  // 언마운트(프로젝트 전환 등) 시 미저장 텍스트 flush
   useEffect(
     () => () => {
       if (saveTimer.current) {
@@ -357,7 +722,7 @@ function TrackEditor({
       {draft.length === 0 && (
         <p className="ws-track-hint">
           트랙 = 이 프로젝트의 작업 갈래(예: 백엔드 / 리팩터). 갈래별로 할 일을 묶어요. 가벼운 진행
-          메모는 위 메모 칸, 긴 설계는 Plans를 쓰세요.
+          메모는 위 메모 칸, 긴 설계는 아래 Plans를 쓰세요.
         </p>
       )}
       <div className="ws-track-foot">
@@ -464,195 +829,6 @@ function TrackRow({
             + 할 일 추가
           </button>
         </div>
-      )}
-    </div>
-  );
-}
-
-// ============================ Plans (칸반) ============================
-function PlansView() {
-  const [plans, setPlans] = useState<EnrichedPlan[] | null>(null);
-  const [projects, setProjects] = useState<WorkspaceProject[]>([]);
-  const [includeArchived, setIncludeArchived] = useState(false);
-  const [error, setError] = useState("");
-
-  const load = (arch: boolean) => {
-    api
-      .get<EnrichedPlan[]>(`/api/workspace/plans?archived=${arch ? 1 : 0}`)
-      .then(setPlans)
-      .catch((e) => setError(e.message));
-  };
-  useEffect(() => {
-    load(includeArchived);
-  }, [includeArchived]);
-  useEffect(() => {
-    api
-      .get<WorkspaceProject[]>("/api/workspace/projects")
-      .then(setProjects)
-      .catch(() => {});
-  }, []);
-
-  const projName = useMemo(() => buildProjNameMap(projects), [projects]);
-
-  async function patch(
-    filename: string,
-    body: { status?: BoardStatus; memo?: string; projectOverride?: string | null },
-  ) {
-    setPlans((prev) =>
-      prev ? prev.map((p) => (p.filename === filename ? applyPlanPatch(p, body) : p)) : prev,
-    );
-    try {
-      await api.post(`/api/workspace/board/plan/${encodeURIComponent(filename)}`, body);
-    } catch (e) {
-      setError((e as Error).message);
-      load(includeArchived);
-    }
-  }
-
-  function applyPlanPatch(p: EnrichedPlan, body: Parameters<typeof patch>[1]): EnrichedPlan {
-    const next = { ...p };
-    if (body.status) next.status = body.status;
-    if (body.memo !== undefined) next.memo = body.memo;
-    if (body.projectOverride !== undefined) {
-      next.projectOverride = body.projectOverride || null;
-      next.projectId = next.projectOverride ?? p.guessedProjectId;
-    }
-    return next;
-  }
-
-  if (error) return <div className="banner err">{error}</div>;
-  if (!plans) return <div className="muted">불러오는 중…</div>;
-
-  // 컬럼 = 파일이 _archive면 항상 "보관", 아니면 board 상태
-  const col = (p: EnrichedPlan): BoardStatus => (p.archived ? "보관" : p.status);
-
-  return (
-    <div>
-      <label className="ws-toggle">
-        <input
-          type="checkbox"
-          checked={includeArchived}
-          onChange={(e) => setIncludeArchived(e.target.checked)}
-        />
-        보관된 계획 포함
-      </label>
-      <div className="kanban">
-        {STATUSES.map((st) => {
-          const items = plans.filter((p) => col(p) === st);
-          return (
-            <div className="kanban-col" key={st}>
-              <h4>
-                <StatusTag s={st} /> <span className="cat-count">{items.length}</span>
-              </h4>
-              {items.map((p) => (
-                <PlanCard
-                  key={p.filename}
-                  p={p}
-                  projects={projects}
-                  projName={projName}
-                  onPatch={patch}
-                />
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PlanCard({
-  p,
-  projects,
-  projName,
-  onPatch,
-}: {
-  p: EnrichedPlan;
-  projects: WorkspaceProject[];
-  projName: Map<string, string>;
-  onPatch: (
-    filename: string,
-    body: { status?: BoardStatus; memo?: string; projectOverride?: string | null },
-  ) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [body, setBody] = useState<string | null>(null);
-  const guessedName = p.guessedProjectId
-    ? projName.get(p.guessedProjectId) ?? p.guessedProjectId
-    : "없음";
-
-  async function toggleBody() {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    if (body === null) {
-      try {
-        const c = await api.get<{ raw: string }>(
-          `/api/workspace/plan/content?filename=${encodeURIComponent(p.filename)}&archived=${
-            p.archived ? 1 : 0
-          }`,
-        );
-        setBody(c.raw);
-      } catch {
-        setBody("(본문을 불러오지 못했습니다)");
-      }
-    }
-  }
-
-  return (
-    <div className="kanban-card">
-      <div className="kanban-card-title">
-        {p.archived && <span className="t-tag">📦</span>} {p.title}
-      </div>
-      <div className="kanban-card-meta">{fmtDate(p.mtime)}</div>
-
-      <div className="kanban-card-row">
-        <select
-          className="ws-select grow"
-          value={p.projectOverride ?? ""}
-          onChange={(e) => onPatch(p.filename, { projectOverride: e.target.value || null })}
-          title="연결된 프로젝트 (수동 지정)"
-        >
-          <option value="">자동: {guessedName}</option>
-          {projects.map((pr) => (
-            <option key={pr.id} value={pr.id}>
-              {displayName(pr)}
-            </option>
-          ))}
-        </select>
-        {!p.archived && (
-          <select
-            className="ws-select"
-            value={p.status}
-            onChange={(e) => onPatch(p.filename, { status: e.target.value as BoardStatus })}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      <MemoBox
-        value={p.memo}
-        placeholder="메모…"
-        onSave={(memo) => onPatch(p.filename, { memo })}
-      />
-
-      <button className="ws-link" onClick={toggleBody}>
-        {open ? "본문 닫기 ▴" : "본문 보기 ▾"}
-      </button>
-      {open && (
-        <div
-          className="md-body ws-planbody"
-          dangerouslySetInnerHTML={{
-            __html: marked.parse(body ?? "불러오는 중…") as string,
-          }}
-        />
       )}
     </div>
   );

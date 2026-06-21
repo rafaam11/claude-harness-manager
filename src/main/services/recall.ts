@@ -16,7 +16,8 @@ import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 
-const SNIPPET_MAX = 280;
+const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
+const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
 
 /** "마지막으로 뭐 했는지" — 한 세션 transcript에서 뽑은 회상 정보 */
 export interface SessionRecall {
@@ -58,6 +59,10 @@ export interface TimelineEvent {
   filename?: string;
   sessionId?: string; // 세션 이벤트에만. 상태 드롭다운 저장 키.
   status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
+  // 행 클릭 펼침용 내용. 세션은 스니펫(이미 recall 보유), 계획은 본문을 프론트에서 lazy-fetch.
+  lastPrompt?: string | null; // 세션
+  lastAssistantSnippet?: string | null; // 세션
+  archived?: boolean; // 계획: 본문 fetch 시 archived 파라미터
 }
 
 export interface WorkspaceProject extends ProjectRecall {
@@ -192,10 +197,10 @@ async function fullScan(p: string, acc: RecallAcc) {
   for await (const line of rl) applyLine(line, acc);
 }
 
-function trunc(s: string | null): string | null {
+function trunc(s: string | null, max: number): string | null {
   if (!s) return s;
   const t = s.trim();
-  return t.length > SNIPPET_MAX ? t.slice(0, SNIPPET_MAX) + "…" : t;
+  return t.length > max ? t.slice(0, max) + "…" : t;
 }
 
 export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {
@@ -230,8 +235,8 @@ export async function readNewestSessionRecall(projectDir: string): Promise<Sessi
   return {
     sessionId: acc.sessionId,
     aiTitle: acc.aiTitle,
-    lastPrompt: trunc(acc.lastPrompt),
-    lastAssistantSnippet: trunc(acc.lastAssistantSnippet),
+    lastPrompt: trunc(acc.lastPrompt, PROMPT_MAX),
+    lastAssistantSnippet: trunc(acc.lastAssistantSnippet, ASSISTANT_MAX),
     cwd: acc.cwd,
     gitBranch: acc.gitBranch,
     transcriptPath: newest.path,
@@ -376,7 +381,9 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
       guessedProjectId,
       projectOverride: b.projectOverride ?? null,
       projectId: b.projectOverride ?? guessedProjectId,
-      status: b.status ?? "진행중",
+      // 수동 지정 우선. 없으면 보관 계획은 "보관", 그 외는 "완료"로 추정
+      // (대부분의 계획은 구현이 끝난 것이라, 진행중인 것만 수동으로 표시한다).
+      status: b.status ?? (p.archived ? "보관" : "완료"),
       memo: b.memo ?? "",
     };
   });
@@ -428,6 +435,8 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
         title: r.recall.aiTitle ?? r.recall.lastPrompt ?? "(제목 없음)",
         sessionId: sid ?? undefined,
         status,
+        lastPrompt: r.recall.lastPrompt,
+        lastAssistantSnippet: r.recall.lastAssistantSnippet,
       });
     }
   }
@@ -440,6 +449,7 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       title: p.title,
       filename: p.filename,
       status: p.status,
+      archived: p.archived,
     });
   }
   return events.sort((a, b) => b.ts - a.ts);

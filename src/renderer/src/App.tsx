@@ -3,7 +3,6 @@ import { api } from "./api/client";
 import Timeline from "./pages/Timeline";
 import Workspace from "./pages/Workspace";
 import Catalog from "./pages/Catalog";
-import Memory from "./pages/Memory";
 import Cleanup from "./pages/Cleanup";
 import ConfigEditor from "./pages/ConfigEditor";
 import UpdateBadge from "./components/UpdateBadge";
@@ -12,7 +11,6 @@ const PAGES = {
   timeline: { label: "Timeline", el: <Timeline /> },
   workspace: { label: "Workspace", el: <Workspace /> },
   catalog: { label: "Catalog", el: <Catalog /> },
-  memory: { label: "Memory", el: <Memory /> },
   cleanup: { label: "Cleanup", el: <Cleanup /> },
   configs: { label: "Config Editor", el: <ConfigEditor /> },
 } as const;

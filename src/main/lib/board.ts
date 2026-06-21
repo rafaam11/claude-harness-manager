@@ -37,6 +37,8 @@ export interface ProjectBoardEntry {
   memo?: string;
   nameOverride?: string;
   tracks?: ProjectTrack[];
+  /** Git 작업 대상 저장소의 실제 경로(자동 해석이 부정확할 때 사용자가 폴더 선택으로 교정). */
+  repoPath?: string;
 }
 /** Timeline 세션 이벤트의 수동 레이어. sessionId(uuid)를 키로 한 flat 맵에 담는다. */
 export interface SessionBoardEntry {
@@ -101,6 +103,7 @@ function sanitize(parsed: unknown): BoardData {
     }
     if (kind === "project") {
       if (typeof r.nameOverride === "string" && r.nameOverride) e.nameOverride = r.nameOverride;
+      if (typeof r.repoPath === "string" && r.repoPath) e.repoPath = r.repoPath;
       const tracks = sanitizeTracks(r.tracks);
       if (tracks.length) e.tracks = tracks;
     }
@@ -216,6 +219,7 @@ export async function setProjectField(
     memo?: string;
     nameOverride?: string | null;
     tracks?: ProjectTrack[];
+    repoPath?: string | null;
   },
 ): Promise<BoardData> {
   return withLock(async () => {
@@ -233,6 +237,11 @@ export async function setProjectField(
       // null/"" 이면 override 해제(기본 이름으로 복귀)
       if (patch.nameOverride) entry.nameOverride = patch.nameOverride;
       else delete entry.nameOverride;
+    }
+    if (patch.repoPath !== undefined) {
+      // null/"" 이면 override 해제(자동 해석으로 복귀)
+      if (patch.repoPath) entry.repoPath = patch.repoPath;
+      else delete entry.repoPath;
     }
     if (patch.tracks !== undefined) {
       // 전체 교체. 빈 배열이면 키 제거(빈 엔트리는 pruneIfEmpty가 정리)

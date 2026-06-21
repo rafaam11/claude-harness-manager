@@ -68,7 +68,7 @@ export default function App() {
         ))}
         <UpdateBadge />
       </nav>
-      <main>
+      <main className={page === "workspace" ? "page-wide" : undefined}>
         {ccRunning && (
           <div className="banner warn">
             Claude Code 세션이 실행 중입니다 — 설정 저장·정리 실행 시 충돌에 주의하세요.

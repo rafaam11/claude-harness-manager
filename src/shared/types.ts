@@ -1,5 +1,8 @@
 // renderer ↔ main IPC 계약. preload와 renderer가 함께 import한다(@shared).
 
+// DT_GitManager에서 흡수한 git 도메인 타입(요청은 projectId 기반). 분량이 커서 별도 파일로 분리.
+export * from "./git-types.js";
+
 export type ApiMethod = "GET" | "PUT" | "POST";
 
 /** renderer → main 요청. url은 기존 fetch 경로 문자열을 그대로 싣는다(예: "/api/workspace/plans?archived=1"). */
@@ -22,6 +25,7 @@ export const IpcChannels = {
   appGetVersion: "app:get-version",
   appOpenReleases: "app:open-releases",
   appOpenPath: "app:open-path",
+  appPickDirectory: "app:pick-directory",
 } as const;
 
 export interface RendererApi {
@@ -35,4 +39,6 @@ export interface AppApi {
   openReleases: () => Promise<void>;
   /** 폴더 경로를 OS 파일 탐색기로 연다. 실패 시 에러 메시지, 성공 시 빈 문자열(shell.openPath 반환). */
   openPath: (target: string) => Promise<string>;
+  /** 폴더 선택 dialog를 연다(Git repo 경로 수동 교정용). 취소 시 null. */
+  pickDirectory: () => Promise<string | null>;
 }

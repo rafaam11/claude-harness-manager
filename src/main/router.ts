@@ -11,7 +11,16 @@ import { getMcpServers } from "./services/mcp.js";
 import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
 import { readPlanContent } from "./services/plans.js";
 import { setPlanField, setProjectField, setSessionField, type ProjectTrack } from "./lib/board.js";
-import type { ApiMethod, ApiRequest } from "@shared/types";
+import * as git from "./services/git/index.js";
+import type {
+  ApiMethod,
+  ApiRequest,
+  CommitDiffRequest,
+  DiffRequest,
+  GitOpKind,
+  GraphActionRequest,
+  StatusEntryKind,
+} from "@shared/types";
 
 /**
  * 의도적 상태코드를 들고 던지는 에러. 기존 Fastify 라우트의 `reply.code(n).send({error})` 자리를
@@ -158,13 +167,14 @@ const routes: Route[] = [
     method: "POST",
     pattern: "/api/workspace/board/project/:id",
     handler: async ({ params, body }) => {
-      const { status, memo, nameOverride, tracks } = body as {
+      const { status, memo, nameOverride, tracks, repoPath } = body as {
         status?: string;
         memo?: string;
         nameOverride?: string | null;
         tracks?: ProjectTrack[];
+        repoPath?: string | null;
       };
-      return setProjectField(params.id, { status, memo, nameOverride, tracks });
+      return setProjectField(params.id, { status, memo, nameOverride, tracks, repoPath });
     },
   },
   {
@@ -221,7 +231,130 @@ const routes: Route[] = [
     },
   },
   { method: "GET", pattern: "/api/cleanup/manifest", handler: async () => listManifests() },
+
+  // --- git (DT_GitManager 흡수: 로컬 git 작업) ---
+  // 모든 라우트는 projectId만 받고 main(facade)에서 repoPath를 해석·검증한다.
+  { method: "GET", pattern: "/api/git/version", handler: async () => git.gitVersion() },
+  {
+    method: "GET",
+    pattern: "/api/git/resolve",
+    handler: async ({ query }) => git.resolveRepo(reqProjectId(query)),
+  },
+  {
+    method: "GET",
+    pattern: "/api/git/status",
+    handler: async ({ query }) => git.gitStatus(reqProjectId(query)),
+  },
+  {
+    method: "GET",
+    pattern: "/api/git/graph",
+    handler: async ({ query }) =>
+      git.gitGraph(reqProjectId(query), query.limit ? Number(query.limit) : undefined),
+  },
+  {
+    method: "GET",
+    pattern: "/api/git/branches",
+    handler: async ({ query }) => git.gitBranches(reqProjectId(query)),
+  },
+  {
+    method: "GET",
+    pattern: "/api/git/in-progress",
+    handler: async ({ query }) => git.gitInProgress(reqProjectId(query)),
+  },
+  {
+    method: "GET",
+    pattern: "/api/git/commit",
+    handler: async ({ query }) => {
+      if (!query.oid) throw new HttpError(400, "oid 필요");
+      return git.gitCommitDetail(reqProjectId(query), query.oid);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/diff",
+    handler: async ({ body }) => {
+      const b = body as Partial<DiffRequest>;
+      if (!b.projectId || !b.path || !b.kind) throw new HttpError(400, "projectId/path/kind 필요");
+      return git.gitDiff({
+        projectId: b.projectId,
+        path: b.path,
+        staged: b.staged === true,
+        kind: b.kind as StatusEntryKind,
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/commit-diff",
+    handler: async ({ body }) => {
+      const b = body as Partial<CommitDiffRequest>;
+      if (!b.projectId || !b.oid || !b.path) throw new HttpError(400, "projectId/oid/path 필요");
+      return git.gitCommitDiff({
+        projectId: b.projectId,
+        oid: b.oid,
+        parentOid: b.parentOid ?? null,
+        path: b.path,
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/stage",
+    handler: async ({ body }) => git.gitStage(...reqPaths(body)),
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/unstage",
+    handler: async ({ body }) => git.gitUnstage(...reqPaths(body)),
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/discard",
+    handler: async ({ body }) => git.gitDiscard(...reqPaths(body)),
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/commit",
+    handler: async ({ body }) => {
+      const { projectId, message } = body as { projectId?: string; message?: string };
+      if (!projectId || typeof message !== "string") {
+        throw new HttpError(400, "projectId/message 필요");
+      }
+      return git.gitCommit(projectId, message);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/action",
+    handler: async ({ body }) => {
+      const b = body as Partial<GraphActionRequest>;
+      if (!b.projectId || !b.kind) throw new HttpError(400, "projectId/kind 필요");
+      return git.gitAction(b as GraphActionRequest);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/git/remote",
+    handler: async ({ body }) => {
+      const { projectId, kind } = body as { projectId?: string; kind?: GitOpKind };
+      if (!projectId || !kind) throw new HttpError(400, "projectId/kind 필요");
+      return git.gitRemote(projectId, kind);
+    },
+  },
 ];
+
+/** git 라우트 공용: query에서 projectId를 꺼내고 없으면 400. */
+function reqProjectId(query: Record<string, string>): string {
+  if (!query.projectId) throw new HttpError(400, "projectId 필요");
+  return query.projectId;
+}
+
+/** stage/unstage/discard 공용: body에서 (projectId, paths)를 검증해 튜플로 반환. */
+function reqPaths(body: unknown): [string, string[]] {
+  const { projectId, paths } = body as { projectId?: string; paths?: string[] };
+  if (!projectId || !Array.isArray(paths)) throw new HttpError(400, "projectId/paths 필요");
+  return [projectId, paths];
+}
 
 /** "/api/configs/:name" 패턴을 실제 pathname에 매칭. 성공 시 params, 실패 시 null. */
 function matchPattern(pattern: string, pathname: string): Record<string, string> | null {

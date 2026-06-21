@@ -1,4 +1,4 @@
-import { app, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { routeRequest } from "./router.js";
 import { IpcChannels, type ApiRequest, type ApiResult } from "@shared/types";
 
@@ -26,4 +26,12 @@ export function registerIpcHandlers(): void {
   });
   // 프로젝트 폴더를 OS 탐색기로 연다(로컬 단독 전제). 실패 시 에러 문자열을 그대로 돌려준다.
   ipcMain.handle(IpcChannels.appOpenPath, (_e, target: string) => shell.openPath(target));
+  // 폴더 선택 dialog(Git repo 경로 수동 교정용). 취소하면 null.
+  ipcMain.handle(IpcChannels.appPickDirectory, async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
+      : await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
 }

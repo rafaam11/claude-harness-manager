@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDate, fmtRelative, fmtSize } from "../api/client";
+import GitPanel from "./git/GitPanel";
 import {
   STATUSES,
   buildProjNameMap,
@@ -166,6 +167,7 @@ export default function Workspace() {
                 onPatch={patchProject}
                 onPatchPlan={patchPlan}
                 onOpenFolder={openFolder}
+                onError={setError}
               />
             ) : (
               <div className="muted">왼쪽에서 프로젝트를 선택하세요.</div>
@@ -230,6 +232,7 @@ function ProjectDetail({
   onPatch,
   onPatchPlan,
   onOpenFolder,
+  onError,
 }: {
   p: WorkspaceProject;
   plans: EnrichedPlan[];
@@ -238,10 +241,12 @@ function ProjectDetail({
   onPatch: (id: string, body: ProjectPatch) => void;
   onPatchPlan: (filename: string, body: PlanPatch) => void;
   onOpenFolder: (realPath: string) => void;
+  onError: (message: string) => void;
 }) {
   const r = p.recall;
   const base = shortName(p.realPath, p.id);
 
+  const [detailMode, setDetailMode] = useState<"overview" | "git">("overview");
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const startEditName = () => {
@@ -308,9 +313,27 @@ function ProjectDetail({
           ))}
         </select>
       </div>
-      <div className="ws-path mono">{p.realPath ?? p.id}</div>
+      <div className="ws-detail-mode">
+        <button
+          className={`ws-mode-tab${detailMode === "overview" ? " active" : ""}`}
+          onClick={() => setDetailMode("overview")}
+        >
+          개요
+        </button>
+        <button
+          className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
+          onClick={() => setDetailMode("git")}
+        >
+          Git
+        </button>
+      </div>
+      {detailMode === "git" ? (
+        <GitPanel projectId={p.id} onError={onError} />
+      ) : (
+        <>
+          <div className="ws-path mono">{p.realPath ?? p.id}</div>
 
-      {r ? (
+          {r ? (
         <div className="ws-recall">
           {r.aiTitle && <div className="ws-aititle">📌 {r.aiTitle}</div>}
           {r.lastPrompt && (
@@ -367,7 +390,9 @@ function ProjectDetail({
         ))
       )}
 
-      <MemorySection projectId={p.id} />
+          <MemorySection projectId={p.id} />
+        </>
+      )}
     </div>
   );
 }

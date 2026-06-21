@@ -32,7 +32,7 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 ## 빠른 시작 (Windows)
 
-1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 **`Claude Harness Manager Setup x.y.z.exe`** 를 내려받아 실행한다.
+1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 **`Claude-Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
 3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다. **Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).
 
@@ -129,5 +129,5 @@ npm run dev        # electron-vite dev (main/preload/renderer HMR + Electron 창
 | `npm run dist` | Windows 설치본 빌드 → `release/`에 setup.exe 생성(로컬) |
 
 - 린트 도구·단위 테스트 프레임워크는 없다. 변경 검증의 1차 관문은 `npm run typecheck`, 2차는 `npm run build`.
-- 릴리스: `package.json` 버전 bump → `npm run dist` → `release/Claude Harness Manager Setup x.y.z.exe` 생성 → GitHub 릴리스에 **수동 업로드**(웹 드래그앤드롭 또는 `gh release create vX.Y.Z "release/Claude Harness Manager Setup X.Y.Z.exe"`).
+- 릴리스: `package.json` 버전 bump → `npm run dist` → `release/`에 `Claude-Harness-Manager-Setup-x.y.z.exe` + `latest.yml` + `*.blockmap` 생성 → GitHub 릴리스에 **3종 모두 수동 업로드**(`gh release create vX.Y.Z "release/Claude-Harness-Manager-Setup-X.Y.Z.exe" release/latest.yml "release/Claude-Harness-Manager-Setup-X.Y.Z.exe.blockmap"`). 자동 업데이트가 동작하려면 `latest.yml`·`blockmap`을 빠뜨리면 안 된다.
 - 코드 구조·규약은 [CLAUDE.md](CLAUDE.md) 참조.

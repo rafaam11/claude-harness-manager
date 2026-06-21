@@ -46,6 +46,7 @@
     "files": [
       "out/**"
     ],
+    "artifactName": "Claude-Harness-Manager-Setup-${version}.${ext}",
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"

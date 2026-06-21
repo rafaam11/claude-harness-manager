@@ -9,3 +9,12 @@ release/
 
 # e2e 스모크 테스트 스크린샷
 e2e-*.png
+
+# PyInstaller 런처(launcher/) 빌드 산출물
+/HarnessManagerLauncher.exe
+launcher/build/
+launcher/dist/
+
+# Python 캐시
+__pycache__/
+*.pyc

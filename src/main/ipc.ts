@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { routeRequest } from "./router.js";
+import { checkForUpdates, quitAndInstall } from "./updater.js";
 import { IpcChannels, type ApiRequest, type ApiResult } from "@shared/types";
 
-// 비공개 저장소라 수동 업데이트: 버튼이 이 페이지를 OS 브라우저로 연다(로그인 상태면 최신 setup.exe를 받을 수 있다).
-const RELEASES_URL = "https://github.com/digitrack-inc/claude-harness-manager/releases/latest";
+// 자동 업데이트 실패 시 fallback: 버튼이 이 페이지를 OS 브라우저로 연다(최신 setup.exe 수동 설치용).
+const RELEASES_URL = "https://github.com/rafaam11/claude-harness-manager/releases/latest";
 
 /**
  * 모든 renderer API 호출의 단일 진입점. 기존 Fastify HTTP 라우팅을 대체한다.
@@ -24,6 +25,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannels.appOpenReleases, () => {
     void shell.openExternal(RELEASES_URL);
   });
+  // 자동 업데이트 제어(electron-updater). dev에서는 updater 모듈이 즉시 idle로 응답한다.
+  ipcMain.handle(IpcChannels.updaterCheck, () => checkForUpdates());
+  ipcMain.handle(IpcChannels.updaterQuitAndInstall, () => quitAndInstall());
   // 프로젝트 폴더를 OS 탐색기로 연다(로컬 단독 전제). 실패 시 에러 문자열을 그대로 돌려준다.
   ipcMain.handle(IpcChannels.appOpenPath, (_e, target: string) => shell.openPath(target));
   // 폴더 선택 dialog(Git repo 경로 수동 교정용). 취소하면 null.

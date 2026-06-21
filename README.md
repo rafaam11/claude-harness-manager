@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/React-18-1c2230?logo=react&logoColor=61dafb" alt="React 18">
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
-  <img src="https://img.shields.io/badge/version-0.4.0-e8825f" alt="version 0.4.0">
+  <img src="https://img.shields.io/badge/version-1.0.0-e8825f" alt="version 1.0.0">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 
@@ -32,13 +32,15 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 ## 빠른 시작 (Windows)
 
-1. [Releases](https://github.com/digitrack-inc/claude-harness-manager/releases)에서 **`Claude Harness Manager Setup x.y.z.exe`** 를 내려받아 실행한다.
+1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 **`Claude Harness Manager Setup x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
 3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다. **Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).
 
-## 업데이트 (수동)
+## 업데이트 (자동)
 
-이 저장소는 **비공개**라 앱이 자동으로 업데이트를 받지는 않는다. 대신 사이드바 좌측 하단 버전 배지 옆 **"새 버전 확인"** 버튼을 누르면 GitHub 릴리스 페이지가 브라우저로 열린다(GitHub에 로그인돼 있어야 보인다). 거기서 최신 **`Claude Harness Manager Setup x.y.z.exe`** 를 받아 실행하면 기존 설치 위에 **덮어쓰기 설치**된다.
+이 저장소는 **public**이라 앱이 새 버전을 **자동으로** 받는다. 실행 중·"업데이트 확인" 시 GitHub 릴리스를 조회해 새 버전이 있으면 **배경에서 차등 다운로드**하고, 완료되면 사이드바 좌측 하단 버튼이 **"재시작하여 적용"** 으로 바뀐다. 누르면 앱이 재시작하며 갈아끼운다(앱을 그냥 종료해도 다음 실행에 적용됨). 자동 확인이 실패하면 같은 자리에 **릴리스 페이지 열기** 링크가 떠 수동 설치로 대체할 수 있다.
+
+> 첫 자동업데이트 버전인 **v1.0.0은 1회 수동 설치**가 필요하다(이전 v0.4.0 이하엔 자동 업데이트 기능이 없음). v1.0.0부터는 위 절차로 자동 갱신된다.
 
 ## 주요 기능
 
@@ -112,7 +114,7 @@ renderer는 실제 경로를 모른 채 요청(또는 projectId)만 보내고, m
 단일 Electron 프로젝트(electron-vite). 모든 명령은 루트에서 실행한다.
 
 ```bash
-git clone https://github.com/digitrack-inc/claude-harness-manager.git
+git clone https://github.com/rafaam11/claude-harness-manager.git
 cd claude-harness-manager
 npm install
 npm run dev        # electron-vite dev (main/preload/renderer HMR + Electron 창)

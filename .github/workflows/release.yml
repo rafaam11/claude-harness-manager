@@ -19,6 +19,10 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      # 잡 직렬화(동시성 1): electron-builder --publish는 잡마다 "릴리스 없으면 생성"을 하므로
+      # 병렬이면 여러 잡이 같은 태그로 draft를 중복 생성한다(레이스 → arm64 자산이 별도 draft로 갈림).
+      # 첫 잡이 draft를 만들고 나머지가 append하도록 순차 실행한다(릴리스 빌드라 시간 손해는 감수).
+      max-parallel: 1
       matrix:
         include:
           - os: ubuntu-latest

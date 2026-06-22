@@ -66,7 +66,7 @@
       ],
       "icon": "build/icon.png",
       "category": "Development",
-      "artifactName": "Claude-Harness-Manager-${version}.${ext}",
+      "artifactName": "Claude-Harness-Manager-${version}-${arch}.${ext}",
       "synopsis": "Claude Code 전역 환경 관리 데스크톱 앱"
     },
     "publish": {

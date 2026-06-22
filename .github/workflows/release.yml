@@ -1,8 +1,10 @@
 name: release
 
-# v* 태그를 푸시하면 windows·linux 산출물을 빌드해 GitHub 릴리스(draft)에 올린다.
-# electron-builder가 draft 릴리스에 자산을 append하므로, 두 잡이 같은 태그 draft에
-# 각자 산출물을 채운 뒤 사람이 GitHub에서 검토하고 수동 publish한다.
+# v* 태그를 푸시하면 windows·linux(x64/arm64) 산출물을 빌드해 GitHub 릴리스(draft)에 올린다.
+# electron-builder가 draft 릴리스에 자산을 append하므로, 세 잡(win·linux-x64·linux-arm64)이
+# 같은 태그 draft에 각자 산출물을 채운 뒤 사람이 GitHub에서 검토하고 수동 publish한다.
+# linux-arm64는 GitHub 무료 arm64 러너(ubuntu-24.04-arm, public repo 한정)에서 네이티브 빌드 →
+# Jetson/라즈베리파이4+ 등 aarch64 기기용 AppImage + latest-linux-arm64.yml 생성.
 # (macOS는 서명/공증·빌드 환경 확보 후 별도 추가 — 그때 include에 macos-latest 한 줄 추가.)
 
 on:
@@ -21,6 +23,8 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: "--linux"
+          - os: ubuntu-24.04-arm
+            platform: "--linux --arm64"
           - os: windows-latest
             platform: "--win"
     runs-on: ${{ matrix.os }}

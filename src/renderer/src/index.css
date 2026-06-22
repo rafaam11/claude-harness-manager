@@ -49,6 +49,14 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* 스크롤바를 테마 톤에 맞춘다(기본 흰 스크롤바가 다크모드에서 이질적). 변수 기반이라 다크/라이트 자동 대응. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 .layout { display: flex; min-height: 100vh; }
 nav {
   width: 200px; background: var(--panel); border-right: 1px solid var(--border);
@@ -230,6 +238,7 @@ pre.viewer {
 .ws-split { display: grid; grid-template-columns: 262px minmax(0, 1fr); gap: 16px; align-items: start; }
 .ws-master { display: flex; flex-direction: column; gap: 7px; max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 2px; }
 .ws-master-item {
+  position: relative;
   text-align: left; width: 100%; background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 9px 11px; cursor: pointer; color: var(--text);
   display: flex; flex-direction: column; gap: 5px;
@@ -237,9 +246,31 @@ pre.viewer {
 .ws-master-item:hover { border-color: var(--accent); }
 .ws-master-item.active { border-color: var(--accent); background: var(--active-bg); }
 .ws-master-item.unassigned { flex-direction: row; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
-.ws-mi-head { display: flex; align-items: center; gap: 7px; }
+.ws-mi-head { display: flex; align-items: center; gap: 7px; padding-right: 18px; }
 .ws-mi-name { font-weight: 650; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-mi-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
+/* 카드 우상단 hover-reveal 액션(숨기기·수동 정렬 화살표) */
+.ws-mi-actions {
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 2px;
+  opacity: 0; transition: opacity .12s;
+}
+.ws-master-item:hover .ws-mi-actions,
+.ws-master-item:focus-within .ws-mi-actions { opacity: 1; }
+.ws-mi-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--card); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--muted); cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px;
+}
+.ws-mi-act:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.ws-mi-act:disabled { opacity: .35; cursor: default; }
+/* 정렬 바 + 숨긴 프로젝트 토글 */
+.ws-sortbar { display: flex; align-items: center; gap: 6px; padding: 0 1px 2px; }
+.ws-sort-k { font-size: 11px; color: var(--muted); }
+.ws-hidden-toggle {
+  text-align: left; width: 100%; background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 12px; padding: 4px 2px; margin-top: 2px;
+}
+.ws-hidden-toggle:hover { color: var(--text); }
 
 .ws-detail { min-width: 0; }
 .ws-detail-inner { background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 16px 18px; box-shadow: var(--shadow); }
@@ -357,34 +388,35 @@ pre.viewer {
 .ws-title-input:focus { outline: none; }
 
 /* 트랙(작업 갈래) / 할 일 체크리스트 */
-.ws-tracks { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.ws-track { padding: 2px 0; }
+.ws-tracks { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+/* 트랙마다 옅은 카드 배경으로 단위를 시각적으로 분리(가독성) */
+.ws-track { padding: 7px 9px; background: var(--active-bg); border: 1px solid var(--border); border-radius: 7px; }
 .ws-track-head { display: flex; align-items: center; gap: 7px; }
-.ws-track-toggle { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.ws-track-toggle { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
 /* 입력칸은 옅은 밑줄로 "편집 가능"을 암시(레이아웃 점프 방지로 1px transparent 자리 확보) */
 .ws-track-title {
   flex: 1; min-width: 0; background: none; color: var(--text);
-  font-size: 12.5px; font-weight: 600; padding: 3px 4px; border-radius: 5px;
+  font-size: 13.5px; font-weight: 650; padding: 3px 4px; border-radius: 5px;
   border: 1px solid transparent; border-bottom: 1px solid var(--border);
 }
-.ws-track-title:hover { background: var(--active-bg); }
+.ws-track-title:hover { background: var(--card); }
 .ws-track-title:focus { outline: none; background: var(--editor-bg); border: 1px solid var(--accent); }
-.ws-track-bar { width: 42px; height: 4px; border-radius: 2px; background: var(--active-bg); overflow: hidden; flex-shrink: 0; }
+.ws-track-bar { width: 42px; height: 4px; border-radius: 2px; background: var(--card); overflow: hidden; flex-shrink: 0; }
 .ws-track-bar > span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 .ws-track-bar > span.full { background: var(--ok); }
 .ws-track-count { font-size: 11px; flex-shrink: 0; }
 .ws-track-items {
-  margin: 4px 0 2px 6px; padding-left: 14px; border-left: 2px solid var(--border);
-  display: flex; flex-direction: column; gap: 4px;
+  margin: 6px 0 2px 6px; padding-left: 14px; border-left: 2px solid var(--accent);
+  display: flex; flex-direction: column; gap: 6px;
 }
-.ws-todo { display: flex; align-items: center; gap: 7px; }
-.ws-todo input[type="checkbox"] { cursor: pointer; flex-shrink: 0; }
+.ws-todo { display: flex; align-items: center; gap: 8px; }
+.ws-todo input[type="checkbox"] { cursor: pointer; flex-shrink: 0; transform: scale(1.15); accent-color: var(--accent); }
 .ws-todo-text {
   flex: 1; min-width: 0; background: none; color: var(--text);
-  font-size: 12px; padding: 2px 4px; border-radius: 5px;
+  font-size: 13px; padding: 2px 4px; border-radius: 5px;
   border: 1px solid transparent; border-bottom: 1px solid var(--border);
 }
-.ws-todo-text:hover { background: var(--active-bg); }
+.ws-todo-text:hover { background: var(--card); }
 .ws-todo-text:focus { outline: none; background: var(--editor-bg); border: 1px solid var(--accent); }
 .ws-todo-text.done { color: var(--muted); text-decoration: line-through; }
 /* 삭제 버튼은 평상시 숨기고 행 hover/focus 시 노출(번잡함 완화, 키보드는 focus-within) */
@@ -399,7 +431,7 @@ pre.viewer {
 .ws-track-foot { display: flex; align-items: center; gap: 8px; }
 .ws-save-cue { font-size: 11px; color: var(--muted); margin-left: auto; transition: opacity .2s; }
 .ws-save-cue.hidden { opacity: 0; }
-.ws-track-hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin: 4px 0 8px; }
+.ws-track-hint { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 6px 0 8px; }
 
 /* Workspace 디테일 모드 탭 (개요 / Git) */
 .ws-detail-mode { display: flex; gap: 4px; margin: 10px 0; border-bottom: 1px solid var(--border); }

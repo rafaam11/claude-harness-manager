@@ -39,6 +39,10 @@ export interface ProjectBoardEntry {
   tracks?: ProjectTrack[];
   /** Git 작업 대상 저장소의 실제 경로(자동 해석이 부정확할 때 사용자가 폴더 선택으로 교정). */
   repoPath?: string;
+  /** Workspace 목록에서 숨김 처리(하단 접이식 섹션으로 이동). */
+  hidden?: boolean;
+  /** 수동 정렬 순번(작을수록 위). 미설정이면 자동 정렬 fallback. */
+  order?: number;
 }
 /** Timeline 세션 이벤트의 수동 레이어. sessionId(uuid)를 키로 한 flat 맵에 담는다. */
 export interface SessionBoardEntry {
@@ -104,6 +108,8 @@ function sanitize(parsed: unknown): BoardData {
     if (kind === "project") {
       if (typeof r.nameOverride === "string" && r.nameOverride) e.nameOverride = r.nameOverride;
       if (typeof r.repoPath === "string" && r.repoPath) e.repoPath = r.repoPath;
+      if (r.hidden === true) e.hidden = true;
+      if (typeof r.order === "number" && Number.isFinite(r.order)) e.order = r.order;
       const tracks = sanitizeTracks(r.tracks);
       if (tracks.length) e.tracks = tracks;
     }
@@ -220,6 +226,8 @@ export async function setProjectField(
     nameOverride?: string | null;
     tracks?: ProjectTrack[];
     repoPath?: string | null;
+    hidden?: boolean;
+    order?: number | null;
   },
 ): Promise<BoardData> {
   return withLock(async () => {
@@ -243,6 +251,16 @@ export async function setProjectField(
       if (patch.repoPath) entry.repoPath = patch.repoPath;
       else delete entry.repoPath;
     }
+    if (patch.hidden !== undefined) {
+      // false면 키 제거(기본=표시)
+      if (patch.hidden) entry.hidden = true;
+      else delete entry.hidden;
+    }
+    if (patch.order !== undefined) {
+      // null/비number면 키 제거(자동 정렬로 복귀)
+      if (typeof patch.order === "number" && Number.isFinite(patch.order)) entry.order = patch.order;
+      else delete entry.order;
+    }
     if (patch.tracks !== undefined) {
       // 전체 교체. 빈 배열이면 키 제거(빈 엔트리는 pruneIfEmpty가 정리)
       const tracks = sanitizeTracks(patch.tracks);
@@ -251,6 +269,25 @@ export async function setProjectField(
     }
     board.projects[id] = entry;
     pruneIfEmpty(board.projects, id);
+    await writeBoardAtomic(board);
+    return board;
+  });
+}
+
+/**
+ * 여러 프로젝트의 수동 정렬 순번을 한 번의 atomic write로 일괄 저장.
+ * 화살표 첫 이동 시 전체에 순번을 시드해야 하므로 개별 setProjectField를 N번 돌리는 대신
+ * 단일 write로 처리해 .bak 백업 링 소진을 막는다.
+ */
+export async function setProjectsOrder(orders: Record<string, number>): Promise<BoardData> {
+  return withLock(async () => {
+    const board = await readBoard();
+    for (const [id, n] of Object.entries(orders)) {
+      if (typeof n !== "number" || !Number.isFinite(n)) continue;
+      const entry: ProjectBoardEntry = { ...board.projects[id] };
+      entry.order = n;
+      board.projects[id] = entry;
+    }
     await writeBoardAtomic(board);
     return board;
   });

@@ -45,6 +45,8 @@ export interface WorkspaceProject {
     memo: string;
     nameOverride: string;
     tracks: ProjectTrack[];
+    hidden: boolean;
+    order: number | null;
   };
   plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { marked } from "marked";
 import { api, fmtDate, fmtRelative, fmtSize } from "../api/client";
 import GitPanel from "./git/GitPanel";
@@ -21,8 +22,41 @@ type ProjectPatch = {
   memo?: string;
   nameOverride?: string | null;
   tracks?: ProjectTrack[];
+  hidden?: boolean;
+  order?: number | null;
 };
 type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: string | null };
+
+// 정렬 모드: 뷰 전역 취향이라 localStorage에 저장(테마와 동일 패턴), board.json엔 안 둔다.
+type SortMode = "recent" | "status" | "manual";
+const SORT_KEY = "ws-sort-mode";
+const SORT_LABELS: Record<SortMode, string> = {
+  recent: "최근 활동순",
+  status: "상태순",
+  manual: "수동 정렬",
+};
+// 상태 정렬 rank(작을수록 위). 무상태(null)는 진행중 바로 뒤.
+const STATUS_RANK: Record<BoardStatus, number> = {
+  진행중: 0,
+  보류: 2,
+  완료: 3,
+  보관: 4,
+};
+function statusRank(s: BoardStatus | null): number {
+  return s ? STATUS_RANK[s] : 1;
+}
+function sortProjects(projects: WorkspaceProject[], mode: SortMode): WorkspaceProject[] {
+  const arr = [...projects];
+  if (mode === "status") {
+    arr.sort((a, b) => statusRank(a.board.status) - statusRank(b.board.status) || b.lastActivity - a.lastActivity);
+  } else if (mode === "manual") {
+    const ord = (p: WorkspaceProject) => (p.board.order ?? Infinity);
+    arr.sort((a, b) => ord(a) - ord(b) || b.lastActivity - a.lastActivity);
+  } else {
+    arr.sort((a, b) => b.lastActivity - a.lastActivity);
+  }
+  return arr;
+}
 
 function StatusTag({ s }: { s: BoardStatus }) {
   return <span className={`tag st-${STATUSES.indexOf(s)}`}>{s}</span>;
@@ -34,6 +68,15 @@ export default function Workspace() {
   const [plans, setPlans] = useState<EnrichedPlan[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>(
+    () => (localStorage.getItem(SORT_KEY) as SortMode | null) ?? "recent",
+  );
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+
+  const changeSort = (m: SortMode) => {
+    setSortMode(m);
+    localStorage.setItem(SORT_KEY, m);
+  };
 
   const loadProjects = () =>
     api
@@ -51,10 +94,10 @@ export default function Workspace() {
     loadPlans();
   }, []);
 
-  // 최근 활동순 정렬(회상 대시보드 목적)
+  // 정렬 모드(최근 활동순/상태순/수동)별 정렬. 회상 대시보드 기본은 최근 활동순.
   const sorted = useMemo(
-    () => (projects ? [...projects].sort((a, b) => b.lastActivity - a.lastActivity) : []),
-    [projects],
+    () => (projects ? sortProjects(projects, sortMode) : []),
+    [projects, sortMode],
   );
 
   // 계획을 projectId(override ?? guessed)로 그룹핑. null이면 미연결.
@@ -71,9 +114,12 @@ export default function Workspace() {
 
   const projName = useMemo(() => buildProjNameMap(sorted), [sorted]);
 
-  // 기본 선택: 정렬 후 첫(가장 최근) 프로젝트
+  // 기본 선택: 정렬 후 첫(숨김 제외) 프로젝트
   useEffect(() => {
-    if (selectedId === null && sorted.length) setSelectedId(sorted[0].id);
+    if (selectedId === null && sorted.length) {
+      const first = sorted.find((p) => !p.board.hidden) ?? sorted[0];
+      setSelectedId(first.id);
+    }
   }, [sorted, selectedId]);
 
   async function patchProject(id: string, body: ProjectPatch) {
@@ -83,6 +129,8 @@ export default function Workspace() {
     if (body.memo !== undefined) boardPatch.memo = body.memo;
     if (body.nameOverride !== undefined) boardPatch.nameOverride = body.nameOverride ?? "";
     if (body.tracks !== undefined) boardPatch.tracks = body.tracks;
+    if (body.hidden !== undefined) boardPatch.hidden = body.hidden;
+    if (body.order !== undefined) boardPatch.order = body.order;
     setProjects((prev) =>
       prev
         ? prev.map((p) => (p.id === id ? { ...p, board: { ...p.board, ...boardPatch } } : p))
@@ -93,6 +141,32 @@ export default function Workspace() {
     } catch (e) {
       setError((e as Error).message);
       loadProjects(); // 실패 시 서버 상태로 재동기화
+    }
+  }
+
+  // 수동 정렬: 표시 중인(숨김 제외) 카드 목록에서 id를 dir 방향 이웃과 swap하고
+  // 전체에 0..n-1 순번을 부여해 한 번의 배치 write로 저장(.bak 링 소진 방지).
+  async function moveProject(id: string, dir: -1 | 1) {
+    const list = sorted.filter((p) => !p.board.hidden);
+    const i = list.findIndex((p) => p.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    const reordered = [...list];
+    [reordered[i], reordered[j]] = [reordered[j], reordered[i]];
+    const orders: Record<string, number> = {};
+    reordered.forEach((p, idx) => (orders[p.id] = idx));
+    setProjects((prev) =>
+      prev
+        ? prev.map((p) =>
+            p.id in orders ? { ...p, board: { ...p.board, order: orders[p.id] } } : p,
+          )
+        : prev,
+    );
+    try {
+      await api.post(`/api/workspace/board/projects/order`, { orders });
+    } catch (e) {
+      setError((e as Error).message);
+      loadProjects();
     }
   }
 
@@ -123,6 +197,23 @@ export default function Workspace() {
   const unassigned = plansByProject.get(UNASSIGNED) ?? [];
   const selectedProject =
     selectedId && selectedId !== UNASSIGNED ? sorted.find((p) => p.id === selectedId) ?? null : null;
+  const visible = sorted.filter((p) => !p.board.hidden);
+  const hiddenProjects = sorted.filter((p) => p.board.hidden);
+
+  const renderCard = (p: WorkspaceProject, list: WorkspaceProject[], idx: number) => (
+    <ProjectMasterCard
+      key={p.id}
+      p={p}
+      planCount={(plansByProject.get(p.id) ?? []).length}
+      active={selectedId === p.id}
+      sortMode={sortMode}
+      isFirst={idx === 0}
+      isLast={idx === list.length - 1}
+      onSelect={() => setSelectedId(p.id)}
+      onHide={(hidden) => patchProject(p.id, { hidden })}
+      onMove={(dir) => moveProject(p.id, dir)}
+    />
+  );
 
   return (
     <div>
@@ -132,21 +223,40 @@ export default function Workspace() {
       ) : (
         <div className="ws-split">
           <div className="ws-master">
-            {sorted.map((p) => (
-              <ProjectMasterCard
-                key={p.id}
-                p={p}
-                planCount={(plansByProject.get(p.id) ?? []).length}
-                active={selectedId === p.id}
-                onSelect={() => setSelectedId(p.id)}
-              />
-            ))}
+            <div className="ws-sortbar">
+              <label className="ws-sort-k">정렬</label>
+              <select
+                className="ws-select"
+                value={sortMode}
+                onChange={(e) => changeSort(e.target.value as SortMode)}
+              >
+                {(Object.keys(SORT_LABELS) as SortMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {SORT_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {visible.map((p, idx) => renderCard(p, visible, idx))}
             <button
               className={`ws-master-item unassigned${selectedId === UNASSIGNED ? " active" : ""}`}
               onClick={() => setSelectedId(UNASSIGNED)}
             >
               📋 미연결 계획 <span className="cat-count">{unassigned.length}</span>
             </button>
+            {hiddenProjects.length > 0 && (
+              <>
+                <button
+                  className="ws-hidden-toggle"
+                  onClick={() => setHiddenOpen((v) => !v)}
+                >
+                  {hiddenOpen ? "▾" : "▸"} 숨긴 프로젝트{" "}
+                  <span className="cat-count">{hiddenProjects.length}</span>
+                </button>
+                {hiddenOpen &&
+                  hiddenProjects.map((p, idx) => renderCard(p, hiddenProjects, idx))}
+              </>
+            )}
           </div>
 
           <div className="ws-detail">
@@ -191,21 +301,48 @@ function applyPlanPatch(p: EnrichedPlan, body: PlanPatch): EnrichedPlan {
 }
 
 // ============================ 왼쪽 마스터: 프로젝트 컴팩트 카드 ============================
+// hover 액션(숨기기·수동 정렬 화살표)을 카드 안에 넣어야 해서 button 중첩이 불가 → div role="button".
 function ProjectMasterCard({
   p,
   planCount,
   active,
+  sortMode,
+  isFirst,
+  isLast,
   onSelect,
+  onHide,
+  onMove,
 }: {
   p: WorkspaceProject;
   planCount: number;
   active: boolean;
+  sortMode: SortMode;
+  isFirst: boolean;
+  isLast: boolean;
   onSelect: () => void;
+  onHide: (hidden: boolean) => void;
+  onMove: (dir: -1 | 1) => void;
 }) {
   const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
   const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+  // 자식 컨트롤 클릭이 카드 선택으로 번지지 않게 막는다.
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
   return (
-    <button className={`ws-master-item${active ? " active" : ""}`} onClick={onSelect}>
+    <div
+      className={`ws-master-item${active ? " active" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <div className="ws-mi-head">
         <span className="ws-mi-name">{displayName(p)}</span>
         {p.board.status && <StatusTag s={p.board.status} />}
@@ -219,7 +356,36 @@ function ProjectMasterCard({
         )}
         {planCount > 0 && <span>📄 {planCount}</span>}
       </div>
-    </button>
+      <div className="ws-mi-actions">
+        {sortMode === "manual" && !p.board.hidden && (
+          <>
+            <button
+              className="ws-mi-act"
+              title="위로"
+              disabled={isFirst}
+              onClick={stop(() => onMove(-1))}
+            >
+              ▲
+            </button>
+            <button
+              className="ws-mi-act"
+              title="아래로"
+              disabled={isLast}
+              onClick={stop(() => onMove(1))}
+            >
+              ▼
+            </button>
+          </>
+        )}
+        <button
+          className="ws-mi-act"
+          title={p.board.hidden ? "숨김 해제" : "숨기기"}
+          onClick={stop(() => onHide(!p.board.hidden))}
+        >
+          {p.board.hidden ? <Eye size={14} strokeWidth={1.75} /> : <EyeOff size={14} strokeWidth={1.75} />}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -367,10 +533,22 @@ function ProjectDetail({
 
       <MemoBox
         value={p.board.memo}
-        placeholder="어디까지 했나 / 다음 할 일…"
+        placeholder="자유메모"
         onSave={(memo) => onPatch(p.id, { memo })}
       />
 
+      <div className="ws-plans-head">
+        트랙 / 할 일
+        {(() => {
+          const total = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
+          const done = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+          return total > 0 ? (
+            <span className="cat-count">
+              {done}/{total}
+            </span>
+          ) : null;
+        })()}
+      </div>
       <TrackEditor tracks={p.board.tracks} onSave={(tracks) => onPatch(p.id, { tracks })} />
 
       <div className="ws-plans-head">

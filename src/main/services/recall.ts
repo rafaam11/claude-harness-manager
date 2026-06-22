@@ -402,6 +402,8 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
       memo: board.projects[r.id]?.memo ?? "",
       nameOverride: board.projects[r.id]?.nameOverride ?? "",
       tracks: board.projects[r.id]?.tracks ?? [],
+      hidden: board.projects[r.id]?.hidden ?? false,
+      order: board.projects[r.id]?.order ?? null,
     },
     plans: plans
       .filter((p) => p.projectId === r.id)

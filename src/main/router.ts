@@ -10,7 +10,13 @@ import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
 import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
 import { readPlanContent } from "./services/plans.js";
-import { setPlanField, setProjectField, setSessionField, type ProjectTrack } from "./lib/board.js";
+import {
+  setPlanField,
+  setProjectField,
+  setProjectsOrder,
+  setSessionField,
+  type ProjectTrack,
+} from "./lib/board.js";
 import * as git from "./services/git/index.js";
 import type {
   ApiMethod,
@@ -167,14 +173,32 @@ const routes: Route[] = [
     method: "POST",
     pattern: "/api/workspace/board/project/:id",
     handler: async ({ params, body }) => {
-      const { status, memo, nameOverride, tracks, repoPath } = body as {
+      const { status, memo, nameOverride, tracks, repoPath, hidden, order } = body as {
         status?: string;
         memo?: string;
         nameOverride?: string | null;
         tracks?: ProjectTrack[];
         repoPath?: string | null;
+        hidden?: boolean;
+        order?: number | null;
       };
-      return setProjectField(params.id, { status, memo, nameOverride, tracks, repoPath });
+      return setProjectField(params.id, {
+        status,
+        memo,
+        nameOverride,
+        tracks,
+        repoPath,
+        hidden,
+        order,
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/workspace/board/projects/order",
+    handler: async ({ body }) => {
+      const { orders } = body as { orders?: Record<string, number> };
+      return setProjectsOrder(orders ?? {});
     },
   },
   {

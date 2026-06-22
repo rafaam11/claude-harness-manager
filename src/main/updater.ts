@@ -51,5 +51,8 @@ export async function checkForUpdates(): Promise<void> {
 
 export function quitAndInstall(): void {
   if (!app.isPackaged) return;
-  autoUpdater.quitAndInstall();
+  // isSilent=true → NSIS에 /S를 붙여 인스톨러 창 없이 무음 설치(재설치하는 느낌 제거).
+  // isForceRunAfter=true 필수: isSilent=true면 quitAndInstall이 install()의 재실행 인자로
+  // autoRunAppAfterInstall 대신 isForceRunAfter를 쓰므로, 생략 시 설치 후 앱이 안 켜진다.
+  autoUpdater.quitAndInstall(true, true);
 }

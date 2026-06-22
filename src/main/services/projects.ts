@@ -13,12 +13,17 @@ export interface ProjectInfo {
   originalPathExists: boolean | null; // flatten 역추정 불가 시 null
 }
 
-/** flatten된 디렉토리명(D--hdx-agv)에서 원본 경로 후보를 추정 */
+/** flatten된 디렉토리명에서 원본 경로 후보를 추정 (Windows: D--hdx-agv → D:\hdx\agv / Unix: -home-user-proj → /home/user/proj) */
 export function guessOriginalPath(id: string): string | null {
-  const m = id.match(/^([A-Za-z])--(.+)$/);
-  if (!m) return null;
-  // '-'가 경로 구분자였는지 이름의 일부였는지 구분 불가 → 단순 추정만
-  return `${m[1]}:\\${m[2].replace(/-/g, "\\")}`;
+  if (process.platform === "win32") {
+    const m = id.match(/^([A-Za-z])--(.+)$/);
+    if (!m) return null;
+    // '-'가 경로 구분자였는지 이름의 일부였는지 구분 불가 → 단순 추정만
+    return `${m[1]}:\\${m[2].replace(/-/g, "\\")}`;
+  }
+  // unix: 선행 '-'(루트 구분자) → '/...'. '-'가 구분자/이름인지 모호 → 추정값
+  if (id.startsWith("-")) return "/" + id.slice(1).replace(/-/g, "/");
+  return null;
 }
 
 export async function getProjects(): Promise<ProjectInfo[]> {

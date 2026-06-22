@@ -14,7 +14,8 @@
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
     "icon": "node scripts/generate-icon.mjs",
-    "dist": "npm run build && electron-builder --win --publish never"
+    "dist": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
@@ -58,6 +59,15 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Claude Harness Manager"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Development",
+      "artifactName": "Claude-Harness-Manager-${version}.${ext}",
+      "synopsis": "Claude Code 전역 환경 관리 데스크톱 앱"
     },
     "publish": {
       "provider": "github",

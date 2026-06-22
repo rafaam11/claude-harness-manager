@@ -1,0 +1,44 @@
+name: release
+
+# v* 태그를 푸시하면 windows·linux 산출물을 빌드해 GitHub 릴리스(draft)에 올린다.
+# electron-builder가 draft 릴리스에 자산을 append하므로, 두 잡이 같은 태그 draft에
+# 각자 산출물을 채운 뒤 사람이 GitHub에서 검토하고 수동 publish한다.
+# (macOS는 서명/공증·빌드 환경 확보 후 별도 추가 — 그때 include에 macos-latest 한 줄 추가.)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: "--linux"
+          - os: windows-latest
+            platform: "--win"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (typecheck + electron-vite)
+        run: npm run build
+
+      - name: Package & publish (draft)
+        run: npx electron-builder ${{ matrix.platform }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

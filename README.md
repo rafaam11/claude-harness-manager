@@ -7,7 +7,8 @@
   <img src="https://img.shields.io/badge/React-18-1c2230?logo=react&logoColor=61dafb" alt="React 18">
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
-  <img src="https://img.shields.io/badge/version-1.0.1-e8825f" alt="version 1.0.1">
+  <img src="https://img.shields.io/badge/platform-Linux-1c2230?logo=linux&logoColor=white" alt="Linux">
+  <img src="https://img.shields.io/badge/version-1.0.4-e8825f" alt="version 1.0.4">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 
@@ -30,17 +31,40 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 <p align="center"><em><code>[개요]</code> 모드 — 자동 회상 · 메모 · 트랙/할 일 · 계획 · 메모리 브라우저.</em></p>
 
-## 빠른 시작 (Windows)
+### 탭 둘러보기
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/mockup-timeline.svg" alt="Timeline" width="100%"><br><sub><b>Timeline</b> — 날짜별 세션·계획과 “N일 공백” 구분선</sub></td>
+    <td width="50%"><img src="docs/mockup-catalog.svg" alt="Catalog" width="100%"><br><sub><b>Catalog</b> — 카드 블럭·인라인 확장·시크릿 마스킹</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/mockup-cleanup.svg" alt="Cleanup" width="100%"><br><sub><b>Cleanup</b> — 삭제 없이 아카이브로 이동·복구</sub></td>
+    <td width="50%"><img src="docs/mockup-config.svg" alt="Config Editor" width="100%"><br><sub><b>Config Editor</b> — 트리 편집·자동 백업·충돌 방지</sub></td>
+  </tr>
+</table>
+
+## 빠른 시작
+
+**Windows**
 
 1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 **`Claude-Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
-3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다. **Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).
+3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다.
+
+**Linux (AppImage)**
+
+1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 아키텍처에 맞는 AppImage를 내려받는다 — x64는 **`...-x64.AppImage`**, aarch64(Jetson·라즈베리파이4+ 등)는 **`...-arm64.AppImage`**.
+2. 실행 권한을 부여한다: `chmod +x Claude-Harness-Manager-*.AppImage`.
+3. 더블클릭하거나 터미널에서 실행한다.
+
+**Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).
 
 ## 업데이트 (자동)
 
-이 저장소는 **public**이라 앱이 새 버전을 **자동으로** 받는다. 실행 중·"업데이트 확인" 시 GitHub 릴리스를 조회해 새 버전이 있으면 **배경에서 차등 다운로드**하고, 완료되면 사이드바 좌측 하단 버튼이 **"재시작하여 적용"** 으로 바뀐다. 누르면 앱이 재시작하며 갈아끼운다(앱을 그냥 종료해도 다음 실행에 적용됨). 자동 확인이 실패하면 같은 자리에 **릴리스 페이지 열기** 링크가 떠 수동 설치로 대체할 수 있다.
+이 저장소는 **public**이라 앱이 새 버전을 **자동으로** 받는다. 실행 중·"업데이트 확인" 시 GitHub 릴리스를 조회해 새 버전이 있으면 **배경에서 차등 다운로드**(NSIS·AppImage 모두 blockmap delta)하고, 완료되면 사이드바 좌측 하단 버튼이 **"재시작하여 적용"** 으로 바뀐다. 누르면 **인스톨러 창 없이 무음으로 설치하고 앱이 자동 재실행**되며 갈아끼운다(앱을 그냥 종료해도 다음 실행에 적용됨). 자동 확인이 실패하면 같은 자리에 **릴리스 페이지 열기** 링크가 떠 수동 설치로 대체할 수 있다.
 
-> 첫 자동업데이트 버전인 **v1.0.0은 1회 수동 설치**가 필요하다(이전 v0.4.0 이하엔 자동 업데이트 기능이 없음). v1.0.0부터는 위 절차로 자동 갱신된다.
+> 각 플랫폼·아키텍처의 **첫 릴리스는 1회 수동 설치/다운로드**가 필요하다 — Windows는 v1.0.0(이전 v0.4.0 이하엔 자동 업데이트 기능이 없었음), Linux x64·arm64는 갈아끼울 기존 설치본이 없기 때문. 이후부터는 위 절차로 자동 갱신된다.
 
 ## 주요 기능
 
@@ -49,7 +73,7 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **Config Editor** — `settings.json`을 트리/텍스트 모드로 편집. 저장 시 자동 백업·충돌 감지.
 - **Cleanup** — 규칙 기반 스캔 → dry-run → 아카이브 이동(삭제 없음) → 복구.
 - **Timeline** — 날짜별 세션/계획 이벤트를 "N일 공백" 구분선과 함께. 기본 진입 탭.
-- **Workspace** — 프로젝트 회상(좌우 마스터-디테일) + 상태/메모/트랙 + 계획 + **메모리/파일 브라우저**(옛 Memory 탭 흡수).
+- **Workspace** — 프로젝트 회상(좌우 마스터-디테일) + 상태/메모/트랙 + 계획 + **메모리/파일 브라우저**(옛 Memory 탭 흡수). 프로젝트 목록은 정렬·숨기기로 정돈한다.
 - **Git (Workspace 내장)** — 변경/diff/stage/commit, 커밋 그래프(DAG), 브랜치 전환·생성, merge/rebase/cherry-pick/revert, push/pull/fetch. 시스템 `git` CLI 직접 호출(GitHub 연동은 후속).
 - **안전 모델** — 경로 allowlist, git 저장소 검증 가드, 낙관적 동시성(409), `.bak` 백업, 아카이브 복구.
 
@@ -127,7 +151,8 @@ npm run dev        # electron-vite dev (main/preload/renderer HMR + Electron 창
 | `npm run typecheck` | TypeScript 타입 검사(node + web 2패스) |
 | `npm run icon` | `build/icon.ico`·`icon.png` 재생성 |
 | `npm run dist` | Windows 설치본 빌드 → `release/`에 setup.exe 생성(로컬) |
+| `npm run dist:linux` | Linux AppImage 빌드 → `release/`에 AppImage 생성(로컬, Linux/WSL 필요) |
 
 - 린트 도구·단위 테스트 프레임워크는 없다. 변경 검증의 1차 관문은 `npm run typecheck`, 2차는 `npm run build`.
-- 릴리스: `package.json` 버전 bump → `npm run dist` → `release/`에 `Claude-Harness-Manager-Setup-x.y.z.exe` + `latest.yml` + `*.blockmap` 생성 → GitHub 릴리스에 **3종 모두 수동 업로드**(`gh release create vX.Y.Z "release/Claude-Harness-Manager-Setup-X.Y.Z.exe" release/latest.yml "release/Claude-Harness-Manager-Setup-X.Y.Z.exe.blockmap"`). 자동 업데이트가 동작하려면 `latest.yml`·`blockmap`을 빠뜨리면 안 된다.
+- 릴리스: `package.json` 버전 bump 후 **`v*` 태그를 푸시**하면 GitHub Actions CI(`.github/workflows/release.yml`)가 ubuntu(x64·arm64)·windows 매트릭스로 빌드해 같은 태그의 **draft 릴리스에 자산을 append**한다(OS/아키텍처별 설치본 + `latest*.yml` + `*.blockmap` 자동 생성). 사람이 GitHub에서 검토 후 **수동 publish**한다. 로컬 검증·수동 업로드 fallback은 `npm run dist`(Windows)·`npm run dist:linux`(Linux) + `gh release upload`.
 - 코드 구조·규약은 [CLAUDE.md](CLAUDE.md) 참조.

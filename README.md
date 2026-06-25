@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/platform-Linux-1c2230?logo=linux&logoColor=white" alt="Linux">
-  <img src="https://img.shields.io/badge/version-1.0.4-e8825f" alt="version 1.0.4">
+  <img src="https://img.shields.io/badge/version-1.0.5-e8825f" alt="version 1.0.5">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 
@@ -75,11 +75,12 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **Timeline** — 날짜별 세션/계획 이벤트를 "N일 공백" 구분선과 함께. 기본 진입 탭.
 - **Workspace** — 프로젝트 회상(좌우 마스터-디테일) + 상태/메모/트랙 + 계획 + **메모리/파일 브라우저**(옛 Memory 탭 흡수). 프로젝트 목록은 정렬·숨기기로 정돈한다.
 - **Git (Workspace 내장)** — 변경/diff/stage/commit, 커밋 그래프(DAG), 브랜치 전환·생성, merge/rebase/cherry-pick/revert, push/pull/fetch. 시스템 `git` CLI 직접 호출(GitHub 연동은 후속).
+- **News** — Claude Code 릴리스 노트·Anthropic 공식 소식·AI 뉴스(Hacker News)를 한 피드로 모아 본다. **English / 한국어 / 병기** 전환 + DeepL 번역(코드·명령어·고유명사는 영어 유지). 라이브 fetch도 번역도 main이 처리한다(렌더러는 외부 호출 없음).
 - **안전 모델** — 경로 allowlist, git 저장소 검증 가드, 낙관적 동시성(409), `.bak` 백업, 아카이브 복구.
 
 ## 사용법
 
-좌측 네비게이션의 **5개 탭**(Timeline · Workspace · Catalog · Cleanup · Config Editor)으로 이동한다. 기본 진입은 **Timeline**이다. 우상단 **☀ / 🌙** 로 라이트/다크 테마를 전환한다(localStorage에 저장).
+좌측 네비게이션에서 관리 5탭(Timeline · Workspace · Catalog · Cleanup · Config Editor)과 그 아래 구분된 **News** 탭으로 이동한다. 기본 진입은 **Timeline**이다. 우상단 **☀ / 🌙** 로 라이트/다크 테마를 전환한다(localStorage에 저장). 업데이트 확인 버튼은 사이드바 맨 아래에 고정돼 있다.
 
 ### Timeline
 날짜별로 **세션·계획 이벤트**를 시간순으로 보여준다(기본 진입 탭). 주말 같은 공백은 "N일 공백" 구분선으로 가시화된다. 행을 클릭하면 펼쳐서 세션은 마지막 입력/응답 스니펫을, 계획은 본문 마크다운을 보여준다. Claude Code 세션이 실행 중이면 상단에 경고 배너가 뜬다(설정 저장·정리 시 충돌 주의).
@@ -116,6 +117,12 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **저장** 시 현재본을 `.bak` 로 백업(20개 로테이션)한 뒤 원자적으로 교체한다. 파일이 외부에서 바뀌면 충돌(409)을 감지해 덮어쓰지 않는다.
 - 하단 **백업** 목록에서 이전 버전으로 **복원**한다.
 - **`.claude.json` 은 읽기 전용** 이다(Claude Code가 상시 재작성하므로 충돌을 막기 위함 — 수동 절차로만 수정).
+
+### News
+Claude Code 릴리스 노트 · Anthropic 공식 소식 · 일반 AI 뉴스(Hacker News)를 시각 역순으로 모은 통합 피드다. main이 공개 소스를 **라이브 fetch**하고(렌더러는 외부 호출 없음), 항목을 클릭하면 펼쳐서 Claude Code 패치 노트는 본문 마크다운을, 그 외는 "원문 열기"로 OS 브라우저를 연다. 수동 새로고침 위주이며 마지막 결과를 디스크에 캐시한다.
+
+- **언어 전환** — 상단 **EN / 한국어 / EN+한(병기)** 토글. 한국어·병기 모드는 **DeepL Free API**로 번역하되 **코드·명령어·URL·고유명사(Claude · Anthropic · MCP 등)는 영어 그대로** 유지한다(마스킹 보강). 번역은 필요할 때만 호출하고 캐시해 무료 한도를 아낀다(English 모드는 호출 0).
+- **DeepL 키** — 한국어·병기를 처음 고르면 키 입력란이 뜬다(무료 키는 `…:fx` 로 끝남 → free 엔드포인트 자동 선택). 키는 `~/.claude/harness-manager/secrets.json` 에만 보관되고 화면에선 마스킹되며, 렌더러로는 "설정됨 여부"만 전달된다.
 
 ## 아키텍처
 

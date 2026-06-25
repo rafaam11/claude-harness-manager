@@ -3,6 +3,12 @@
 // DT_GitManager에서 흡수한 git 도메인 타입(요청은 projectId 기반). 분량이 커서 별도 파일로 분리.
 export * from "./git-types.js";
 
+// News 탭 도메인 타입(세 소스 정규화·소스별 상태). 분량상 별도 파일로 분리.
+export * from "./news-types.js";
+
+// News 번역·시크릿 타입(DeepL 번역 요청/응답, 키 존재여부). 분량상 별도 파일로 분리.
+export * from "./translate-types.js";
+
 export type ApiMethod = "GET" | "PUT" | "POST";
 
 /** renderer → main 요청. url은 기존 fetch 경로 문자열을 그대로 싣는다(예: "/api/workspace/plans?archived=1"). */
@@ -25,6 +31,7 @@ export const IpcChannels = {
   appGetVersion: "app:get-version",
   appOpenReleases: "app:open-releases",
   appOpenPath: "app:open-path",
+  appOpenExternal: "app:open-external",
   appPickDirectory: "app:pick-directory",
   updaterCheck: "updater:check",
   updaterQuitAndInstall: "updater:quit-and-install",
@@ -51,6 +58,8 @@ export interface AppApi {
   openReleases: () => Promise<void>;
   /** 폴더 경로를 OS 파일 탐색기로 연다. 실패 시 에러 메시지, 성공 시 빈 문자열(shell.openPath 반환). */
   openPath: (target: string) => Promise<string>;
+  /** 임의 외부 URL을 OS 브라우저로 연다(http/https만, News 원문 링크용). */
+  openExternal: (url: string) => Promise<void>;
   /** 폴더 선택 dialog를 연다(Git repo 경로 수동 교정용). 취소 시 null. */
   pickDirectory: () => Promise<string | null>;
   /** 수동 "업데이트 확인". packaged에서 autoUpdater.checkForUpdates(), dev면 즉시 idle. */

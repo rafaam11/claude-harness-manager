@@ -10,6 +10,9 @@ import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
 import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
 import { readPlanContent } from "./services/plans.js";
+import { getNews, refreshNews } from "./services/news.js";
+import { translateItems } from "./services/translate.js";
+import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
   setPlanField,
   setProjectField,
@@ -25,7 +28,11 @@ import type {
   DiffRequest,
   GitOpKind,
   GraphActionRequest,
+  NewsItem,
+  SecretStatus,
+  SetDeepLKeyRequest,
   StatusEntryKind,
+  TranslateRequest,
 } from "@shared/types";
 
 /**
@@ -63,6 +70,44 @@ function configEntry(name: string) {
 // 라우트 테이블. 기존 server/src/routes/index.ts 의 핸들러 본문을 그대로 이식했다.
 const routes: Route[] = [
   { method: "GET", pattern: "/api/cc-status", handler: async () => detectClaude() },
+
+  // --- news (라이브 뉴스 통합 피드) ---
+  // GET은 캐시 조회(멱등), refresh는 네트워크 fetch+디스크 쓰기라 POST. 둘 다 throw 안 하고
+  // 부분 실패를 응답의 sources[].ok로 전달한다(전 소스 실패해도 캐시/빈 피드 반환 → 페이지 생존).
+  { method: "GET", pattern: "/api/news", handler: async () => getNews() },
+  { method: "POST", pattern: "/api/news/refresh", handler: async () => refreshNews() },
+  // 번역: 보이는/펼친 항목 id를 받아 미번역만 DeepL 호출. 부분 실패해도 200(성공분 반환).
+  // id→item은 main이 현재 캐시 피드에서 해석한다(원문을 IPC로 왕복시키지 않음 = 신뢰 경계).
+  {
+    method: "POST",
+    pattern: "/api/news/translate",
+    handler: async ({ body }) => {
+      const { ids, target = "ko", withBody = false } = body as Partial<TranslateRequest>;
+      if (!Array.isArray(ids) || ids.length === 0) throw new HttpError(400, "ids 필요");
+      if (target !== "ko") throw new HttpError(400, "지원하지 않는 target");
+      const feed = await getNews();
+      const byId = new Map(feed.items.map((i) => [i.id, i]));
+      const items = ids.map((id) => byId.get(id)).filter((x): x is NewsItem => Boolean(x));
+      return translateItems(items, { withBody: withBody === true });
+    },
+  },
+  // DeepL 키 존재 여부(boolean만). 키 원문은 절대 반환하지 않는다.
+  {
+    method: "GET",
+    pattern: "/api/app/secrets/deepl",
+    handler: async (): Promise<SecretStatus> => ({ configured: await hasDeepLKey() }),
+  },
+  // DeepL 키 저장(빈 문자열이면 해제). 갱신된 존재 여부 반환.
+  {
+    method: "POST",
+    pattern: "/api/app/secrets/deepl",
+    handler: async ({ body }): Promise<SecretStatus> => {
+      const { key } = body as Partial<SetDeepLKeyRequest>;
+      if (typeof key !== "string") throw new HttpError(400, "key 필요");
+      await setDeepLKey(key);
+      return { configured: key.trim().length > 0 };
+    },
+  },
 
   // --- configs ---
   {

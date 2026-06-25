@@ -1,20 +1,8 @@
-import { app, shell, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import { join } from "path";
 import { registerIpcHandlers } from "./ipc.js";
 import { initUpdater } from "./updater.js";
-
-/** 안전한 웹 스킴(http/https)일 때만 OS 브라우저로 연다. file:/javascript: 등은 무시. */
-function openExternalSafely(rawUrl: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return;
-  }
-  if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-    void shell.openExternal(rawUrl);
-  }
-}
+import { openExternalSafely } from "./lib/open-external.js";
 
 /**
  * renderer가 로드/연결할 수 있는 대상을 제한한다. dev에서는 Vite가 eval/websocket을 쓰므로 건너뛴다.

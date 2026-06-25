@@ -15,6 +15,7 @@ const appApi: AppApi = {
   getVersion: () => ipcRenderer.invoke(IpcChannels.appGetVersion),
   openReleases: () => ipcRenderer.invoke(IpcChannels.appOpenReleases),
   openPath: (target: string) => ipcRenderer.invoke(IpcChannels.appOpenPath, target),
+  openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.appOpenExternal, url),
   pickDirectory: () => ipcRenderer.invoke(IpcChannels.appPickDirectory),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannels.updaterCheck),
   quitAndInstall: () => ipcRenderer.invoke(IpcChannels.updaterQuitAndInstall),

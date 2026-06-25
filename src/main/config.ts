@@ -39,6 +39,67 @@ export const TASKS_DIR = path.join(CLAUDE_HOME, "tasks");
 // 앱 소유 수동 레이어(상태/메모/연결 override). ~/.claude 하위라 allowlist 통과.
 export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json");
 
+// --- News 탭 (라이브 뉴스 통합 피드) ---
+// 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).
+export const NEWS_CACHE_FILE = path.join(CLAUDE_HOME, "harness-manager", "news-cache.json");
+// 각 소스에서 가져올 항목 수(GitHub per_page / HN hitsPerPage / anthropic 정규식 매치 상한).
+export const NEWS_CLAUDE_COUNT = 15;
+export const NEWS_ANTHROPIC_COUNT = 15;
+export const NEWS_AI_COUNT = 15;
+// 단일 fetch 타임아웃(AbortController). 외부 소스라 보수적으로.
+export const NEWS_FETCH_TIMEOUT_MS = 8000;
+// 메모리 캐시 수명. 탭 재진입·중복 GET 시 디스크/네트워크 재방문 방지(recall WORKSPACE_CACHE_TTL_MS 패턴).
+export const NEWS_MEMORY_TTL_MS = 60 * 1000;
+// 새로고침 최소 간격. 직전 새로고침이 이 안이면 캐시를 그대로 반환(GitHub rate limit 보호, 연타 방지).
+export const NEWS_REFRESH_MIN_INTERVAL_MS = 10 * 1000;
+// 소스 엔드포인트·쿼리(단일 출처).
+export const NEWS_GITHUB_RELEASES_URL =
+  "https://api.github.com/repos/anthropics/claude-code/releases";
+export const NEWS_ANTHROPIC_URL = "https://www.anthropic.com/news";
+export const NEWS_ANTHROPIC_BASE = "https://www.anthropic.com";
+export const NEWS_HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date";
+export const NEWS_HN_QUERY = "AI OR LLM";
+
+// --- News 번역(DeepL) / 시크릿 ---
+// 앱 소유 시크릿. board.json과 분리(이유: board.json은 .bak에 평문 키가 누적됨).
+export const SECRET_FILE = path.join(CLAUDE_HOME, "harness-manager", "secrets.json");
+// 번역 캐시. 뉴스 fetch와 독립(id 안정 키로 새로고침 carry-over).
+export const TRANSLATION_CACHE_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "translation-cache.json",
+);
+// Free 키는 ":fx"로 끝남 → 키 접미사로 엔드포인트 자동 선택(translate.ts).
+export const DEEPL_FREE_URL = "https://api-free.deepl.com/v2/translate";
+export const DEEPL_PRO_URL = "https://api.deepl.com/v2/translate";
+// DeepL 호출 타임아웃(AbortController). 본문이 길어 news fetch(8s)보다 여유.
+export const DEEPL_TIMEOUT_MS = 12000;
+// text 배열 상한(DeepL 스펙). 제목 배치 크기.
+export const DEEPL_MAX_BATCH = 50;
+// 바디 128KiB 한도에 여유를 둔 본문 분할 기준(바이트).
+export const DEEPL_MAX_BODY_BYTES = 100 * 1024;
+// 영어로 유지할 고유명사 화이트리스트(마스킹 보강). 단어 경계로만 매치, 표기 그대로 복원.
+export const TRANSLATION_GLOSSARY: readonly string[] = [
+  "Claude Code",
+  "Claude",
+  "Anthropic",
+  "MCP",
+  "API",
+  "SDK",
+  "CLI",
+  "OpenAI",
+  "Gemini",
+  "GitHub",
+  "Hacker News",
+  "LLM",
+  "RAG",
+  "JSON",
+  "npm",
+  "Electron",
+  "TypeScript",
+  "React",
+];
+
 // transcript 끝에서 이만큼만 읽어 ai-title/last-prompt/마지막 응답을 추출한다.
 export const RECALL_TAIL_BYTES = 512 * 1024;
 // tail에 신호가 전무할 때만 readline 스트리밍 폴백을 허용하는 상한.

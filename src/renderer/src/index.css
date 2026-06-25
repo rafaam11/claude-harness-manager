@@ -61,7 +61,14 @@ body {
 nav {
   width: 200px; background: var(--panel); border-right: 1px solid var(--border);
   padding: 16px 0; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  /* viewport 높이로 고정 + 상단 sticky — 본문이 길어 페이지가 스크롤돼도
+     nav가 같이 늘어나 UpdateBadge가 바닥으로 밀려나는 것을 막는다(항상 보이게). */
+  height: 100vh; position: sticky; top: 0; overflow-y: auto;
 }
+/* 탭 그룹 사이 구분선(라벨 없음) + UpdateBadge를 바닥으로 미는 가변 스페이서 */
+.nav-divider { height: 1px; background: var(--border); margin: 8px 16px; }
+.nav-spacer { flex: 1 1 auto; }
 .nav-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 16px 12px;
@@ -85,7 +92,7 @@ nav button.nav-item.active {
 nav button.nav-item:hover { color: var(--text); }
 
 .update-badge {
-  margin-top: 18px; padding: 12px 16px 0; border-top: 1px solid var(--border);
+  margin-top: 0; padding: 12px 16px 0; border-top: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
 }
 .update-badge .app-version { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -374,6 +381,42 @@ pre.viewer {
 .timeline-expand.ws-planbody { margin-left: 28px; padding-left: 0; }
 .bdg-session { background: #6366f1; }
 .bdg-plan { background: #10b981; }
+
+/* News (라이브 통합 피드) — Timeline 클래스 재사용 + 소스 배지/툴바만 추가 */
+.news-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.news-sources { display: inline-flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.news-src { font-size: 11px; }
+.news-src.ok { color: var(--ok); }
+.news-src.err { color: var(--err); }
+.bdg-cc { background: #d97706; }
+.bdg-anthropic { background: #8b5cf6; }
+.bdg-ai { background: #0ea5e9; }
+
+/* 언어 3단 토글(EN / 한국어 / EN+한) — 세그먼트 버튼 */
+.news-mode-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.news-mode-toggle .mode-btn {
+  background: var(--card); border: none; border-left: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; padding: 5px 10px; cursor: pointer;
+}
+.news-mode-toggle .mode-btn:first-child { border-left: none; }
+.news-mode-toggle .mode-btn:hover { color: var(--text); }
+.news-mode-toggle .mode-btn.active { background: var(--accent); color: var(--on-accent); }
+/* 병기 모드 제목 번역(원문 옆 · 한국어) */
+.title-ko { color: var(--muted); font-size: 12px; }
+/* 병기 모드 본문 원문/번역 구분선 */
+.news-both-sep { height: 1px; background: var(--border); margin: 10px 0; }
+.news-translating { font-size: 11px; margin-top: 4px; }
+.news-translating-bar { font-size: 12px; margin-bottom: 12px; }
+
+/* DeepL 키 입력 패널(마스킹) */
+.deepl-key-panel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--active-bg); border: 1px solid var(--border); }
+.deepl-key-panel .dk-label { font-size: 13px; }
+.deepl-key-panel .dk-input {
+  flex: 1; min-width: 180px; background: var(--editor-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-size: 12px;
+}
+.deepl-key-panel .dk-input:focus { outline: none; border-color: var(--accent); }
+.deepl-key-panel .dk-hint { font-size: 11px; }
 
 /* 카드 헤더 아이콘 버튼(이름 편집 ✎ · 폴더 열기 📂 · 저장/취소 · 트랙/할일 삭제) */
 .ws-icon-btn {

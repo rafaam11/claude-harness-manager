@@ -5,6 +5,7 @@ import Workspace from "./pages/Workspace";
 import Catalog from "./pages/Catalog";
 import Cleanup from "./pages/Cleanup";
 import ConfigEditor from "./pages/ConfigEditor";
+import News from "./pages/News";
 import UpdateBadge from "./components/UpdateBadge";
 
 const PAGES = {
@@ -13,10 +14,15 @@ const PAGES = {
   catalog: { label: "Catalog", el: <Catalog /> },
   cleanup: { label: "Cleanup", el: <Cleanup /> },
   configs: { label: "Config Editor", el: <ConfigEditor /> },
+  news: { label: "News", el: <News /> },
 } as const;
 
 type PageKey = keyof typeof PAGES;
 type Theme = "dark" | "light";
+
+// nav 렌더 그룹. PAGES는 평면 유지(PageKey 추론·PAGES[page].el 보존), 순서/그룹 구분만 여기서.
+const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs"];
+const SECONDARY_PAGES: PageKey[] = ["news"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
@@ -57,7 +63,7 @@ export default function App() {
             {theme === "dark" ? "☀" : "🌙"}
           </button>
         </div>
-        {(Object.keys(PAGES) as PageKey[]).map((k) => (
+        {PRIMARY_PAGES.map((k) => (
           <button
             key={k}
             className={`nav-item${page === k ? " active" : ""}`}
@@ -66,6 +72,17 @@ export default function App() {
             {PAGES[k].label}
           </button>
         ))}
+        <div className="nav-divider" />
+        {SECONDARY_PAGES.map((k) => (
+          <button
+            key={k}
+            className={`nav-item${page === k ? " active" : ""}`}
+            onClick={() => setPage(k)}
+          >
+            {PAGES[k].label}
+          </button>
+        ))}
+        <div className="nav-spacer" />
         <UpdateBadge />
       </nav>
       <main className={page === "workspace" ? "page-wide" : undefined}>

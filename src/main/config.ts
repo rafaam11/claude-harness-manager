@@ -108,3 +108,25 @@ export const RECALL_MAX_FULL_SCAN_BYTES = 8 * 1024 * 1024;
 export const WORKSPACE_CACHE_TTL_MS = 5000;
 // 계획 파일 mtime과 history 기록의 시각차가 이 안이면 같은 프로젝트로 추정.
 export const PLAN_GUESS_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+// --- Glossary 추천 어휘 (로컬 프롬프트 분석) ---
+// 최근 활동순 상위 N개 프로젝트의 최신 transcript에서 distinct user 프롬프트를 모아 corpus를 만든다.
+// 외부 호출 0(로컬 분석). 매칭은 renderer가 자기 용어집 데이터로 수행한다.
+export const GLOSSARY_CORPUS_MAX_PROJECTS = 12;
+export const GLOSSARY_PROMPTS_PER_PROJECT = 8;
+export const GLOSSARY_CORPUS_MAX_TEXTS = 96;
+export const GLOSSARY_PROMPT_MAX = 2000;
+
+// 커스텀 용어집(개인화). 사용자가 자기 Claude Code로 채우는 파일 — 앱은 읽기 전용.
+// board.json과 같은 harness-manager 디렉토리(allowlist 통과). 손상/없음에도 생존.
+export const GLOSSARY_CUSTOM_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "glossary-custom.json",
+);
+// sanitize 상한(오타·악의 입력 방어). 초과분은 잘림.
+export const GLOSSARY_CUSTOM_MAX_DOMAINS = 12;
+export const GLOSSARY_CUSTOM_MAX_SUBCATS = 12; // per domain
+export const GLOSSARY_CUSTOM_MAX_TERMS = 500;
+export const GLOSSARY_CUSTOM_LABEL_MAX = 60;
+export const GLOSSARY_CUSTOM_DEF_MAX = 400;

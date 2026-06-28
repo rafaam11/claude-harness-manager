@@ -8,7 +8,8 @@ import { getPlugins } from "./services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
-import { getWorkspaceProjects, getEnrichedPlans, getTimeline } from "./services/recall.js";
+import { getWorkspaceProjects, getEnrichedPlans, getTimeline, getPromptCorpus } from "./services/recall.js";
+import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
 import { getNews, refreshNews } from "./services/news.js";
 import { translateItems } from "./services/translate.js";
@@ -108,6 +109,16 @@ const routes: Route[] = [
       return { configured: key.trim().length > 0 };
     },
   },
+
+  // --- glossary (추천 어휘: 로컬 프롬프트 분석) ---
+  // 최근 프롬프트 텍스트 corpus만 내려준다(외부 호출 0). 매칭은 renderer가 자기 용어집 데이터로 수행.
+  {
+    method: "GET",
+    pattern: "/api/glossary/prompt-corpus",
+    handler: async () => ({ texts: await getPromptCorpus() }),
+  },
+  // 커스텀 용어집(개인화) 읽기 — 사용자/CC가 채운 파일을 읽기 전용으로. 손상/없음에도 빈 값 생존.
+  { method: "GET", pattern: "/api/glossary/custom", handler: async () => readCustomGlossary() },
 
   // --- configs ---
   {

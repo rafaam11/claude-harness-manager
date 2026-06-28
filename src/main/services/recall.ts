@@ -9,6 +9,10 @@ import {
   RECALL_MAX_FULL_SCAN_BYTES,
   WORKSPACE_CACHE_TTL_MS,
   PLAN_GUESS_WINDOW_MS,
+  GLOSSARY_CORPUS_MAX_PROJECTS,
+  GLOSSARY_PROMPTS_PER_PROJECT,
+  GLOSSARY_CORPUS_MAX_TEXTS,
+  GLOSSARY_PROMPT_MAX,
 } from "../config.js";
 import { guardPath } from "../lib/path-guard.js";
 import { getProjects, guessOriginalPath } from "./projects.js";
@@ -244,6 +248,52 @@ export async function readNewestSessionRecall(projectDir: string): Promise<Sessi
     truncatedScan: truncated,
   };
 }
+
+// --- Glossary 추천 어휘용 프롬프트 corpus ---
+// applyLine은 "마지막 1개"만 뽑으므로 추천 매칭엔 얕다. distinct user 프롬프트를 최신부터 모은다.
+// type:"user" + 문자열 content만(배열은 tool 결과). 합성 last-prompt식 중복은 Set으로 제거.
+function collectUserPrompts(lines: string[], limit: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (o?.type !== "user" || o?.isMeta) continue;
+    const c = o.message?.content;
+    if (typeof c !== "string") continue; // 배열(tool 결과)·비문자열 제외
+    const s = c.trim();
+    if (!s || s.startsWith("<")) continue; // 빈 줄·커맨드/시스템 wrapper 제외
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s.length > GLOSSARY_PROMPT_MAX ? s.slice(0, GLOSSARY_PROMPT_MAX) : s);
+  }
+  return out;
+}
+
+// 최근 활동순 상위 프로젝트의 최신 transcript tail에서 프롬프트를 모은 corpus(외부 호출 0).
+async function getPromptCorpusUncached(): Promise<string[]> {
+  const projects = [...(await getProjects())]
+    .sort((a, b) => b.lastActivity - a.lastActivity)
+    .slice(0, GLOSSARY_CORPUS_MAX_PROJECTS);
+  const texts: string[] = [];
+  for (const proj of projects) {
+    const newest = await findNewestTranscript(path.join(PROJECTS_DIR, proj.id));
+    if (!newest) continue;
+    const { text, truncated } = await readTail(newest.path, newest.size);
+    let lines = text.split("\n");
+    if (truncated) lines = lines.slice(1); // 잘린 첫 줄 폐기
+    texts.push(...collectUserPrompts(lines, GLOSSARY_PROMPTS_PER_PROJECT));
+    if (texts.length >= GLOSSARY_CORPUS_MAX_TEXTS) break;
+  }
+  return texts.slice(0, GLOSSARY_CORPUS_MAX_TEXTS);
+}
+export const getPromptCorpus = cached(WORKSPACE_CACHE_TTL_MS, getPromptCorpusUncached);
 
 // --- history.jsonl 인덱스 ---
 async function buildHistoryIndexUncached(): Promise<HistoryEntry[]> {

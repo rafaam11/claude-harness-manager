@@ -6,6 +6,7 @@ import Catalog from "./pages/Catalog";
 import Cleanup from "./pages/Cleanup";
 import ConfigEditor from "./pages/ConfigEditor";
 import News from "./pages/News";
+import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
 
 const PAGES = {
@@ -15,6 +16,7 @@ const PAGES = {
   cleanup: { label: "Cleanup", el: <Cleanup /> },
   configs: { label: "Config Editor", el: <ConfigEditor /> },
   news: { label: "News", el: <News /> },
+  glossary: { label: "Glossary", el: <Glossary /> },
 } as const;
 
 type PageKey = keyof typeof PAGES;
@@ -22,7 +24,9 @@ type Theme = "dark" | "light";
 
 // nav 렌더 그룹. PAGES는 평면 유지(PageKey 추론·PAGES[page].el 보존), 순서/그룹 구분만 여기서.
 const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs"];
-const SECONDARY_PAGES: PageKey[] = ["news"];
+const SECONDARY_PAGES: PageKey[] = ["news", "glossary"];
+// 좌우 2단(마스터-디테일)이라 전체 너비를 쓰는 페이지.
+const WIDE_PAGES: PageKey[] = ["workspace", "glossary"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
@@ -85,7 +89,7 @@ export default function App() {
         <div className="nav-spacer" />
         <UpdateBadge />
       </nav>
-      <main className={page === "workspace" ? "page-wide" : undefined}>
+      <main className={WIDE_PAGES.includes(page) ? "page-wide" : undefined}>
         {ccRunning && (
           <div className="banner warn">
             Claude Code 세션이 실행 중입니다 — 설정 저장·정리 실행 시 충돌에 주의하세요.

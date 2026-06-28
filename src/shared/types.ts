@@ -9,6 +9,9 @@ export * from "./news-types.js";
 // News 번역·시크릿 타입(DeepL 번역 요청/응답, 키 존재여부). 분량상 별도 파일로 분리.
 export * from "./translate-types.js";
 
+// 커스텀 용어집(개인화) 타입(사용자가 CC로 채우는 glossary-custom.json). 분량상 별도 파일로 분리.
+export * from "./glossary-types.js";
+
 export type ApiMethod = "GET" | "PUT" | "POST";
 
 /** renderer → main 요청. url은 기존 fetch 경로 문자열을 그대로 싣는다(예: "/api/workspace/plans?archived=1"). */

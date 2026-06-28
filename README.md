@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/platform-Linux-1c2230?logo=linux&logoColor=white" alt="Linux">
-  <img src="https://img.shields.io/badge/version-1.0.5-e8825f" alt="version 1.0.5">
+  <img src="https://img.shields.io/badge/version-1.0.6-e8825f" alt="version 1.0.6">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 
@@ -76,11 +76,12 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **Workspace** — 프로젝트 회상(좌우 마스터-디테일) + 상태/메모/트랙 + 계획 + **메모리/파일 브라우저**(옛 Memory 탭 흡수). 프로젝트 목록은 정렬·숨기기로 정돈한다.
 - **Git (Workspace 내장)** — 변경/diff/stage/commit, 커밋 그래프(DAG), 브랜치 전환·생성, merge/rebase/cherry-pick/revert, push/pull/fetch. 시스템 `git` CLI 직접 호출(GitHub 연동은 후속).
 - **News** — Claude Code 릴리스 노트·Anthropic 공식 소식·AI 뉴스(Hacker News)를 한 피드로 모아 본다. **English / 한국어 / 병기** 전환 + DeepL 번역(코드·명령어·고유명사는 영어 유지). 라이브 fetch도 번역도 main이 처리한다(렌더러는 외부 호출 없음).
+- **Glossary (용어집)** — 바이브코딩·AI 용어를 **3단계 분류 트리**(좌우 마스터-디테일)로 학습한다. 최근 프롬프트를 **로컬 분석**해 ❌ 내가 쓴 막연한 표현 / ✅ 정식 용어로 명확히 쓴 예시를 짚어주는 **추천 어휘**, 자주 헷갈리는 **약점 영역** 안내, 그리고 Claude Code로 채우는 **커스텀 용어집**(로보틱스·비전 등 개인 도메인)을 지원한다. 외부 호출 없음.
 - **안전 모델** — 경로 allowlist, git 저장소 검증 가드, 낙관적 동시성(409), `.bak` 백업, 아카이브 복구.
 
 ## 사용법
 
-좌측 네비게이션에서 관리 5탭(Timeline · Workspace · Catalog · Cleanup · Config Editor)과 그 아래 구분된 **News** 탭으로 이동한다. 기본 진입은 **Timeline**이다. 우상단 **☀ / 🌙** 로 라이트/다크 테마를 전환한다(localStorage에 저장). 업데이트 확인 버튼은 사이드바 맨 아래에 고정돼 있다.
+좌측 네비게이션에서 관리 5탭(Timeline · Workspace · Catalog · Cleanup · Config Editor)과 그 아래 구분된 **News · Glossary** 탭으로 이동한다. 기본 진입은 **Timeline**이다. 우상단 **☀ / 🌙** 로 라이트/다크 테마를 전환한다(localStorage에 저장). 업데이트 확인 버튼은 사이드바 맨 아래에 고정돼 있다.
 
 ### Timeline
 날짜별로 **세션·계획 이벤트**를 시간순으로 보여준다(기본 진입 탭). 주말 같은 공백은 "N일 공백" 구분선으로 가시화된다. 행을 클릭하면 펼쳐서 세션은 마지막 입력/응답 스니펫을, 계획은 본문 마크다운을 보여준다. Claude Code 세션이 실행 중이면 상단에 경고 배너가 뜬다(설정 저장·정리 시 충돌 주의).
@@ -123,6 +124,13 @@ Claude Code 릴리스 노트 · Anthropic 공식 소식 · 일반 AI 뉴스(Hack
 
 - **언어 전환** — 상단 **EN / 한국어 / EN+한(병기)** 토글. 한국어·병기 모드는 **DeepL Free API**로 번역하되 **코드·명령어·URL·고유명사(Claude · Anthropic · MCP 등)는 영어 그대로** 유지한다(마스킹 보강). 번역은 필요할 때만 호출하고 캐시해 무료 한도를 아낀다(English 모드는 호출 0).
 - **DeepL 키** — 한국어·병기를 처음 고르면 키 입력란이 뜬다(무료 키는 `…:fx` 로 끝남 → free 엔드포인트 자동 선택). 키는 `~/.claude/harness-manager/secrets.json` 에만 보관되고 화면에선 마스킹되며, 렌더러로는 "설정됨 여부"만 전달된다.
+
+### Glossary
+바이브코딩·AI·개발 용어를 **대분류 > 소분류 > 용어** 3단계 트리로 학습하는 좌우 2단 사전이다. 모든 분석은 로컬에서만 일어난다(외부 호출 없음).
+
+- **트리 탐색** — 왼쪽에 4개 대분류(화면 UI · AI 활용 · 개발 기초 · 도구·협업) 아래 9개 소분류, 오른쪽에 선택한 소분류의 용어가 분류 경로(breadcrumb)와 함께 펼쳐진다. UI 요소는 미니 SVG 스케치를 곁들인다. 검색은 트리를 가로질러 전체에서 찾는다.
+- **추천 어휘(do/don't)** — 내가 Claude Code에 입력한 최근 프롬프트를 **로컬 분석**해, 막연한 표현(예: "팝업")만 쓰고 정식 명칭("Modal")은 안 쓴 용어를 우선 추천한다. 카드에 **❌ 내가 실제로 쓴 문장 / ✅ 정식 용어로 명확히 쓴 예시**를 나란히 보여줘 습관을 교정하고, 자주 헷갈리는 **약점 영역**도 짚어준다.
+- **커스텀 용어집(개인화)** — 로보틱스·비전처럼 사람마다 다른 도메인은 좌측 **＋ 내 용어집** 패널의 프롬프트를 복사해 자기 Claude Code에 붙여넣으면, CC가 `~/.claude/harness-manager/glossary-custom.json` 을 채운다. 앱은 이 파일을 **읽기 전용**으로 읽어 사용자 정의 도메인을 트리에 더한다(손상·없음에도 생존).
 
 ## 아키텍처
 

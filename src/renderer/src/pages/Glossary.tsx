@@ -1,11 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Search, Sparkles, RefreshCw, ChevronRight, ChevronDown, Boxes, Copy, FolderOpen } from "lucide-react";
+import {
+  Search,
+  Sparkles,
+  RefreshCw,
+  ChevronRight,
+  ChevronDown,
+  Boxes,
+  Copy,
+  FolderOpen,
+  Network,
+  List,
+} from "lucide-react";
 import { api } from "../api/client";
 import { GLOSSARY, SUBCAT_META, type GlossaryTerm } from "../data/glossary";
 import { GLOSSARY_EXTRA, type LiteTerm } from "../data/glossary-extra";
 import { buildRecommendations, type RecoCandidate, type WeakArea } from "../data/glossary-reco";
 import { buildTree, subcatIndex, type RTSubcat } from "../data/glossary-runtime";
+import {
+  buildGraph,
+  localGraph,
+  relatedNodes,
+  type GlossaryGraph as Graph,
+} from "../data/glossary-graph";
+import { simulateLayout } from "../data/glossary-force";
+import GlossaryGraphView, { GRAPH_DEFAULTS, type GraphSettings } from "./GlossaryGraph";
 import { SKETCHES } from "../data/glossary-sketches";
 import type { CustomGlossaryResponse, CustomGlossaryTerm } from "@shared/types";
 
@@ -14,6 +33,13 @@ type Row =
   | { kind: "glossary"; subcat: string; t: GlossaryTerm }
   | { kind: "lite"; subcat: string; t: LiteTerm }
   | { kind: "custom"; subcat: string; t: CustomGlossaryTerm };
+
+// 행 → 그래프 노드 id(펼침 키·DOM id·칩 네비게이션 공용). glossary-graph의 id 스킴과 일치.
+function nodeIdOf(row: Row): string {
+  if (row.kind === "glossary") return row.t.id;
+  if (row.kind === "lite") return `lite:${row.t.term}`;
+  return `${row.subcat}:${row.t.term}`; // custom: row.subcat = custom:<domain>:<subcat>
+}
 
 function rowText(row: Row): string {
   if (row.kind === "glossary") {
@@ -41,7 +67,7 @@ function dirname(p: string): string {
   return i >= 0 ? p.slice(0, i) : p;
 }
 
-// 바이브코딩 용어집 — 3단계 트리(기본+커스텀) 마스터-디테일 + 약점 영역 do/don't 추천.
+// 바이브코딩 용어집 — 3단계 트리(기본+커스텀) + 약점 영역 do/don't 추천 + 관계 그래프(트리/그래프 뷰).
 export default function Glossary() {
   const [query, setQuery] = useState("");
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(
@@ -53,6 +79,13 @@ export default function Glossary() {
   const [corpus, setCorpus] = useState<string[] | null>(null);
   const [recoCursor, setRecoCursor] = useState(0);
   const [custom, setCustom] = useState<CustomGlossaryResponse | null>(null);
+
+  // 뷰 전환(트리/그래프) + 그래프 상태.
+  const [view, setView] = useState<"tree" | "graph">("tree");
+  const [graphMode, setGraphMode] = useState<"global" | "local">("global");
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [gset, setGset] = useState<GraphSettings>(GRAPH_DEFAULTS);
+  const setG = (patch: Partial<GraphSettings>) => setGset((s) => ({ ...s, ...patch }));
 
   const loadCustom = useCallback(() => {
     api
@@ -86,6 +119,30 @@ export default function Glossary() {
   const flatSubcats = useMemo(
     () => tree.flatMap((d) => d.subcats.map((sc) => ({ sc, domLabel: d.label }))),
     [tree],
+  );
+
+  // 관계 그래프 + force 레이아웃(전역). 커스텀 변경 시에만 재계산.
+  const graph = useMemo(() => buildGraph(custom?.data ?? null), [custom]);
+  // 물리값(간격·뭉침)은 지연 적용 — 슬라이더 드래그가 레이아웃 재계산으로 버벅이지 않게.
+  const phys = useDeferredValue(gset);
+  const layout = useMemo(
+    () => simulateLayout(graph.nodes, graph.edges, { idealDist: phys.spacing, gravity: phys.gravity }),
+    [graph, phys.spacing, phys.gravity],
+  );
+  const localG = useMemo(
+    () => (selectedNode ? localGraph(graph, selectedNode) : null),
+    [graph, selectedNode],
+  );
+  const localLayout = useMemo(
+    () =>
+      localG
+        ? simulateLayout(localG.nodes, localG.edges, {
+            iterations: 320,
+            idealDist: phys.spacing * 0.8,
+            gravity: phys.gravity,
+          })
+        : null,
+    [localG, phys.spacing, phys.gravity],
   );
 
   const allRows = useMemo(() => {
@@ -154,10 +211,30 @@ export default function Glossary() {
     });
 
   const goSubcat = (sub: string) => {
+    setView("tree");
     setQuery("");
     setSelectedSubcat(sub);
     const rt = subIndex.get(sub);
     if (rt) setExpandedDomains((prev) => new Set(prev).add(rt.domainId));
+  };
+
+  // 그래프/칩에서 특정 용어로 이동 — 트리 뷰로 전환·소분류 선택·펼침·스크롤.
+  const goToNode = (id: string) => {
+    const node = graph.nodeById.get(id);
+    if (!node) return;
+    setView("tree");
+    setQuery("");
+    setSelectedSubcat(node.subcat);
+    const rt = subIndex.get(node.subcat);
+    if (rt) setExpandedDomains((prev) => new Set(prev).add(rt.domainId));
+    setExpandedTerms((prev) => new Set(prev).add(id));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document
+          .getElementById(`gl-row-${id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      ),
+    );
   };
 
   const onPick = (r: RecoCandidate) => {
@@ -172,11 +249,14 @@ export default function Glossary() {
     }
   };
 
+  const useLocal = graphMode === "local" && !!selectedNode && !!localG && !!localLayout;
+  const hasCustom = (custom?.data.domains.length ?? 0) > 0;
+
   return (
     <div>
       <h2>Glossary</h2>
       <p className="muted" style={{ marginTop: -6, marginBottom: 12, fontSize: 12 }}>
-        바이브코딩·AI 용어를 분류 트리로 학습하고, 자주 헷갈리는 표현을 정식 명칭으로 바로잡는 사전.
+        바이브코딩·AI 용어를 분류 트리로 학습하고, 관계 그래프로 이어 보며, 헷갈리는 표현을 정식 명칭으로 바로잡는 사전.
       </p>
 
       <RecommendBar
@@ -190,88 +270,142 @@ export default function Glossary() {
       />
 
       <div className="glossary-toolbar">
-        <div className="glossary-search">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="용어 검색 (영문·한글) — 전체에서 찾기"
-          />
+        <div className="glossary-view-toggle">
+          <button
+            className={view === "tree" ? "active" : ""}
+            onClick={() => setView("tree")}
+          >
+            <List size={13} /> 트리
+          </button>
+          <button
+            className={view === "graph" ? "active" : ""}
+            onClick={() => setView("graph")}
+          >
+            <Network size={13} /> 그래프
+          </button>
         </div>
+        {view === "tree" && (
+          <div className="glossary-search">
+            <Search size={14} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="용어 검색 (영문·한글) — 전체에서 찾기"
+            />
+          </div>
+        )}
       </div>
 
-      <div className="ws-split">
-        <div className="ws-master glossary-tree">
-          {tree.map((d) => {
-            const open = expandedDomains.has(d.id);
-            const DIcon = d.icon;
-            return (
-              <div key={d.id}>
-                <button className="glossary-tree-domain" onClick={() => toggleDomain(d.id)}>
-                  {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  <DIcon size={14} />
-                  <span>{d.label}</span>
-                  {d.isCustom && <span className="glossary-tree-mine">내 용어집</span>}
-                </button>
-                {open && (
-                  <div className="glossary-tree-subcats">
-                    {d.subcats.map((sc) => {
-                      const SIcon = sc.icon;
-                      const n = searching ? (countMatched?.[sc.id] ?? 0) : (countTotal[sc.id] ?? 0);
-                      const active = !searching && sc.id === selectedSubcat;
-                      const dimmed = searching && n === 0;
+      {view === "graph" ? (
+        <GlossaryGraphView
+          graph={useLocal ? localG! : graph}
+          layout={useLocal ? localLayout! : layout}
+          selectedId={selectedNode}
+          onSelect={setSelectedNode}
+          onOpenInList={goToNode}
+          mode={graphMode}
+          onToggleMode={() => setGraphMode((m) => (m === "global" ? "local" : "global"))}
+          hasCustom={hasCustom}
+          settings={gset}
+          onSettings={setG}
+        />
+      ) : (
+        <div className="ws-split">
+          <div className="ws-master glossary-tree">
+            {tree.map((d) => {
+              const open = expandedDomains.has(d.id);
+              const DIcon = d.icon;
+              return (
+                <div key={d.id}>
+                  <button className="glossary-tree-domain" onClick={() => toggleDomain(d.id)}>
+                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <DIcon size={14} />
+                    <span>{d.label}</span>
+                    {d.isCustom && <span className="glossary-tree-mine">내 용어집</span>}
+                  </button>
+                  {open && (
+                    <div className="glossary-tree-subcats">
+                      {d.subcats.map((sc) => {
+                        const SIcon = sc.icon;
+                        const n = searching ? (countMatched?.[sc.id] ?? 0) : (countTotal[sc.id] ?? 0);
+                        const active = !searching && sc.id === selectedSubcat;
+                        const dimmed = searching && n === 0;
+                        return (
+                          <button
+                            key={sc.id}
+                            className={`glossary-tree-subcat${active ? " active" : ""}${dimmed ? " dimmed" : ""}`}
+                            onClick={() => goSubcat(sc.id)}
+                          >
+                            <SIcon size={13} />
+                            <span className="glossary-tree-subcat-label">{sc.label}</span>
+                            <span className="glossary-tree-subcat-n">{n}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <CustomPanel custom={custom} onRefresh={loadCustom} />
+          </div>
+
+          <div className="ws-detail">
+            <div className="ws-detail-inner">
+              {searching && detailGroups.length === 0 ? (
+                <div className="muted">"{query}"에 해당하는 용어가 없습니다.</div>
+              ) : (
+                detailGroups.map((g) => (
+                  <section key={g.sc.id} className="glossary-detail-section">
+                    <DetailHead sc={g.sc} domLabel={g.domLabel} count={g.rows.length} />
+                    {g.rows.map((row) => {
+                      const id = nodeIdOf(row);
+                      const open = expandedTerms.has(id);
+                      const onToggle = () => toggleTerm(id);
+                      if (row.kind === "glossary")
+                        return (
+                          <GlossaryRow
+                            key={id}
+                            nodeId={id}
+                            term={row.t}
+                            open={open}
+                            onToggle={onToggle}
+                            graph={graph}
+                            onChip={goToNode}
+                          />
+                        );
+                      if (row.kind === "lite")
+                        return (
+                          <LiteRow
+                            key={id}
+                            nodeId={id}
+                            term={row.t}
+                            open={open}
+                            onToggle={onToggle}
+                            graph={graph}
+                            onChip={goToNode}
+                          />
+                        );
                       return (
-                        <button
-                          key={sc.id}
-                          className={`glossary-tree-subcat${active ? " active" : ""}${dimmed ? " dimmed" : ""}`}
-                          onClick={() => goSubcat(sc.id)}
-                        >
-                          <SIcon size={13} />
-                          <span className="glossary-tree-subcat-label">{sc.label}</span>
-                          <span className="glossary-tree-subcat-n">{n}</span>
-                        </button>
+                        <CustomRow
+                          key={id}
+                          nodeId={id}
+                          term={row.t}
+                          meta={subIndex.get(row.subcat)}
+                          open={open}
+                          onToggle={onToggle}
+                          graph={graph}
+                          onChip={goToNode}
+                        />
                       );
                     })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <CustomPanel custom={custom} onRefresh={loadCustom} />
-        </div>
-
-        <div className="ws-detail">
-          <div className="ws-detail-inner">
-            {searching && detailGroups.length === 0 ? (
-              <div className="muted">"{query}"에 해당하는 용어가 없습니다.</div>
-            ) : (
-              detailGroups.map((g) => (
-                <section key={g.sc.id} className="glossary-detail-section">
-                  <DetailHead sc={g.sc} domLabel={g.domLabel} count={g.rows.length} />
-                  {g.rows.map((row) =>
-                    row.kind === "glossary" ? (
-                      <GlossaryRow
-                        key={row.t.id}
-                        term={row.t}
-                        open={expandedTerms.has(row.t.id)}
-                        onToggle={() => toggleTerm(row.t.id)}
-                      />
-                    ) : row.kind === "lite" ? (
-                      <LiteRow key={`lite-${row.t.term}`} term={row.t} />
-                    ) : (
-                      <CustomRow
-                        key={`custom-${row.subcat}-${row.t.term}`}
-                        term={row.t}
-                        meta={subIndex.get(row.subcat)}
-                      />
-                    ),
-                  )}
-                </section>
-              ))
-            )}
+                  </section>
+                ))
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -286,6 +420,30 @@ function DetailHead({ sc, domLabel, count }: { sc: RTSubcat; domLabel: string; c
       <span className="glossary-crumb-cur">{sc.label}</span>
       <span className="glossary-detail-n">{count}</span>
     </h3>
+  );
+}
+
+// 관련 용어 칩(공용) — 그래프 인접 노드를 칩으로. 클릭 시 해당 용어로 이동.
+function RelatedChips({
+  graph,
+  nodeId,
+  onChip,
+}: {
+  graph: Graph;
+  nodeId: string;
+  onChip: (id: string) => void;
+}) {
+  const rel = relatedNodes(graph, nodeId);
+  if (rel.length === 0) return null;
+  return (
+    <div className="glossary-related">
+      <span className="glossary-related-label">관련 용어</span>
+      {rel.map((rn) => (
+        <button key={rn.id} className="glossary-chip" onClick={() => onChip(rn.id)}>
+          {rn.term}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -466,19 +624,25 @@ function CustomPanel({
 }
 
 function GlossaryRow({
+  nodeId,
   term,
   open,
   onToggle,
+  graph,
+  onChip,
 }: {
+  nodeId: string;
   term: GlossaryTerm;
   open: boolean;
   onToggle: () => void;
+  graph: Graph;
+  onChip: (id: string) => void;
 }) {
   const meta = SUBCAT_META[term.subcat];
   const Icon = meta.icon;
   const sketch = term.sketchId ? SKETCHES[term.sketchId] : null;
   return (
-    <div id={`gl-row-${term.id}`} className={`glossary-row${open ? " expanded" : ""}`}>
+    <div id={`gl-row-${nodeId}`} className={`glossary-row${open ? " expanded" : ""}`}>
       <button className="glossary-row-head" onClick={onToggle}>
         <span className={`bdg ${meta.badge}`}>
           <Icon size={11} /> {meta.label}
@@ -498,49 +662,111 @@ function GlossaryRow({
             </p>
           )}
           {sketch && <div className="glossary-sketch">{sketch}</div>}
+          <RelatedChips graph={graph} nodeId={nodeId} onChip={onChip} />
         </div>
       )}
     </div>
   );
 }
 
-function LiteRow({ term }: { term: LiteTerm }) {
+function LiteRow({
+  nodeId,
+  term,
+  open,
+  onToggle,
+  graph,
+  onChip,
+}: {
+  nodeId: string;
+  term: LiteTerm;
+  open: boolean;
+  onToggle: () => void;
+  graph: Graph;
+  onChip: (id: string) => void;
+}) {
   const meta = SUBCAT_META[term.subcat];
   const Icon = meta.icon;
   return (
-    <div className="glossary-lite-row">
-      <div className="glossary-lite-head">
+    <div id={`gl-row-${nodeId}`} className={`glossary-lite-row${open ? " expanded" : ""}`}>
+      <button className="glossary-lite-head glossary-lite-head-btn" onClick={onToggle}>
         <span className={`bdg ${meta.badge}`}>
           <Icon size={11} /> {meta.label}
         </span>
         <span className="glossary-term">{term.term}</span>
         {term.termKo && <span className="glossary-term-ko">{term.termKo}</span>}
         <span className="glossary-reco-lite-tag">사전</span>
-      </div>
+        <span className="glossary-caret">{open ? "▾" : "▸"}</span>
+      </button>
       <div className="glossary-lite-blurb">{term.blurb}</div>
+      {open && (
+        <div className="glossary-detail">
+          {term.example && (
+            <p className="glossary-example">
+              <span className="glossary-ex-tag">예시 프롬프트</span>
+              {term.example}
+            </p>
+          )}
+          <RelatedChips graph={graph} nodeId={nodeId} onChip={onChip} />
+        </div>
+      )}
     </div>
   );
 }
 
-function CustomRow({ term, meta }: { term: CustomGlossaryTerm; meta: RTSubcat | undefined }) {
+function CustomRow({
+  nodeId,
+  term,
+  meta,
+  open,
+  onToggle,
+  graph,
+  onChip,
+}: {
+  nodeId: string;
+  term: CustomGlossaryTerm;
+  meta: RTSubcat | undefined;
+  open: boolean;
+  onToggle: () => void;
+  graph: Graph;
+  onChip: (id: string) => void;
+}) {
   const Icon: LucideIcon = meta?.icon ?? Boxes;
   const badge = meta?.badge ?? "bdg-g-custom";
   const label = meta?.label ?? term.subcat;
+  const hasRelated = relatedNodes(graph, nodeId).length > 0;
+  const expandable = !!term.example || hasRelated;
   return (
-    <div className="glossary-lite-row">
-      <div className="glossary-lite-head">
-        <span className={`bdg ${badge}`}>
-          <Icon size={11} /> {label}
-        </span>
-        <span className="glossary-term">{term.term}</span>
-        {term.termKo && <span className="glossary-term-ko">{term.termKo}</span>}
-        <span className="glossary-reco-lite-tag">내 용어</span>
-      </div>
+    <div id={`gl-row-${nodeId}`} className={`glossary-lite-row${open ? " expanded" : ""}`}>
+      {expandable ? (
+        <button className="glossary-lite-head glossary-lite-head-btn" onClick={onToggle}>
+          <span className={`bdg ${badge}`}>
+            <Icon size={11} /> {label}
+          </span>
+          <span className="glossary-term">{term.term}</span>
+          {term.termKo && <span className="glossary-term-ko">{term.termKo}</span>}
+          <span className="glossary-reco-lite-tag">내 용어</span>
+          <span className="glossary-caret">{open ? "▾" : "▸"}</span>
+        </button>
+      ) : (
+        <div className="glossary-lite-head">
+          <span className={`bdg ${badge}`}>
+            <Icon size={11} /> {label}
+          </span>
+          <span className="glossary-term">{term.term}</span>
+          {term.termKo && <span className="glossary-term-ko">{term.termKo}</span>}
+          <span className="glossary-reco-lite-tag">내 용어</span>
+        </div>
+      )}
       <div className="glossary-lite-blurb">{term.definition}</div>
-      {term.example && (
-        <div className="glossary-lite-blurb">
-          <span className="glossary-ex-tag">예시</span>
-          {term.example}
+      {open && expandable && (
+        <div className="glossary-detail">
+          {term.example && (
+            <p className="glossary-example">
+              <span className="glossary-ex-tag">예시</span>
+              {term.example}
+            </p>
+          )}
+          <RelatedChips graph={graph} nodeId={nodeId} onChip={onChip} />
         </div>
       )}
     </div>

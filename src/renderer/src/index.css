@@ -660,6 +660,109 @@ pre.viewer {
 .ws-mode-tab:hover { color: var(--text); }
 .ws-mode-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* Glossary 뷰 토글(트리/그래프) */
+.glossary-view-toggle {
+  display: inline-flex; gap: 2px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 7px; padding: 2px;
+}
+.glossary-view-toggle button {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: none; color: var(--muted); font: inherit; font-size: 12.5px;
+  padding: 4px 11px; border-radius: 5px; cursor: pointer;
+}
+.glossary-view-toggle button:hover { color: var(--text); }
+.glossary-view-toggle button.active { background: var(--accent); color: var(--on-accent); }
+
+/* 펼침 가능한 사전/커스텀 행 헤더(버튼화) */
+.glossary-lite-head-btn {
+  width: 100%; background: none; border: none; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; padding: 0;
+}
+.glossary-lite-head-btn:hover .glossary-term { color: var(--accent); }
+
+/* 관련 용어 칩 줄(.glossary-chip 핀 스타일 재사용) */
+.glossary-related { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.glossary-related-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+
+/* Glossary Graph View */
+.glossary-graph-wrap { display: flex; flex-direction: column; gap: 8px; }
+.glossary-graph-bar { display: flex; align-items: center; gap: 10px; }
+.glossary-graph-mode { font-size: 12px; color: var(--muted); }
+.glossary-graph-mode b { color: var(--text); }
+.glossary-graph-stage {
+  position: relative; height: min(72vh, 720px);
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  overscroll-behavior: contain;
+}
+.glossary-graph-svg {
+  width: 100%; height: 100%; display: block; cursor: grab; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+}
+.glossary-graph-svg:active { cursor: grabbing; }
+.glossary-gedge { stroke: var(--border); stroke-width: 1; opacity: 0.5; pointer-events: none; }
+.glossary-gedge.active { stroke: var(--accent); opacity: 0.9; stroke-width: 1.4; }
+.glossary-gedge.dim { opacity: 0.08; }
+.glossary-gnode { cursor: grab; }
+.glossary-gnode:active { cursor: grabbing; }
+.glossary-gnode-dot { stroke: var(--card); stroke-width: 1.5; transition: opacity .12s; }
+.glossary-gnode.sel .glossary-gnode-dot { stroke: var(--text); stroke-width: 2; }
+.glossary-gnode.dim { opacity: 0.22; }
+.glossary-gnode-label { fill: var(--text); pointer-events: none; }
+.glossary-gnode.dim .glossary-gnode-label { fill: var(--muted); }
+
+.glossary-graph-card {
+  position: absolute; top: 12px; right: 12px; width: 250px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  padding: 12px 13px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
+}
+.glossary-graph-card-x {
+  position: absolute; top: 8px; right: 8px; background: none; border: none;
+  color: var(--muted); cursor: pointer; padding: 2px; line-height: 1;
+}
+.glossary-graph-card-x:hover { color: var(--text); }
+.glossary-graph-card-term {
+  display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 14px; padding-right: 18px;
+}
+.glossary-graph-card-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.glossary-graph-card-blurb { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.glossary-graph-card-related { margin-top: 9px; }
+.glossary-graph-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.glossary-graph-card-actions .glossary-reco-refresh { margin-left: 0; }
+
+.glossary-graph-legend {
+  position: absolute; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 7px 12px;
+  max-width: 62%; background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+}
+.glossary-graph-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+.glossary-graph-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.glossary-graph-hint { font-size: 11px; margin: 0; }
+
+/* 그래프 표시 설정 패널(슬라이더) */
+.glossary-reco-refresh.on { color: var(--accent); border-color: var(--accent); }
+.glossary-graph-settings {
+  position: absolute; top: 12px; left: 12px; width: 234px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  padding: 11px 12px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
+}
+.glossary-graph-set-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 9px;
+}
+.glossary-graph-set-reset {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
+  background: none; border: 1px solid var(--border); border-radius: 5px; color: var(--muted);
+  font-size: 10.5px; padding: 2px 6px; cursor: pointer;
+}
+.glossary-graph-set-reset:hover { color: var(--accent); border-color: var(--accent); }
+.glossary-graph-set-row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.glossary-graph-set-label { font-size: 11px; color: var(--muted); width: 66px; flex-shrink: 0; }
+.glossary-graph-set-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.glossary-graph-set-val {
+  font-size: 11px; color: var(--text); width: 32px; text-align: right;
+  font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+
 /* ============================ Git (DT_GitManager 흡수) ============================ */
 /* DT가 쓰던 변수를 git 영역 스코프에서 harness 토큰으로 별칭 정의한다.
    특히 전역 --shadow(box-shadow 전체값)와 DT --shadow(색)의 의미 충돌을 여기서 가린다. */

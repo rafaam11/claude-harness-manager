@@ -67,6 +67,7 @@ export interface TimelineEvent {
   lastPrompt?: string | null; // 세션
   lastAssistantSnippet?: string | null; // 세션
   archived?: boolean; // 계획: 본문 fetch 시 archived 파라미터
+  parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
 }
 
 export interface WorkspaceProject extends ProjectRecall {
@@ -415,15 +416,20 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
   ]);
   const realToId = buildRealToIdMap(recalls);
   return plans.map((p) => {
-    // 1순위: 가장 가까운 history 기록의 sessionId → 그 세션 transcript가 있는 프로젝트
-    // 2순위: 그 기록의 실제 경로 ↔ recall cwd 정확 매칭
-    const e = nearestEntry(p.mtime, history);
-    let guessedProjectId: string | null = null;
-    if (e) {
-      guessedProjectId =
-        (e.sessionId ? sessionToId.get(e.sessionId) ?? null : null) ??
-        realToId.get(normPath(e.project)) ??
-        null;
+    // 1순위: stamp-plan-session 훅이 새겨넣은 확정 세션ID(p.sessionId) → 그 세션의 프로젝트.
+    // 2순위(마커 없거나 그 세션의 프로젝트를 못 찾을 때만): 가장 가까운 history 기록의
+    // sessionId → 그 세션 transcript가 있는 프로젝트, 그마저 없으면 실제 경로 ↔ recall cwd 매칭.
+    let guessedProjectId: string | null = p.sessionId
+      ? sessionToId.get(p.sessionId) ?? null
+      : null;
+    if (!guessedProjectId) {
+      const e = nearestEntry(p.mtime, history);
+      if (e) {
+        guessedProjectId =
+          (e.sessionId ? sessionToId.get(e.sessionId) ?? null : null) ??
+          realToId.get(normPath(e.project)) ??
+          null;
+      }
     }
     const b = board.plans[p.filename] ?? {};
     return {
@@ -471,6 +477,8 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
   const idToRealPath = new Map(recalls.map((r) => [r.id, r.realPath]));
   const events: TimelineEvent[] = [];
+  // 계획 ↔ 세션 부모 추정용: projectId별 세션 후보(사실상 0~1개라 선형 스캔으로 충분).
+  const sessionsByProject = new Map<string, { sessionId: string; ts: number }[]>();
   for (const r of recalls) {
     if (r.recall) {
       const sid = r.recall.sessionId;
@@ -490,9 +498,31 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
         lastPrompt: r.recall.lastPrompt,
         lastAssistantSnippet: r.recall.lastAssistantSnippet,
       });
+      if (sid) {
+        const arr = sessionsByProject.get(r.id) ?? [];
+        arr.push({ sessionId: sid, ts: r.recall.transcriptMtime });
+        sessionsByProject.set(r.id, arr);
+      }
     }
   }
   for (const p of plans) {
+    // 1순위: 훅이 새겨넣은 확정 세션ID. Timeline에 그 세션이 안 보이면 프론트에서 자동으로 flat 처리된다.
+    // 2순위(마커 없을 때만): 같은 프로젝트의 세션 중 계획 mtime과 가장 가까운 것을 부모로 추정.
+    let parentSessionId: string | undefined = p.sessionId ?? undefined;
+    if (!parentSessionId) {
+      const candidates = p.projectId ? sessionsByProject.get(p.projectId) : undefined;
+      if (candidates) {
+        let bestDelta = Infinity;
+        for (const c of candidates) {
+          const delta = Math.abs(c.ts - p.mtime);
+          if (delta < bestDelta) {
+            bestDelta = delta;
+            parentSessionId = c.sessionId;
+          }
+        }
+        if (bestDelta > PLAN_GUESS_WINDOW_MS) parentSessionId = undefined;
+      }
+    }
     events.push({
       ts: p.mtime,
       kind: "plan",
@@ -502,6 +532,7 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       filename: p.filename,
       status: p.status,
       archived: p.archived,
+      parentSessionId,
     });
   }
   return events.sort((a, b) => b.ts - a.ts);

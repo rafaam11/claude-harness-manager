@@ -367,6 +367,9 @@ pre.viewer {
 .timeline-day { font-weight: 700; color: var(--accent); margin: 16px 0 6px; font-size: 13px; }
 .timeline-gap { color: var(--muted); font-size: 11px; text-align: center; margin: 10px 0; opacity: 0.7; }
 .timeline-row { border-bottom: 1px solid var(--border); }
+/* 세션 아래 시간 근접으로 추정된 계획: 들여쓰기 + 좌측 라인으로 "이 세션에 속함"을 암시 */
+.timeline-row-child { margin-left: 24px; padding-left: 10px; border-left: 2px solid var(--border); }
+.timeline-row-child .timeline-title { color: var(--muted); }
 .timeline-item { display: flex; align-items: center; gap: 9px; padding: 5px 0; cursor: pointer; }
 .timeline-item:hover { background: var(--active-bg); }
 .timeline-time { font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }

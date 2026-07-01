@@ -76,6 +76,101 @@ function JsonTreeEditor({
   return <div ref={container} className={`jse-wrap${isDark ? " jse-theme-dark" : ""}`} />;
 }
 
+/** settings.json의 PostToolUse 훅 항목. OS별로 shell만 다르다(command는 $HOME 기반이라 동일). */
+function hookEntry(shell: "powershell" | "bash") {
+  return {
+    matcher: "Write|Edit|MultiEdit",
+    hooks: [
+      {
+        type: "command",
+        command: 'node "$HOME/.claude/hooks/stamp-plan-session.mjs"',
+        shell,
+      },
+    ],
+  };
+}
+
+/**
+ * 이 PC에 설치된 세션→계획 연결 hook(stamp-plan-session.mjs)을 다른 PC의 Claude Code에
+ * 붙여넣어 설치시킬 수 있는 프롬프트를 만들어 복사한다. 이 PC에 훅이 없으면(404) 조용히 숨긴다.
+ */
+function HookInstallPanel() {
+  const [content, setContent] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [os, setOs] = useState<"windows" | "unix">("windows");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ content: string }>("/api/hooks/stamp-plan-session")
+      .then((d) => setContent(d.content))
+      .catch(() => setFailed(true));
+  }, []);
+
+  if (failed || content === null) return null;
+
+  const prompt = [
+    "Claude Code 글로벌 환경에 '계획 파일에 작성 세션ID를 자동으로 새겨넣는' hook을 설치해줘.",
+    "",
+    "1. 아래 내용 그대로 `~/.claude/hooks/stamp-plan-session.mjs` 파일을 만들어줘(디렉토리가 없으면 만들어서):",
+    "",
+    "```javascript",
+    content,
+    "```",
+    "",
+    "2. `~/.claude/settings.json`을 읽어서 `hooks.PostToolUse` 배열(없으면 새로 만들어)에 아래 항목을 추가해줘",
+    "(이미 같은 command를 가진 항목이 있으면 건드리지 마):",
+    "",
+    "```json",
+    JSON.stringify(hookEntry(os === "windows" ? "powershell" : "bash"), null, 2),
+    "```",
+    "",
+    "3. 끝나면 아무 계획 파일이나 하나 저장(Write/Edit)해서 파일 맨 앞에",
+    "`<!-- claude-session: ... -->` 마커가 자동으로 붙는지 확인해줘.",
+  ].join("\n");
+
+  const copyPrompt = () => {
+    navigator.clipboard.writeText(prompt).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
+
+  return (
+    <div>
+      <h3>다른 PC에 세션-계획 연결 Hook 설치</h3>
+      <p className="muted">
+        이 PC에는 계획 파일에 작성 세션ID를 자동으로 새겨넣는 hook이 설치돼 있습니다. 다른 PC의
+        Claude Code에 붙여넣을 설치 프롬프트를 복사하세요.
+      </p>
+      <p>
+        <button
+          className={`btn ghost${os === "windows" ? " active" : ""}`}
+          style={os === "windows" ? { borderColor: "var(--accent)" } : undefined}
+          onClick={() => setOs("windows")}
+        >
+          Windows
+        </button>
+        <button
+          className={`btn ghost${os === "unix" ? " active" : ""}`}
+          style={os === "unix" ? { borderColor: "var(--accent)" } : undefined}
+          onClick={() => setOs("unix")}
+        >
+          macOS / Linux
+        </button>
+      </p>
+      <p>
+        <button className="btn" onClick={copyPrompt}>
+          {copied ? "복사됨" : "설치 프롬프트 복사"}
+        </button>
+      </p>
+    </div>
+  );
+}
+
 export default function ConfigEditor() {
   const [name, setName] = useState<string>("settings");
   const [data, setData] = useState<ConfigData | null>(null);
@@ -237,6 +332,8 @@ export default function ConfigEditor() {
           </table>
         </div>
       )}
+
+      <HookInstallPanel />
     </div>
   );
 }

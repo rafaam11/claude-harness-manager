@@ -74,6 +74,7 @@ export interface TimelineEvent {
   lastPrompt?: string | null;
   lastAssistantSnippet?: string | null;
   archived?: boolean;
+  parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
 }
 
 /** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름(경로 마지막 세그먼트) */

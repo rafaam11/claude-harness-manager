@@ -4,6 +4,7 @@ import { readConfig, safeWrite, listBackups, restoreBackup } from "./lib/safe-wr
 import { detectClaude } from "./lib/cc-detect.js";
 import { archiveItems, restoreItem, listManifests } from "./lib/archive.js";
 import { getCatalog, readCatalogContent } from "./services/catalog.js";
+import { readStampPlanSessionHook } from "./services/hooks.js";
 import { getPlugins } from "./services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
@@ -177,6 +178,17 @@ const routes: Route[] = [
       const filePath = query.path;
       if (!filePath) throw new HttpError(400, "path 필요");
       return readCatalogContent(filePath);
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/hooks/stamp-plan-session",
+    handler: async () => {
+      try {
+        return { content: await readStampPlanSessionHook() };
+      } catch {
+        throw new HttpError(404, "hook not installed on this PC");
+      }
     },
   },
   { method: "GET", pattern: "/api/plugins", handler: async () => getPlugins() },

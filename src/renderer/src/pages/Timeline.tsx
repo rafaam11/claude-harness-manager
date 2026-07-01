@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDay, fmtTime } from "../api/client";
 import {
@@ -88,15 +88,70 @@ export default function Timeline() {
   if (!events) return <div className="muted">불러오는 중…</div>;
   if (events.length === 0) return <div className="muted">활동 기록이 없습니다.</div>;
 
-  // 필터 적용 후 날짜별 그룹(빈 그룹은 자연 소거, "N일 공백"도 그에 맞게 재계산)
+  // 필터 적용 후, 시간 근접으로 추정된 계획을 부모 세션의 자식으로 묶는다(들여쓰기 표시용).
+  // 부모가 필터로 숨겨져 화면에 없으면 자식도 지금처럼 최상위 flat 행으로 남는다.
   const shown = events.filter((e) => !hidden.has(e.projectId ?? NONE_KEY));
-  const groups: { day: string; items: TimelineEvent[] }[] = [];
+  const visibleSessionIds = new Set(
+    shown.filter((e) => e.kind === "session" && e.sessionId).map((e) => e.sessionId!),
+  );
+  const childrenBySession = new Map<string, TimelineEvent[]>();
   for (const e of shown) {
+    if (e.kind === "plan" && e.parentSessionId && visibleSessionIds.has(e.parentSessionId)) {
+      const arr = childrenBySession.get(e.parentSessionId) ?? [];
+      arr.push(e);
+      childrenBySession.set(e.parentSessionId, arr);
+    }
+  }
+  const topLevel = shown.filter(
+    (e) => !(e.kind === "plan" && e.parentSessionId && visibleSessionIds.has(e.parentSessionId)),
+  );
+
+  // 날짜별 그룹(빈 그룹은 자연 소거, "N일 공백"도 그에 맞게 재계산). 자식 계획은 부모 세션의
+  // 슬롯 아래 붙으므로 별도 날짜로 그룹화되지 않는다(자정을 걸쳐도 의도적으로 부모 쪽에 붙임).
+  const groups: { day: string; items: TimelineEvent[] }[] = [];
+  for (const e of topLevel) {
     const day = fmtDay(e.ts);
     const last = groups[groups.length - 1];
     if (last && last.day === day) last.items.push(e);
     else groups.push({ day, items: [e] });
   }
+
+  // 세션/자식 계획 행 렌더링. isChild면 들여쓰기하고, 부모와 날짜가 다를 때만 날짜를 함께 보여준다.
+  const renderRow = (e: TimelineEvent, isChild: boolean, parentDay?: string) => {
+    const key = eventKey(e);
+    const isOpen = expanded.has(key);
+    const showDay = isChild && parentDay !== undefined && fmtDay(e.ts) !== parentDay;
+    return (
+      <div className={`timeline-row${isChild ? " timeline-row-child" : ""}`} key={key}>
+        <div className="timeline-item" onClick={() => toggleExpand(key)}>
+          <span className={`bdg ${e.kind === "plan" ? "bdg-plan" : "bdg-session"}`}>
+            {e.kind === "plan" ? "PLAN" : "SESS"}
+          </span>
+          <span className="timeline-time muted">
+            {showDay ? `${fmtDay(e.ts)} ${fmtTime(e.ts)}` : fmtTime(e.ts)}
+          </span>
+          <span className="timeline-title">{e.title}</span>
+          <span className="timeline-proj muted">{label(e)}</span>
+          <select
+            className="ws-select"
+            value={e.status}
+            disabled={e.kind === "session" && !e.sessionId}
+            onClick={(ev) => ev.stopPropagation()}
+            onChange={(ev) => patchStatus(e, ev.target.value as BoardStatus)}
+            title="상태 (자동추정 기본값 · 수동 변경 시 저장)"
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <span className="timeline-caret muted">{isOpen ? "▾" : "▸"}</span>
+        </div>
+        {isOpen && <TimelineExpand e={e} />}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -128,35 +183,13 @@ export default function Timeline() {
               {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
               <div className="timeline-day">{g.day}</div>
               {g.items.map((e) => {
-                const key = eventKey(e);
-                const isOpen = expanded.has(key);
+                const children =
+                  e.kind === "session" && e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
                 return (
-                  <div className="timeline-row" key={key}>
-                    <div className="timeline-item" onClick={() => toggleExpand(key)}>
-                      <span className={`bdg ${e.kind === "plan" ? "bdg-plan" : "bdg-session"}`}>
-                        {e.kind === "plan" ? "PLAN" : "SESS"}
-                      </span>
-                      <span className="timeline-time muted">{fmtTime(e.ts)}</span>
-                      <span className="timeline-title">{e.title}</span>
-                      <span className="timeline-proj muted">{label(e)}</span>
-                      <select
-                        className="ws-select"
-                        value={e.status}
-                        disabled={e.kind === "session" && !e.sessionId}
-                        onClick={(ev) => ev.stopPropagation()}
-                        onChange={(ev) => patchStatus(e, ev.target.value as BoardStatus)}
-                        title="상태 (자동추정 기본값 · 수동 변경 시 저장)"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="timeline-caret muted">{isOpen ? "▾" : "▸"}</span>
-                    </div>
-                    {isOpen && <TimelineExpand e={e} />}
-                  </div>
+                  <Fragment key={eventKey(e)}>
+                    {renderRow(e, false)}
+                    {children?.map((c) => renderRow(c, true, g.day))}
+                  </Fragment>
                 );
               })}
             </div>

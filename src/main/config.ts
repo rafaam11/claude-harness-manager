@@ -36,6 +36,9 @@ export const PLANS_DIR = path.join(CLAUDE_HOME, "plans");
 export const PLANS_ARCHIVE_DIR = path.join(PLANS_DIR, "_archive");
 export const HISTORY_FILE = path.join(CLAUDE_HOME, "history.jsonl");
 export const TASKS_DIR = path.join(CLAUDE_HOME, "tasks");
+// 세션→계획 연결 hook. 다른 PC 설치용 프롬프트 생성(ConfigEditor)이 이 파일 원문을 읽는다.
+export const HOOKS_DIR = path.join(CLAUDE_HOME, "hooks");
+export const STAMP_PLAN_SESSION_HOOK_FILE = path.join(HOOKS_DIR, "stamp-plan-session.mjs");
 // 앱 소유 수동 레이어(상태/메모/연결 override). ~/.claude 하위라 allowlist 통과.
 export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json");
 

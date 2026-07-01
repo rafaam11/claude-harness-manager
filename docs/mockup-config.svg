@@ -38,9 +38,17 @@
   <text x="490" y="232" font-size="11" fill="#9aa3b2">💾 저장 시 평문 <tspan fill="#5fb878" font-family="Consolas, monospace">.bak</tspan> 백업 (20개 로테이션)</text>
   <text x="490" y="256" font-size="11" fill="#9aa3b2">🛡 baseHash 대조 — 동시 수정 시 <tspan fill="#e8825f">409 충돌</tspan> 차단</text>
   <text x="490" y="280" font-size="11" fill="#9aa3b2">⚛ temp 작성 → atomic rename 으로 교체</text>
+  <line x1="490" y1="300" x2="908" y2="300" stroke="#313742"/>
+  <text x="490" y="322" font-size="11" font-weight="700" fill="#9aa3b2">🔗 다른 PC에 Hook 설치</text>
+  <rect x="490" y="332" width="90" height="26" rx="6" fill="#222834" stroke="#e8825f"/>
+  <text x="535" y="349" font-size="10.5" fill="#f3f5f9" text-anchor="middle">Windows</text>
+  <rect x="586" y="332" width="112" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="642" y="349" font-size="10.5" fill="#9aa3b2" text-anchor="middle">macOS·Linux</text>
+  <rect x="490" y="368" width="170" height="30" rx="7" fill="#2a1d17" stroke="#e8825f"/>
+  <text x="575" y="388" font-size="11" font-weight="600" fill="#e8825f" text-anchor="middle">📋 설치 프롬프트 복사</text>
   <rect x="490" y="476" width="80" height="32" rx="7" fill="#2a1d17" stroke="#e8825f"/>
   <text x="530" y="497" font-size="12" font-weight="600" fill="#e8825f" text-anchor="middle">저장</text>
   <rect x="580" y="476" width="92" height="32" rx="7" fill="#1c2230" stroke="#313742"/>
   <text x="626" y="497" font-size="12" fill="#9aa3b2" text-anchor="middle">되돌리기</text>
-  <text x="170" y="586" font-size="10.5" fill="#5a6675">Config Editor — 트리/텍스트 편집 · 저장 시 .bak 백업 · 낙관적 동시성(409) · atomic rename</text>
+  <text x="170" y="586" font-size="10.5" fill="#5a6675">Config Editor — 트리/텍스트 편집 · 저장 시 .bak 백업 · 낙관적 동시성(409) · atomic rename · 다른 PC 설치 프롬프트 복사</text>
 </svg>

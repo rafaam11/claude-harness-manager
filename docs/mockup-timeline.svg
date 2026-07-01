@@ -40,5 +40,17 @@
   <text x="190" y="385" font-size="12" fill="#f3f5f9">📋 계획 · DT_GitManager 흡수</text>
   <rect x="858" y="370" width="48" height="20" rx="10" fill="#1d3324"/>
   <text x="882" y="384" font-size="10" fill="#5fb878" text-anchor="middle">완료</text>
-  <text x="170" y="586" font-size="10.5" fill="#5a6675">Timeline — 날짜별 세션·계획, ‘N일 공백’으로 주말 갭 가시화 · 행을 펼쳐 스니펫</text>
+  <circle cx="176" cy="424" r="3" fill="#9aa3b2"/>
+  <text x="188" y="428" font-size="11" font-weight="700" fill="#9aa3b2">6월 15일</text>
+  <rect x="170" y="437" width="754" height="44" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="170" y="437" width="3" height="44" rx="1.5" fill="#4493f8"/>
+  <text x="190" y="459" font-size="12.5" font-weight="600" fill="#f3f5f9">chore: 릴리스 준비</text>
+  <text x="190" y="475" font-size="10.5" fill="#9aa3b2">💬 세션 · harness-manager</text>
+  <text x="908" y="462" font-size="10.5" fill="#9aa3b2" text-anchor="end">6일 전</text>
+  <line x1="194" y1="491" x2="194" y2="527" stroke="#313742" stroke-width="2"/>
+  <rect x="204" y="491" width="720" height="36" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="220" y="513" font-size="11.5" fill="#9aa3b2">📋 계획 · v1.0.8 배포 노트</text>
+  <rect x="858" y="500" width="48" height="18" rx="9" fill="#1d3324"/>
+  <text x="882" y="513" font-size="9.5" fill="#5fb878" text-anchor="middle">완료</text>
+  <text x="170" y="586" font-size="10.5" fill="#5a6675">Timeline — 날짜별 세션·계획, ‘N일 공백’으로 주말 갭 가시화 · 행을 펼쳐 스니펫 · 세션 아래 계획을 들여쓰기로 계층 표시</text>
 </svg>

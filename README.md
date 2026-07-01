@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/platform-Linux-1c2230?logo=linux&logoColor=white" alt="Linux">
-  <img src="https://img.shields.io/badge/version-1.0.7-e8825f" alt="version 1.0.7">
+  <img src="https://img.shields.io/badge/version-1.0.8-e8825f" alt="version 1.0.8">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 
@@ -84,7 +84,7 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 좌측 네비게이션에서 관리 5탭(Timeline · Workspace · Catalog · Cleanup · Config Editor)과 그 아래 구분된 **News · Glossary** 탭으로 이동한다. 기본 진입은 **Timeline**이다. 우상단 **☀ / 🌙** 로 라이트/다크 테마를 전환한다(localStorage에 저장). 업데이트 확인 버튼은 사이드바 맨 아래에 고정돼 있다.
 
 ### Timeline
-날짜별로 **세션·계획 이벤트**를 시간순으로 보여준다(기본 진입 탭). 주말 같은 공백은 "N일 공백" 구분선으로 가시화된다. 행을 클릭하면 펼쳐서 세션은 마지막 입력/응답 스니펫을, 계획은 본문 마크다운을 보여준다. Claude Code 세션이 실행 중이면 상단에 경고 배너가 뜬다(설정 저장·정리 시 충돌 주의).
+날짜별로 **세션·계획 이벤트**를 시간순으로 보여준다(기본 진입 탭). 같은 세션에서 만든 계획은 그 세션 행 아래 **들여쓰기된 자식**으로 묶여 위계가 드러난다(설치된 hook이 있으면 확정 연결, 없으면 시간 근접으로 추정). 주말 같은 공백은 "N일 공백" 구분선으로 가시화된다. 행을 클릭하면 펼쳐서 세션은 마지막 입력/응답 스니펫을, 계획은 본문 마크다운을 보여준다. Claude Code 세션이 실행 중이면 상단에 경고 배너가 뜬다(설정 저장·정리 시 충돌 주의).
 
 ### Workspace
 "어디까지 했는지" 회상하고 **그 프로젝트에서 바로 git 작업**까지 잇는 좌우 2단 화면이다.
@@ -118,6 +118,7 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 - **저장** 시 현재본을 `.bak` 로 백업(20개 로테이션)한 뒤 원자적으로 교체한다. 파일이 외부에서 바뀌면 충돌(409)을 감지해 덮어쓰지 않는다.
 - 하단 **백업** 목록에서 이전 버전으로 **복원**한다.
 - **`.claude.json` 은 읽기 전용** 이다(Claude Code가 상시 재작성하므로 충돌을 막기 위함 — 수동 절차로만 수정).
+- 이 PC에 **세션-계획 연결 hook**이 설치돼 있으면 하단에 **다른 PC 설치 프롬프트 복사** 패널이 뜬다. Windows/macOS·Linux를 고르고 복사해 다른 PC의 Claude Code에 붙여넣으면 훅 설치를 대신 맡길 수 있다.
 
 ### News
 Claude Code 릴리스 노트 · Anthropic 공식 소식 · 일반 AI 뉴스(Hacker News)를 시각 역순으로 모은 통합 피드다. main이 공개 소스를 **라이브 fetch**하고(렌더러는 외부 호출 없음), 항목을 클릭하면 펼쳐서 Claude Code 패치 노트는 본문 마크다운을, 그 외는 "원문 열기"로 OS 브라우저를 연다. 수동 새로고침 위주이며 마지막 결과를 디스크에 캐시한다.

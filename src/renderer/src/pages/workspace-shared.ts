@@ -11,6 +11,7 @@ export interface SessionRecall {
   lastAssistantSnippet: string | null;
   cwd: string | null;
   gitBranch: string | null;
+  lastModel: string | null; // 마지막 assistant 메시지의 모델 ID
   transcriptMtime: number;
   truncatedScan: boolean;
 }
@@ -75,6 +76,7 @@ export interface TimelineEvent {
   lastAssistantSnippet?: string | null;
   archived?: boolean;
   parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
+  lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
 }
 
 /** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름(경로 마지막 세그먼트) */
@@ -96,4 +98,32 @@ export function buildProjNameMap(projects: WorkspaceProject[]): Map<string, stri
   const m = new Map<string, string>();
   for (const p of projects) m.set(p.id, displayName(p));
   return m;
+}
+
+/** 이름 첫 글자 대문자화("sonnet" → "Sonnet") */
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * 모델 ID → 짧은 표시명. 예: "claude-sonnet-5"→"Sonnet 5", "claude-opus-4-8"→"Opus 4.8",
+ * "claude-haiku-4-5-20251001"→"Haiku 4.5", 구형 "claude-3-5-sonnet-20241022"→"Sonnet 3.5".
+ * 미인식 ID는 원본 그대로(모델 ID는 수시로 바뀌므로 깨뜨리지 않는다).
+ */
+export function modelDisplayName(modelId: string): string {
+  // 신형: claude-<이름>-<메이저>[-<마이너>][-<날짜8자리>]
+  const m = modelId.match(/^claude-([a-z]+)-(\d+(?:-\d+)?)(?:-\d{8})?$/);
+  if (m) return `${capitalize(m[1])} ${m[2].replace("-", ".")}`;
+  // 구형: claude-<메이저>[-<마이너>]-<이름>[-<날짜8자리>]
+  const legacy = modelId.match(/^claude-(\d)(?:-(\d))?-([a-z]+)(?:-\d{8})?$/);
+  if (legacy) return `${capitalize(legacy[3])} ${legacy[1]}${legacy[2] ? `.${legacy[2]}` : ""}`;
+  return modelId;
+}
+
+/** 모델 ID → 배지 색 클래스(모델 계열별) */
+export function modelBadgeClass(modelId: string): string {
+  for (const name of ["opus", "sonnet", "haiku", "fable"]) {
+    if (modelId.includes(name)) return `bdg-model-${name}`;
+  }
+  return "bdg-model-unknown";
 }

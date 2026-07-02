@@ -4,6 +4,8 @@ import { api, fmtDay, fmtTime } from "../api/client";
 import {
   STATUSES,
   buildProjNameMap,
+  modelBadgeClass,
+  modelDisplayName,
   shortName,
   type BoardStatus,
   type TimelineEvent,
@@ -127,6 +129,11 @@ export default function Timeline() {
           <span className={`bdg ${e.kind === "plan" ? "bdg-plan" : "bdg-session"}`}>
             {e.kind === "plan" ? "PLAN" : "SESS"}
           </span>
+          {e.kind === "session" && e.lastModel && (
+            <span className={`bdg ${modelBadgeClass(e.lastModel)}`} title={e.lastModel}>
+              {modelDisplayName(e.lastModel)}
+            </span>
+          )}
           <span className="timeline-time muted">
             {showDay ? `${fmtDay(e.ts)} ${fmtTime(e.ts)}` : fmtTime(e.ts)}
           </span>

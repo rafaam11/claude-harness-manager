@@ -8,7 +8,7 @@ import {
 import { getDeepLKey } from "../lib/secrets.js";
 import { readTranslationCache, mergeTranslations } from "../lib/translation-cache.js";
 import { maskText, isRestoreValid } from "../lib/mask.js";
-import type { ItemTranslation, NewsItem, TranslateResponse } from "@shared/types";
+import type { ItemTranslation, NewsItem, NewsSource, TranslateResponse } from "@shared/types";
 
 /**
  * News 번역 오케스트레이션. main이 DeepL Free/Pro API를 직접 호출한다(renderer는 CSP로 불가).
@@ -115,10 +115,14 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+// 원문이 이미 한국어인 소스 — 번역 대상에서 제외(renderer도 요청 전에 거르지만 이중 방어).
+const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set(["geeknews", "aitimes", "yozm"]);
+
 export async function translateItems(
   items: NewsItem[],
   opts: { withBody: boolean },
 ): Promise<TranslateResponse> {
+  items = items.filter((i) => !KOREAN_SOURCES.has(i.source));
   const key = await getDeepLKey();
   if (!key) {
     return { translations: {}, reason: "no-key", error: "DeepL 키가 설정되지 않았습니다" };

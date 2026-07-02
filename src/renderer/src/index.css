@@ -384,6 +384,12 @@ pre.viewer {
 .timeline-expand.ws-planbody { margin-left: 28px; padding-left: 0; }
 .bdg-session { background: #6366f1; }
 .bdg-plan { background: #10b981; }
+/* 세션 사용 모델 배지(계열별 색 — bdg-plan 녹색·bdg-session 인디고와 안 겹치게) */
+.bdg-model-opus { background: #8b5cf6; }
+.bdg-model-sonnet { background: #f97316; }
+.bdg-model-haiku { background: #14b8a6; }
+.bdg-model-fable { background: #ec4899; }
+.bdg-model-unknown { background: #6b7280; }
 
 /* News (라이브 통합 피드) — Timeline 클래스 재사용 + 소스 배지/툴바만 추가 */
 .news-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -393,7 +399,12 @@ pre.viewer {
 .news-src.err { color: var(--err); }
 .bdg-cc { background: #d97706; }
 .bdg-anthropic { background: #8b5cf6; }
-.bdg-ai { background: #0ea5e9; }
+/* 한국어 커뮤니티 RSS 소스 배지 — 기존 배지 팔레트(주황/보라)와 구분되는 색 */
+.bdg-geeknews { background: #0ea5e9; }
+.bdg-aitimes { background: #e11d48; }
+.bdg-yozm { background: #16a34a; }
+/* RSS 요약 발췌(평문) — main이 줄바꿈을 보존해 내려주므로 pre-wrap */
+.news-summary { white-space: pre-wrap; }
 
 /* 언어 3단 토글(EN / 한국어 / EN+한) — 세그먼트 버튼 */
 .news-mode-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }

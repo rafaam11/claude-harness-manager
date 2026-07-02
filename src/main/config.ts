@@ -45,10 +45,12 @@ export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json"
 // --- News 탭 (라이브 뉴스 통합 피드) ---
 // 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).
 export const NEWS_CACHE_FILE = path.join(CLAUDE_HOME, "harness-manager", "news-cache.json");
-// 각 소스에서 가져올 항목 수(GitHub per_page / HN hitsPerPage / anthropic 정규식 매치 상한).
+// 각 소스에서 가져올 항목 수(GitHub per_page / anthropic 정규식 매치 상한 / RSS 소스별 상한).
 export const NEWS_CLAUDE_COUNT = 15;
 export const NEWS_ANTHROPIC_COUNT = 15;
-export const NEWS_AI_COUNT = 15;
+export const NEWS_RSS_COUNT = 15;
+// RSS description 발췌 길이 상한(자). 과대 본문 절단용.
+export const NEWS_SUMMARY_MAX = 600;
 // 단일 fetch 타임아웃(AbortController). 외부 소스라 보수적으로.
 export const NEWS_FETCH_TIMEOUT_MS = 8000;
 // 메모리 캐시 수명. 탭 재진입·중복 GET 시 디스크/네트워크 재방문 방지(recall WORKSPACE_CACHE_TTL_MS 패턴).
@@ -60,8 +62,10 @@ export const NEWS_GITHUB_RELEASES_URL =
   "https://api.github.com/repos/anthropics/claude-code/releases";
 export const NEWS_ANTHROPIC_URL = "https://www.anthropic.com/news";
 export const NEWS_ANTHROPIC_BASE = "https://www.anthropic.com";
-export const NEWS_HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date";
-export const NEWS_HN_QUERY = "AI OR LLM";
+// 한국어 커뮤니티 RSS 피드(요약 본문 포함). geeknews는 Atom, 나머지는 RSS 2.0.
+export const NEWS_GEEKNEWS_URL = "https://news.hada.io/rss/news";
+export const NEWS_AITIMES_URL = "https://www.aitimes.com/rss/allArticle.xml";
+export const NEWS_YOZM_URL = "https://yozm.wishket.com/magazine/feed/";
 
 // --- News 번역(DeepL) / 시크릿 ---
 // 앱 소유 시크릿. board.json과 분리(이유: board.json은 .bak에 평문 키가 누적됨).

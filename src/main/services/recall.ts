@@ -31,6 +31,7 @@ export interface SessionRecall {
   lastAssistantSnippet: string | null;
   cwd: string | null;
   gitBranch: string | null;
+  lastModel: string | null; // 마지막 assistant 메시지의 모델 ID(배지 표시용)
   transcriptPath: string;
   transcriptMtime: number;
   truncatedScan: boolean; // tail만 읽었는지
@@ -68,6 +69,7 @@ export interface TimelineEvent {
   lastAssistantSnippet?: string | null; // 세션
   archived?: boolean; // 계획: 본문 fetch 시 archived 파라미터
   parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
+  lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
 }
 
 export interface WorkspaceProject extends ProjectRecall {
@@ -114,6 +116,7 @@ interface RecallAcc {
   lastAssistantSnippet: string | null;
   cwd: string | null;
   gitBranch: string | null;
+  lastModel: string | null;
 }
 
 function firstNonEmptyText(content: unknown): string | null {
@@ -146,6 +149,7 @@ function applyLine(line: string, acc: RecallAcc) {
       if (typeof o.cwd === "string") acc.cwd = o.cwd;
       if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
       if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
+      if (typeof o.message?.model === "string") acc.lastModel = o.message.model;
       break;
     }
     case "user":
@@ -208,20 +212,23 @@ function trunc(s: string | null, max: number): string | null {
   return t.length > max ? t.slice(0, max) + "…" : t;
 }
 
-export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {
-  const newest = await findNewestTranscript(projectDir);
-  if (!newest) return null;
-
+/** 특정 transcript 파일 하나에서 회상 정보를 추출(tail-read). 파일명 uuid = sessionId. */
+async function readSessionRecallFromFile(
+  filePath: string,
+  size: number,
+  mtime: number,
+): Promise<SessionRecall> {
   const acc: RecallAcc = {
-    sessionId: path.basename(newest.path, ".jsonl"), // 파일명 uuid = sessionId
+    sessionId: path.basename(filePath, ".jsonl"), // 파일명 uuid = sessionId
     aiTitle: null,
     lastPrompt: null,
     lastAssistantSnippet: null,
     cwd: null,
     gitBranch: null,
+    lastModel: null,
   };
 
-  const { text, truncated } = await readTail(newest.path, newest.size);
+  const { text, truncated } = await readTail(filePath, size);
   let lines = text.split("\n");
   if (truncated) lines = lines.slice(1); // 잘린 첫 줄 폐기
   for (const line of lines) applyLine(line, acc);
@@ -232,9 +239,9 @@ export async function readNewestSessionRecall(projectDir: string): Promise<Sessi
     !acc.aiTitle &&
     !acc.lastPrompt &&
     !acc.lastAssistantSnippet &&
-    newest.size <= RECALL_MAX_FULL_SCAN_BYTES
+    size <= RECALL_MAX_FULL_SCAN_BYTES
   ) {
-    await fullScan(newest.path, acc);
+    await fullScan(filePath, acc);
   }
 
   return {
@@ -244,10 +251,17 @@ export async function readNewestSessionRecall(projectDir: string): Promise<Sessi
     lastAssistantSnippet: trunc(acc.lastAssistantSnippet, ASSISTANT_MAX),
     cwd: acc.cwd,
     gitBranch: acc.gitBranch,
-    transcriptPath: newest.path,
-    transcriptMtime: newest.mtime,
+    lastModel: acc.lastModel,
+    transcriptPath: filePath,
+    transcriptMtime: mtime,
     truncatedScan: truncated,
   };
+}
+
+export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {
+  const newest = await findNewestTranscript(projectDir);
+  if (!newest) return null;
+  return readSessionRecallFromFile(newest.path, newest.size, newest.mtime);
 }
 
 // --- Glossary 추천 어휘용 프롬프트 corpus ---
@@ -348,10 +362,14 @@ async function getProjectRecallsUncached(): Promise<ProjectRecall[]> {
 }
 export const getProjectRecalls = cached(WORKSPACE_CACHE_TTL_MS, getProjectRecallsUncached);
 
-// sessionId → projectId(=flatten 디렉토리명). transcript 파일명(uuid)이 sessionId라
+// sessionId → { projectId(=flatten 디렉토리명), filePath }. transcript 파일명(uuid)이 sessionId라
 // 각 프로젝트 디렉토리의 .jsonl 파일명만 훑으면 정확히 만들 수 있다(내용 안 읽음).
-async function buildSessionToProjectIdUncached(): Promise<Map<string, string>> {
-  const m = new Map<string, string>();
+interface SessionPath {
+  projectId: string;
+  filePath: string;
+}
+async function buildSessionToPathMapUncached(): Promise<Map<string, SessionPath>> {
+  const m = new Map<string, SessionPath>();
   for (const entry of await fs.readdir(PROJECTS_DIR, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory()) continue;
     const root = entry.name;
@@ -359,14 +377,15 @@ async function buildSessionToProjectIdUncached(): Promise<Map<string, string>> {
       for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
         const p = path.join(d, e.name);
         if (e.isDirectory()) await walk(p);
-        else if (e.name.endsWith(".jsonl")) m.set(path.basename(e.name, ".jsonl"), root);
+        else if (e.name.endsWith(".jsonl"))
+          m.set(path.basename(e.name, ".jsonl"), { projectId: root, filePath: p });
       }
     }
     await walk(path.join(PROJECTS_DIR, root));
   }
   return m;
 }
-export const getSessionToProjectId = cached(WORKSPACE_CACHE_TTL_MS, buildSessionToProjectIdUncached);
+export const getSessionToPathMap = cached(WORKSPACE_CACHE_TTL_MS, buildSessionToPathMapUncached);
 
 // --- plan ↔ project 자동추정 ---
 function normPath(p: string): string {
@@ -407,12 +426,12 @@ function nearestEntry(mtime: number, idx: HistoryEntry[]): HistoryEntry | null {
 }
 
 export async function getEnrichedPlans(includeArchived = false): Promise<EnrichedPlan[]> {
-  const [plans, board, recalls, history, sessionToId] = await Promise.all([
+  const [plans, board, recalls, history, sessionToPath] = await Promise.all([
     getPlans(includeArchived),
     readBoard(),
     getProjectRecalls(),
     getHistoryIndex(),
-    getSessionToProjectId(),
+    getSessionToPathMap(),
   ]);
   const realToId = buildRealToIdMap(recalls);
   return plans.map((p) => {
@@ -420,13 +439,13 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
     // 2순위(마커 없거나 그 세션의 프로젝트를 못 찾을 때만): 가장 가까운 history 기록의
     // sessionId → 그 세션 transcript가 있는 프로젝트, 그마저 없으면 실제 경로 ↔ recall cwd 매칭.
     let guessedProjectId: string | null = p.sessionId
-      ? sessionToId.get(p.sessionId) ?? null
+      ? sessionToPath.get(p.sessionId)?.projectId ?? null
       : null;
     if (!guessedProjectId) {
       const e = nearestEntry(p.mtime, history);
       if (e) {
         guessedProjectId =
-          (e.sessionId ? sessionToId.get(e.sessionId) ?? null : null) ??
+          (e.sessionId ? sessionToPath.get(e.sessionId)?.projectId ?? null : null) ??
           realToId.get(normPath(e.project)) ??
           null;
       }
@@ -468,47 +487,80 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
-  const [recalls, plans, board] = await Promise.all([
+  const [recalls, plans, board, sessionToPath] = await Promise.all([
     getProjectRecalls(),
     getEnrichedPlans(includeArchived),
     readBoard(),
+    getSessionToPathMap(),
   ]);
   // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.
   // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
   const idToRealPath = new Map(recalls.map((r) => [r.id, r.realPath]));
+
+  // 계획 마커가 가리키는 세션이 프로젝트 "최신" 세션이 아니면 SESS 행이 없어 계획이
+  // flat으로 남는다 — 마커 세션의 transcript를 추가로 tail-read해 SESS 행으로 포함시킨다.
+  // (읽기 개수는 마커 계획 수에 비례하므로 가볍고, transcript 부재(agent-* 등)는 skip.)
+  const loadedSessionIds = new Set<string>();
+  for (const r of recalls) if (r.recall?.sessionId) loadedSessionIds.add(r.recall.sessionId);
+  const missingSessionIds = [
+    ...new Set(plans.map((p) => p.sessionId).filter((s): s is string => !!s)),
+  ].filter((sid) => !loadedSessionIds.has(sid) && sessionToPath.has(sid));
+  const extraRecalls = (
+    await Promise.all(
+      missingSessionIds.map(async (sid) => {
+        const sp = sessionToPath.get(sid)!;
+        try {
+          const stat = await fs.stat(sp.filePath);
+          const recall = await readSessionRecallFromFile(sp.filePath, stat.size, stat.mtimeMs);
+          return { projectId: sp.projectId, recall };
+        } catch {
+          return null; // 읽기 실패 — 계획은 기존 fallback(최근접 세션 or flat)으로
+        }
+      }),
+    )
+  ).filter((x): x is { projectId: string; recall: SessionRecall } => x !== null);
+
   const events: TimelineEvent[] = [];
-  // 계획 ↔ 세션 부모 추정용: projectId별 세션 후보(사실상 0~1개라 선형 스캔으로 충분).
+  // 계획 ↔ 세션 부모 추정용: projectId별 세션 후보(프로젝트당 소수라 선형 스캔으로 충분).
   const sessionsByProject = new Map<string, { sessionId: string; ts: number }[]>();
-  for (const r of recalls) {
-    if (r.recall) {
-      const sid = r.recall.sessionId;
-      // 자동추정 우선순위: 세션 직접 지정(override) → 프로젝트 상태 상속(자동) → "진행중"
-      const status: BoardStatus =
-        (sid ? board.sessions[sid]?.status : undefined) ??
-        board.projects[r.id]?.status ??
-        "진행중";
-      events.push({
-        ts: r.recall.transcriptMtime,
-        kind: "session",
-        projectId: r.id,
-        realPath: r.realPath,
-        title: r.recall.aiTitle ?? r.recall.lastPrompt ?? "(제목 없음)",
-        sessionId: sid ?? undefined,
-        status,
-        lastPrompt: r.recall.lastPrompt,
-        lastAssistantSnippet: r.recall.lastAssistantSnippet,
-      });
-      if (sid) {
-        const arr = sessionsByProject.get(r.id) ?? [];
-        arr.push({ sessionId: sid, ts: r.recall.transcriptMtime });
-        sessionsByProject.set(r.id, arr);
-      }
+  const pushSession = (projectId: string, realPath: string | null, recall: SessionRecall) => {
+    const sid = recall.sessionId;
+    // 자동추정 우선순위: 세션 직접 지정(override) → 프로젝트 상태 상속(자동) → "진행중"
+    const status: BoardStatus =
+      (sid ? board.sessions[sid]?.status : undefined) ??
+      board.projects[projectId]?.status ??
+      "진행중";
+    events.push({
+      ts: recall.transcriptMtime,
+      kind: "session",
+      projectId,
+      realPath,
+      title: recall.aiTitle ?? recall.lastPrompt ?? "(제목 없음)",
+      sessionId: sid ?? undefined,
+      status,
+      lastPrompt: recall.lastPrompt,
+      lastAssistantSnippet: recall.lastAssistantSnippet,
+      lastModel: recall.lastModel,
+    });
+    if (sid) {
+      const arr = sessionsByProject.get(projectId) ?? [];
+      arr.push({ sessionId: sid, ts: recall.transcriptMtime });
+      sessionsByProject.set(projectId, arr);
     }
-  }
+  };
+  for (const r of recalls) if (r.recall) pushSession(r.id, r.realPath, r.recall);
+  for (const er of extraRecalls)
+    pushSession(er.projectId, idToRealPath.get(er.projectId) ?? null, er.recall);
+
+  // 실제 SESS 행이 된 세션 집합 — 마커가 있어도 행이 없으면(transcript 부재) 2순위로 넘긴다.
+  const renderedSessionIds = new Set<string>();
+  for (const e of events) if (e.sessionId) renderedSessionIds.add(e.sessionId);
+
   for (const p of plans) {
-    // 1순위: 훅이 새겨넣은 확정 세션ID. Timeline에 그 세션이 안 보이면 프론트에서 자동으로 flat 처리된다.
-    // 2순위(마커 없을 때만): 같은 프로젝트의 세션 중 계획 mtime과 가장 가까운 것을 부모로 추정.
-    let parentSessionId: string | undefined = p.sessionId ?? undefined;
+    // 1순위: 훅이 새겨넣은 확정 세션ID(그 SESS 행이 실제로 존재할 때만).
+    // 2순위: 같은 프로젝트의 세션 중 계획 mtime과 가장 가까운 것을 부모로 추정.
+    let parentSessionId: string | undefined =
+      p.sessionId && renderedSessionIds.has(p.sessionId) ? p.sessionId : undefined;
     if (!parentSessionId) {
       const candidates = p.projectId ? sessionsByProject.get(p.projectId) : undefined;
       if (candidates) {

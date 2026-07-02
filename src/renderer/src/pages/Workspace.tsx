@@ -7,6 +7,8 @@ import {
   STATUSES,
   buildProjNameMap,
   displayName,
+  modelBadgeClass,
+  modelDisplayName,
   shortName,
   type BoardStatus,
   type EnrichedPlan,
@@ -465,6 +467,11 @@ function ProjectDetail({
           </>
         )}
         {p.gitBranch && <span className="t-tag">⎇ {p.gitBranch}</span>}
+        {p.recall?.lastModel && (
+          <span className={`bdg ${modelBadgeClass(p.recall.lastModel)}`} title={p.recall.lastModel}>
+            {modelDisplayName(p.recall.lastModel)}
+          </span>
+        )}
         <span className="ws-when">{fmtRelative(p.lastActivity)}</span>
         <select
           className="ws-select"

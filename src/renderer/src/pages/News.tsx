@@ -17,13 +17,19 @@ const MODE_KEY = "news.lang.mode";
 const SOURCE_LABEL: Record<NewsSource, string> = {
   "claude-code": "Claude Code",
   anthropic: "Anthropic",
-  ai: "AI",
+  geeknews: "GeekNews",
+  aitimes: "AI타임스",
+  yozm: "요즘IT",
 };
 const SOURCE_BDG: Record<NewsSource, string> = {
   "claude-code": "bdg-cc",
   anthropic: "bdg-anthropic",
-  ai: "bdg-ai",
+  geeknews: "bdg-geeknews",
+  aitimes: "bdg-aitimes",
+  yozm: "bdg-yozm",
 };
+// 원문이 이미 한국어인 소스 — 번역 요청 자체를 보내지 않는다(main도 이중으로 거른다).
+const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set(["geeknews", "aitimes", "yozm"]);
 
 // News 탭 UI 문구 사전(en/ko). 병기 모드는 한국어 UI를 쓴다.
 interface UIText {
@@ -109,7 +115,9 @@ export default function News() {
   // (A) 목록 제목 일괄 번역: ko/both + feed 준비 + 키 설정됨 + 미번역 존재. trans는 의도적 제외(루프 방지).
   useEffect(() => {
     if (mode === "en" || !feed || keyConfigured !== true) return;
-    const missing = feed.items.filter((i) => !trans[i.id]?.titleKo).map((i) => i.id);
+    const missing = feed.items
+      .filter((i) => !KOREAN_SOURCES.has(i.source) && !trans[i.id]?.titleKo)
+      .map((i) => i.id);
     if (missing.length === 0) return;
     setTranslating(true);
     setTransErr("");
@@ -263,7 +271,7 @@ export default function News() {
   );
 }
 
-/** 펼침: claude-code는 body(패치노트) 마크다운을 모드별로 렌더, 그 외는 메타 + 원문 열기. */
+/** 펼침: claude-code는 body(패치노트) 마크다운을 모드별로 렌더, 한국어 RSS는 summary 평문, 그 외는 메타 + 원문 열기. */
 function NewsExpand({
   item,
   mode,
@@ -308,6 +316,9 @@ function NewsExpand({
             )}
           </>
         )
+      ) : item.summary ? (
+        // 서드파티 HTML 주입 차단 — summary는 main에서 정제된 평문이며 평문으로만 렌더한다.
+        <p className="news-summary">{item.summary}</p>
       ) : (
         <p>
           {SOURCE_LABEL[item.source]} · {new Date(item.timestamp).toLocaleString()}

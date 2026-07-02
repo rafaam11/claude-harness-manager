@@ -11,7 +11,8 @@ import type { NewsFeed, NewsItem, NewsSource, NewsSourceStatus } from "@shared/t
  * board.json과 같은 BACKUP_DIR를 공유하므로 파일명 prefix(news-cache.json.)로 .bak 링이 섞이지 않게 한다.
  */
 
-const SOURCES: readonly NewsSource[] = ["claude-code", "anthropic", "ai"];
+// 구 "ai"(HN) 소스 항목은 이 화이트리스트에서 빠져 sanitize 때 자연 탈락한다(별도 마이그레이션 없음).
+const SOURCES: readonly NewsSource[] = ["claude-code", "anthropic", "geeknews", "aitimes", "yozm"];
 
 export function emptyFeed(): NewsFeed {
   return {
@@ -46,6 +47,7 @@ function sanitize(parsed: unknown): NewsFeed {
       if (typeof r.timestamp !== "number" || !Number.isFinite(r.timestamp)) continue;
       const item: NewsItem = { id: r.id, source, title: r.title, url: r.url, timestamp: r.timestamp };
       if (typeof r.body === "string" && r.body) item.body = r.body;
+      if (typeof r.summary === "string" && r.summary) item.summary = r.summary;
       if (typeof r.meta === "string" && r.meta) item.meta = r.meta;
       items.push(item);
     }
@@ -68,7 +70,7 @@ function sanitize(parsed: unknown): NewsFeed {
           typeof r.fetchedAt === "number" && Number.isFinite(r.fetchedAt) ? r.fetchedAt : 0,
       });
     }
-    // 항상 3소스 고정 순서로 정규화(누락된 소스는 기본값).
+    // 항상 5소스 고정 순서로 정규화(누락된 소스는 기본값).
     feed.sources = SOURCES.map(
       (source) => byKey.get(source) ?? { source, ok: false, count: 0, fetchedAt: 0 },
     );

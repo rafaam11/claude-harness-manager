@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5-1c2230?logo=typescript&logoColor=3178c6" alt="TypeScript 5">
   <img src="https://img.shields.io/badge/platform-Windows-1c2230?logo=windows11&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/platform-Linux-1c2230?logo=linux&logoColor=white" alt="Linux">
-  <img src="https://img.shields.io/badge/version-1.1.0-e8825f" alt="version 1.1.0">
+  <img src="https://img.shields.io/badge/version-1.1.1-e8825f" alt="version 1.1.1">
   <img src="https://img.shields.io/badge/local--only-no%20telemetry-3fb950" alt="local only">
 </p>
 

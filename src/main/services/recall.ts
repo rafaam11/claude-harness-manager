@@ -140,9 +140,6 @@ function applyLine(line: string, acc: RecallAcc) {
     case "ai-title":
       if (typeof o.aiTitle === "string" && o.aiTitle.trim()) acc.aiTitle = o.aiTitle;
       break;
-    case "last-prompt":
-      if (typeof o.lastPrompt === "string" && o.lastPrompt.trim()) acc.lastPrompt = o.lastPrompt;
-      break;
     case "assistant": {
       const text = firstNonEmptyText(o.message?.content);
       if (text) acc.lastAssistantSnippet = text;
@@ -156,6 +153,14 @@ function applyLine(line: string, acc: RecallAcc) {
       if (typeof o.cwd === "string") acc.cwd = o.cwd;
       if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
       if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
+      // 실제 사용자가 타이핑한 프롬프트만(문자열 content). tool_result·interrupt 알림 등은
+      // content가 배열이라 자연히 제외되고, 커맨드/시스템 wrapper(`<...>`)도 collectUserPrompts와
+      // 동일한 기준으로 걸러낸다. ai-title/last-prompt 합성 라인이 없는(오래됐거나 훅 미발동)
+      // 세션에서도 "(제목 없음)" 대신 실제 마지막 입력이 뜨도록 하는 fallback.
+      if (!o.isMeta && typeof o.message?.content === "string") {
+        const t = o.message.content.trim();
+        if (t && !t.startsWith("<")) acc.lastPrompt = t;
+      }
       break;
   }
 }
@@ -166,22 +171,25 @@ interface TranscriptRef {
   size: number;
 }
 
-async function findNewestTranscript(dir: string): Promise<TranscriptRef | null> {
-  let best: TranscriptRef | null = null;
+async function findAllTranscripts(dir: string): Promise<TranscriptRef[]> {
+  const results: TranscriptRef[] = [];
   async function walk(d: string) {
     for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) await walk(p);
       else if (e.name.endsWith(".jsonl")) {
         const stat = await fs.stat(p).catch(() => null);
-        if (stat && (!best || stat.mtimeMs > best.mtime)) {
-          best = { path: p, mtime: stat.mtimeMs, size: stat.size };
-        }
+        if (stat) results.push({ path: p, mtime: stat.mtimeMs, size: stat.size });
       }
     }
   }
   await walk(dir);
-  return best;
+  return results;
+}
+
+async function findNewestTranscript(dir: string): Promise<TranscriptRef | null> {
+  const all = await findAllTranscripts(dir);
+  return all.reduce<TranscriptRef | null>((best, r) => (!best || r.mtime > best.mtime ? r : best), null);
 }
 
 async function readTail(p: string, size: number): Promise<{ text: string; truncated: boolean }> {
@@ -425,6 +433,26 @@ function nearestEntry(mtime: number, idx: HistoryEntry[]): HistoryEntry | null {
   return best;
 }
 
+/** 계획 하나를 세션 후보군에 매칭. 1순위: 마커(sessionId)가 실제 렌더된 세션이면 그것.
+ * 2순위: PLAN_GUESS_WINDOW_MS 이내에서 mtime이 가장 가까운 세션. */
+function matchPlanToSession(
+  plan: { sessionId?: string | null; mtime: number },
+  candidates: { sessionId: string; ts: number }[],
+  renderedSessionIds: Set<string>,
+): string | undefined {
+  if (plan.sessionId && renderedSessionIds.has(plan.sessionId)) return plan.sessionId;
+  let best: string | undefined;
+  let bestDelta = Infinity;
+  for (const c of candidates) {
+    const delta = Math.abs(c.ts - plan.mtime);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = c.sessionId;
+    }
+  }
+  return bestDelta <= PLAN_GUESS_WINDOW_MS ? best : undefined;
+}
+
 export async function getEnrichedPlans(includeArchived = false): Promise<EnrichedPlan[]> {
   const [plans, board, recalls, history, sessionToPath] = await Promise.all([
     getPlans(includeArchived),
@@ -559,22 +587,8 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   for (const p of plans) {
     // 1순위: 훅이 새겨넣은 확정 세션ID(그 SESS 행이 실제로 존재할 때만).
     // 2순위: 같은 프로젝트의 세션 중 계획 mtime과 가장 가까운 것을 부모로 추정.
-    let parentSessionId: string | undefined =
-      p.sessionId && renderedSessionIds.has(p.sessionId) ? p.sessionId : undefined;
-    if (!parentSessionId) {
-      const candidates = p.projectId ? sessionsByProject.get(p.projectId) : undefined;
-      if (candidates) {
-        let bestDelta = Infinity;
-        for (const c of candidates) {
-          const delta = Math.abs(c.ts - p.mtime);
-          if (delta < bestDelta) {
-            bestDelta = delta;
-            parentSessionId = c.sessionId;
-          }
-        }
-        if (bestDelta > PLAN_GUESS_WINDOW_MS) parentSessionId = undefined;
-      }
-    }
+    const candidates = p.projectId ? sessionsByProject.get(p.projectId) ?? [] : [];
+    const parentSessionId = matchPlanToSession(p, candidates, renderedSessionIds);
     events.push({
       ts: p.mtime,
       kind: "plan",

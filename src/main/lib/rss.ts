@@ -12,6 +12,8 @@ export interface FeedEntry {
   description: string;
   /** pubDate/published의 epoch ms. 부재·파싱 실패면 undefined(요즘IT는 item에 pubDate가 없다). */
   publishedAt?: number;
+  /** 피드 인라인 대표 이미지 절대 URL(있을 때만). media/enclosure 또는 본문 첫 <img>에서 추출. */
+  image?: string;
 }
 
 /** 기본 HTML 엔티티 + 숫자 참조 복원(파서 라이브러리 없이). &amp;는 이중 복원을 피해 마지막에. */
@@ -61,6 +63,27 @@ function atomLink(block: string): string {
   return href ? decodeEntities(href[1]).trim() : "";
 }
 
+/**
+ * item/entry 블록에서 대표 이미지 절대 URL을 추출(우선순위: media → enclosure → 본문 첫 <img>).
+ * 없으면 undefined(대부분 소스는 피드에 이미지가 없어 renderer가 og:image로 보강한다).
+ */
+function firstImage(block: string): string | undefined {
+  // 1) media:content / media:thumbnail 의 url 속성
+  const media = block.match(/<media:(?:content|thumbnail)\b[^>]*\burl=["']([^"']+)["']/i);
+  if (media && /^https?:\/\//i.test(media[1])) return decodeEntities(media[1]).trim();
+  // 2) enclosure(type=image/…). url·type 속성 순서 양쪽 대응.
+  const enc =
+    block.match(/<enclosure\b[^>]*\burl=["']([^"']+)["'][^>]*\btype=["']image\//i) ??
+    block.match(/<enclosure\b[^>]*\btype=["']image\/[^>]*["'][^>]*\burl=["']([^"']+)["']/i);
+  if (enc && /^https?:\/\//i.test(enc[1])) return decodeEntities(enc[1]).trim();
+  // 3) content:encoded + description 안 첫 <img src>. CDATA 언랩 후, 엔티티 이스케이프(&lt;img)만 있으면 1회 선복원(요즘IT).
+  let s = unwrapCdata((field(block, "content:encoded") ?? "") + (field(block, "description") ?? ""));
+  if (!/<img/i.test(s) && /&lt;img/i.test(s)) s = decodeEntities(s);
+  const img = s.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+  if (img && /^https?:\/\//i.test(img[1])) return decodeEntities(img[1]).trim();
+  return undefined;
+}
+
 /** <rss>/<feed> 자동 감지 → item/entry 블록 분리 → 필드 추출. 제목/링크 없는 항목은 버린다. */
 export function parseFeed(xml: string, maxItems: number): FeedEntry[] {
   const isAtom = /<entry[\s>]/i.test(xml) && !/<item[\s>]/i.test(xml);
@@ -81,6 +104,7 @@ export function parseFeed(xml: string, maxItems: number): FeedEntry[] {
       link,
       description: unwrapCdata(descRaw),
       publishedAt: Number.isFinite(ts) ? ts : undefined,
+      image: firstImage(block),
     });
   }
   return out;

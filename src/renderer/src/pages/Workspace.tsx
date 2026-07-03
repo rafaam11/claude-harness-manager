@@ -273,11 +273,7 @@ export default function Workspace() {
               <ProjectDetail
                 key={selectedProject.id}
                 p={selectedProject}
-                plans={plansByProject.get(selectedProject.id) ?? []}
-                projects={sorted}
-                projName={projName}
                 onPatch={patchProject}
-                onPatchPlan={patchPlan}
                 onOpenFolder={openFolder}
                 onError={setError}
               />
@@ -394,20 +390,12 @@ function ProjectMasterCard({
 // ============================ 오른쪽 디테일: 프로젝트 상세 ============================
 function ProjectDetail({
   p,
-  plans,
-  projects,
-  projName,
   onPatch,
-  onPatchPlan,
   onOpenFolder,
   onError,
 }: {
   p: WorkspaceProject;
-  plans: EnrichedPlan[];
-  projects: WorkspaceProject[];
-  projName: Map<string, string>;
   onPatch: (id: string, body: ProjectPatch) => void;
-  onPatchPlan: (filename: string, body: PlanPatch) => void;
   onOpenFolder: (realPath: string) => void;
   onError: (message: string) => void;
 }) {
@@ -506,7 +494,7 @@ function ProjectDetail({
         <>
           <div className="ws-path mono">{p.realPath ?? p.id}</div>
 
-          {r ? (
+      {r ? (
         <div className="ws-recall">
           {r.aiTitle && <div className="ws-aititle">📌 {r.aiTitle}</div>}
           {r.lastPrompt && (
@@ -557,23 +545,6 @@ function ProjectDetail({
         })()}
       </div>
       <TrackEditor tracks={p.board.tracks} onSave={(tracks) => onPatch(p.id, { tracks })} />
-
-      <div className="ws-plans-head">
-        Plans <span className="cat-count">{plans.length}</span>
-      </div>
-      {plans.length === 0 ? (
-        <div className="muted">연결된 계획이 없습니다.</div>
-      ) : (
-        plans.map((pl) => (
-          <PlanRow
-            key={pl.filename}
-            p={pl}
-            projects={projects}
-            projName={projName}
-            onPatch={onPatchPlan}
-          />
-        ))
-      )}
 
           <MemorySection projectId={p.id} />
         </>

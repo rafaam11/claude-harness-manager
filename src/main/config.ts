@@ -66,6 +66,11 @@ export const NEWS_ANTHROPIC_BASE = "https://www.anthropic.com";
 export const NEWS_GEEKNEWS_URL = "https://news.hada.io/rss/news";
 export const NEWS_AITIMES_URL = "https://www.aitimes.com/rss/allArticle.xml";
 export const NEWS_YOZM_URL = "https://yozm.wishket.com/magazine/feed/";
+// 한국어 IT/AI 매체 RSS 피드(모두 RSS 2.0, pubDate 포함).
+export const NEWS_ETNEWS_URL = "http://rss.etnews.com/04046.xml";
+export const NEWS_ZDNET_URL = "https://feeds.feedburner.com/zdkorea";
+export const NEWS_IROBOT_URL = "https://www.irobotnews.com/rss/allArticle.xml";
+export const NEWS_HANKYUNG_URL = "https://www.hankyung.com/feed/it";
 
 // --- News 번역(DeepL) / 시크릿 ---
 // 앱 소유 시크릿. board.json과 분리(이유: board.json은 .bak에 평문 키가 누적됨).

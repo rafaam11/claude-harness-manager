@@ -5,6 +5,10 @@ import {
   NEWS_GEEKNEWS_URL,
   NEWS_AITIMES_URL,
   NEWS_YOZM_URL,
+  NEWS_ETNEWS_URL,
+  NEWS_ZDNET_URL,
+  NEWS_IROBOT_URL,
+  NEWS_HANKYUNG_URL,
   NEWS_CLAUDE_COUNT,
   NEWS_ANTHROPIC_COUNT,
   NEWS_RSS_COUNT,
@@ -18,7 +22,7 @@ import { decodeEntities, extractSummary, parseFeed } from "../lib/rss.js";
 import type { NewsFeed, NewsItem, NewsSource, NewsSourceStatus } from "@shared/types";
 
 /**
- * News 탭 라이브 피드. main 프로세스가 다섯 소스를 직접 fetch한다(renderer는 CSP로 외부 호출 불가).
+ * News 탭 라이브 피드. main 프로세스가 아홉 소스를 직접 fetch한다(renderer는 CSP로 외부 호출 불가).
  * 각 fetcher는 try/catch로 격리해 **throw하지 않고** 결과/상태를 반환한다 — 한 소스가 실패해도
  * 나머지 소스는 표시되는 graceful degradation이 핵심. 결과는 디스크 캐시(news-cache.json)에 저장하고
  * GET은 캐시 우선, POST(refresh)만 네트워크를 친다(수동 새로고침 위주).
@@ -157,7 +161,7 @@ async function fetchAnthropic(prevFetchedAt: number): Promise<FetchResult> {
   }
 }
 
-// --- 3~5) 한국어 커뮤니티 RSS (GeekNews Atom / AI타임스·요즘IT RSS 2.0) ---
+// --- 3~9) 한국어 커뮤니티/매체 RSS (GeekNews Atom / 나머지 RSS 2.0) ---
 /** 링크에서 안정 id 키 추출(GeekNews topic?id=N / AI타임스 idxno=N). 없으면 링크 자체(프로토콜 제외). */
 function linkKey(link: string): string {
   const m = link.match(/[?&](?:id|idxno)=(\d+)/);
@@ -197,6 +201,7 @@ async function fetchRss(
         timestamp:
           e.publishedAt ?? prevItems.find((p) => p.id === id)?.timestamp ?? Date.now(),
         ...(summary ? { summary } : {}),
+        ...(e.image ? { image: e.image } : {}),
       });
     }
     return { items, status: { source, ok: true, count: items.length, fetchedAt: Date.now() } };
@@ -205,17 +210,21 @@ async function fetchRss(
   }
 }
 
-/** 다섯 소스 fetch → 병합 역순 정렬 → 디스크 캐시 갱신. 실패 소스는 직전 캐시 항목을 보존한다. */
+/** 아홉 소스 fetch → 병합 역순 정렬 → 디스크 캐시 갱신. 실패 소스는 직전 캐시 항목을 보존한다. */
 async function refreshUncached(): Promise<NewsFeed> {
   const prev = await readNewsCache();
   const prevAt = (s: NewsSource): number =>
     prev.sources.find((x) => x.source === s)?.fetchedAt ?? 0;
-  const [cc, an, gn, at, yz] = await Promise.all([
+  const [cc, an, gn, at, yz, et, zd, rb, hk] = await Promise.all([
     fetchClaudeCode(prevAt("claude-code")),
     fetchAnthropic(prevAt("anthropic")),
     fetchRss("geeknews", NEWS_GEEKNEWS_URL, "gn-", prevAt("geeknews"), prev.items),
     fetchRss("aitimes", NEWS_AITIMES_URL, "at-", prevAt("aitimes"), prev.items),
     fetchRss("yozm", NEWS_YOZM_URL, "yozm-", prevAt("yozm"), prev.items),
+    fetchRss("etnews", NEWS_ETNEWS_URL, "et-", prevAt("etnews"), prev.items),
+    fetchRss("zdnet", NEWS_ZDNET_URL, "zd-", prevAt("zdnet"), prev.items),
+    fetchRss("irobot", NEWS_IROBOT_URL, "rb-", prevAt("irobot"), prev.items),
+    fetchRss("hankyung", NEWS_HANKYUNG_URL, "hk-", prevAt("hankyung"), prev.items),
   ]);
   // 실패한 소스는 직전 캐시의 그 소스 항목을 보존(완전 공백 방지).
   const keep = (s: NewsSource, r: FetchResult): NewsItem[] =>
@@ -226,11 +235,15 @@ async function refreshUncached(): Promise<NewsFeed> {
     ...keep("geeknews", gn),
     ...keep("aitimes", at),
     ...keep("yozm", yz),
+    ...keep("etnews", et),
+    ...keep("zdnet", zd),
+    ...keep("irobot", rb),
+    ...keep("hankyung", hk),
   ].sort((a, b) => b.timestamp - a.timestamp);
   const feed: NewsFeed = {
     version: 1,
     items,
-    sources: [cc.status, an.status, gn.status, at.status, yz.status],
+    sources: [cc.status, an.status, gn.status, at.status, yz.status, et.status, zd.status, rb.status, hk.status],
     lastFetch: Date.now(),
   };
   await writeNewsCacheAtomic(feed);
@@ -274,4 +287,45 @@ export async function refreshNews(): Promise<NewsFeed> {
     },
   );
   return inflight;
+}
+
+// --- 기사 대표 이미지(og:image) lazy-fetch ---
+// 피드에 이미지가 없는 소스는 원문 페이지의 og:image를 클릭 시점에만 1회 조회한다(refresh는 가볍게 유지).
+const imageCache = new Map<string, string>(); // id → 해석된 이미지 URL(재클릭 재요청 방지)
+
+/** 원문 HTML에서 og:image(없으면 twitter:image)를 추출. 실패/부재면 null. */
+async function fetchOgImage(url: string): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const html = await res.text();
+    // <meta property="og:image" content="…"> — property/content 속성 순서 양쪽 대응. og:image 없으면 twitter:image.
+    const pick = (name: string): string | undefined => {
+      const attr = `(?:property|name)=["']${name}["']`;
+      const m =
+        html.match(new RegExp(`<meta\\b[^>]*${attr}[^>]*\\bcontent=["']([^"']+)["']`, "i")) ??
+        html.match(new RegExp(`<meta\\b[^>]*\\bcontent=["']([^"']+)["'][^>]*${attr}`, "i"));
+      return m?.[1];
+    };
+    let img = pick("og:image") ?? pick("twitter:image");
+    if (!img) return null;
+    img = decodeEntities(img).trim();
+    if (img.startsWith("//")) img = `https:${img}`; // 프로토콜 상대 URL 보정
+    return /^https?:\/\//i.test(img) ? img : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/news/image: id로 캐시 피드에서 item을 찾아 인라인 이미지 우선, 없으면 og:image lazy-fetch(메모리 캐시). */
+export async function getNewsImage(id: string): Promise<{ image: string | null }> {
+  const feed = await getNews();
+  const item = feed.items.find((i) => i.id === id);
+  if (!item) return { image: null };
+  if (item.image) return { image: item.image };
+  const cached = imageCache.get(id);
+  if (cached) return { image: cached };
+  const image = await fetchOgImage(item.url);
+  if (image) imageCache.set(id, image);
+  return { image };
 }

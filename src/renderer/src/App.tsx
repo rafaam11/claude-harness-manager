@@ -26,7 +26,7 @@ type Theme = "dark" | "light";
 const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs"];
 const SECONDARY_PAGES: PageKey[] = ["news", "glossary"];
 // 좌우 2단(마스터-디테일)이라 전체 너비를 쓰는 페이지.
-const WIDE_PAGES: PageKey[] = ["workspace", "glossary"];
+const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");

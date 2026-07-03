@@ -116,7 +116,15 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 // 원문이 이미 한국어인 소스 — 번역 대상에서 제외(renderer도 요청 전에 거르지만 이중 방어).
-const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set(["geeknews", "aitimes", "yozm"]);
+const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set([
+  "geeknews",
+  "aitimes",
+  "yozm",
+  "etnews",
+  "zdnet",
+  "irobot",
+  "hankyung",
+]);
 
 export async function translateItems(
   items: NewsItem[],

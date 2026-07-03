@@ -9,10 +9,15 @@ import { getPlugins } from "./services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
 import { getMcpServers } from "./services/mcp.js";
-import { getWorkspaceProjects, getEnrichedPlans, getTimeline, getPromptCorpus } from "./services/recall.js";
+import {
+  getWorkspaceProjects,
+  getEnrichedPlans,
+  getTimeline,
+  getPromptCorpus,
+} from "./services/recall.js";
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
-import { getNews, refreshNews } from "./services/news.js";
+import { getNews, refreshNews, getNewsImage } from "./services/news.js";
 import { translateItems } from "./services/translate.js";
 import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
@@ -91,6 +96,16 @@ const routes: Route[] = [
       const byId = new Map(feed.items.map((i) => [i.id, i]));
       const items = ids.map((id) => byId.get(id)).filter((x): x is NewsItem => Boolean(x));
       return translateItems(items, { withBody: withBody === true });
+    },
+  },
+  // 기사 대표 이미지: id를 받아 인라인 이미지 우선, 없으면 원문 og:image를 lazy로 조회(main이 피드에서 url 해석).
+  {
+    method: "POST",
+    pattern: "/api/news/image",
+    handler: async ({ body }) => {
+      const { id } = (body ?? {}) as { id?: string };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return getNewsImage(id);
     },
   },
   // DeepL 키 존재 여부(boolean만). 키 원문은 절대 반환하지 않는다.

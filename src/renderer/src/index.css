@@ -244,6 +244,9 @@ pre.viewer {
 /* 좌우 2단 마스터-디테일 */
 .ws-split { display: grid; grid-template-columns: 262px minmax(0, 1fr); gap: 16px; align-items: start; }
 .ws-master { display: flex; flex-direction: column; gap: 7px; max-height: calc(100vh - 150px); overflow-y: auto; padding-right: 2px; }
+/* 우측 상세도 좌측과 같은 높이 상한 + 독립 스크롤 — 상세가 길어도 페이지(창) 전체가 늘어나지 않아
+   우측을 스크롤할 때 좌측 목록이 함께 밀려 올라가지 않는다(.ws-split을 쓰는 Workspace/Glossary 공통). */
+.ws-split .ws-detail-inner { max-height: calc(100vh - 150px); overflow-y: auto; }
 .ws-master-item {
   position: relative;
   text-align: left; width: 100%; background: var(--card); border: 1px solid var(--border);

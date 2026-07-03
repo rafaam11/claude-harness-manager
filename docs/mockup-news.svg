@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="News 탭 (마스터-디테일)">
+  <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── nav ── -->
+  <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
+  <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
+  <text x="20" y="78" font-size="12.5" fill="#9aa3b2">Timeline</text>
+  <text x="20" y="111" font-size="12.5" fill="#9aa3b2">Workspace</text>
+  <text x="20" y="146" font-size="12.5" fill="#9aa3b2">Catalog</text>
+  <text x="20" y="180" font-size="12.5" fill="#9aa3b2">Cleanup</text>
+  <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+  <line x1="16" y1="240" x2="135" y2="240" stroke="#313742"/>
+  <rect x="0" y="252" width="151" height="28" fill="#222834"/>
+  <rect x="0" y="252" width="3" height="28" fill="#e8825f"/>
+  <text x="20" y="271" font-size="12.5" fill="#f3f5f9">News</text>
+  <text x="20" y="304" font-size="12.5" fill="#9aa3b2">Glossary</text>
+
+  <!-- ── page title ── -->
+  <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">News</text>
+
+  <!-- ── toolbar ── -->
+  <rect x="170" y="52" width="76" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="208" y="69" font-size="10.5" fill="#9aa3b2" text-anchor="middle">새로고침</text>
+  <text x="256" y="69" font-size="10.5" fill="#5a6675">마지막 갱신: 3분 전</text>
+  <rect x="680" y="52" width="44" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="702" y="69" font-size="10.5" fill="#9aa3b2" text-anchor="middle">EN</text>
+  <rect x="724" y="52" width="58" height="26" rx="6" fill="#e8825f"/>
+  <text x="753" y="69" font-size="10.5" font-weight="600" fill="#0f1318" text-anchor="middle">한국어</text>
+  <rect x="782" y="52" width="56" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="810" y="69" font-size="10.5" fill="#9aa3b2" text-anchor="middle">EN+한</text>
+  <rect x="850" y="52" width="74" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="887" y="69" font-size="10.5" fill="#9aa3b2" text-anchor="middle">필터 ▾</text>
+
+  <!-- ── DeepL key hint ── -->
+  <rect x="170" y="86" width="754" height="30" rx="6" fill="#1c1712" stroke="#3a3320"/>
+  <text x="184" y="105" font-size="11" fill="#9aa3b2">🔑 번역하려면 DeepL API 키를 입력하세요</text>
+  <rect x="452" y="91" width="240" height="20" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="460" y="105" font-size="9.5" fill="#5a6675" font-family="Consolas, monospace">DeepL-Auth-Key (…:fx)</text>
+  <rect x="698" y="91" width="24" height="20" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="710" y="105" font-size="10" fill="#9aa3b2" text-anchor="middle">👁</text>
+  <rect x="728" y="91" width="50" height="20" rx="5" fill="#1c2230" stroke="#313742"/>
+  <text x="753" y="105" font-size="10" fill="#9aa3b2" text-anchor="middle">저장</text>
+  <text x="790" y="105" font-size="9.5" fill="#5a6675">무료 키는 :fx 로 끝남</text>
+
+  <!-- ── master list ── -->
+  <text x="170" y="142" font-size="11" font-weight="700" fill="#e8825f">2026년 7월 3일</text>
+
+  <rect x="170" y="150" width="384" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="160" width="92" height="17" rx="4" fill="#0b0e12" stroke="#3a2c14"/>
+  <text x="230" y="172" font-size="9.5" fill="#d97706" text-anchor="middle">Claude Code</text>
+  <text x="540" y="172" font-size="10" fill="#9aa3b2" text-anchor="end">09:12</text>
+  <text x="184" y="195" font-size="11.5" font-weight="600" fill="#f3f5f9">v2.4 — Fast mode · News 탭 개선</text>
+
+  <rect x="170" y="212" width="384" height="66" rx="8" fill="#222834" stroke="#e8825f"/>
+  <rect x="184" y="222" width="60" height="17" rx="4" fill="#0b0e12" stroke="#3a1420"/>
+  <text x="214" y="234" font-size="9.5" fill="#e11d48" text-anchor="middle">AI타임스</text>
+  <text x="540" y="234" font-size="10" fill="#9aa3b2" text-anchor="end">08:40</text>
+  <text x="184" y="255" font-size="11.5" font-weight="600" fill="#f3f5f9">‘클로드’ 코딩 에이전트, 엔터프라이즈</text>
+  <text x="184" y="271" font-size="11.5" font-weight="600" fill="#f3f5f9">도입 가속</text>
+
+  <rect x="170" y="284" width="384" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="294" width="72" height="17" rx="4" fill="#0b0e12" stroke="#123344"/>
+  <text x="220" y="306" font-size="9.5" fill="#0ea5e9" text-anchor="middle">GeekNews</text>
+  <text x="540" y="306" font-size="10" fill="#9aa3b2" text-anchor="end">07:30</text>
+  <text x="184" y="329" font-size="11.5" font-weight="600" fill="#f3f5f9">오픈소스 LLM 벤치마크 업데이트</text>
+
+  <rect x="170" y="346" width="384" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="356" width="60" height="17" rx="4" fill="#0b0e12" stroke="#3a1230"/>
+  <text x="214" y="368" font-size="9.5" fill="#be185d" text-anchor="middle">한국경제</text>
+  <text x="540" y="368" font-size="10" fill="#9aa3b2" text-anchor="end">어제</text>
+  <text x="184" y="391" font-size="11.5" font-weight="600" fill="#f3f5f9">AI 반도체 투자 확대…기업 동향</text>
+
+  <rect x="170" y="408" width="384" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="418" width="60" height="17" rx="4" fill="#0b0e12" stroke="#0c3330"/>
+  <text x="214" y="430" font-size="9.5" fill="#0d9488" text-anchor="middle">로봇신문</text>
+  <text x="540" y="430" font-size="10" fill="#9aa3b2" text-anchor="end">어제</text>
+  <text x="184" y="453" font-size="11.5" font-weight="600" fill="#f3f5f9">협동로봇 신제품 공개</text>
+
+  <!-- ── detail panel ── -->
+  <rect x="570" y="128" width="354" height="440" rx="9" fill="#15191f" stroke="#313742"/>
+  <rect x="586" y="144" width="60" height="18" rx="4" fill="#0b0e12" stroke="#3a1420"/>
+  <text x="616" y="157" font-size="9.5" fill="#e11d48" text-anchor="middle">AI타임스</text>
+  <text x="586" y="184" font-size="13" font-weight="700" fill="#f3f5f9">‘클로드’ 코딩 에이전트,</text>
+  <text x="586" y="203" font-size="13" font-weight="700" fill="#f3f5f9">엔터프라이즈 도입 가속</text>
+  <text x="586" y="223" font-size="10" fill="#5a6675">2026-07-03 08:40 · AI타임스</text>
+
+  <rect x="586" y="232" width="322" height="104" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="747" y="288" font-size="11" fill="#5a6675" text-anchor="middle">🖼  대표 이미지 (og:image)</text>
+
+  <text x="586" y="360" font-size="11.5" font-weight="700" fill="#f3f5f9">## 엔터프라이즈 채택 확산</text>
+  <text x="586" y="382" font-size="10.5" fill="#9aa3b2">앤트로픽은 코딩 에이전트의 기업 도입이 빠르게…</text>
+  <text x="586" y="402" font-size="10.5" fill="#9aa3b2">· 보안 · 감사 로그 기능 강화</text>
+  <text x="586" y="422" font-size="10.5" fill="#9aa3b2">· 온프레미스 배포 옵션 추가</text>
+  <text x="586" y="444" font-size="10.5" fill="#5a6675">…원문 전문을 마크다운으로 추출 (1회 lazy-fetch)</text>
+
+  <rect x="586" y="462" width="120" height="28" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="646" y="480" font-size="10.5" fill="#9aa3b2" text-anchor="middle">원문 열기 ↗</text>
+
+  <text x="170" y="590" font-size="10.5" fill="#5a6675">News — 9소스 통합 피드(마스터-디테일) · EN / 한국어 / 병기 토글 + DeepL 번역 · 기사 원문 전문(마크다운) · 소스 필터</text>
+</svg>

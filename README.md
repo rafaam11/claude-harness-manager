@@ -35,12 +35,16 @@ Claude Code의 전역 환경(`~/.claude` 디렉토리 + `~/.claude.json`)을 한
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/mockup-timeline.svg" alt="Timeline" width="100%"><br><sub><b>Timeline</b> — 날짜별 세션·계획과 “N일 공백” 구분선</sub></td>
-    <td width="50%"><img src="docs/mockup-catalog.svg" alt="Catalog" width="100%"><br><sub><b>Catalog</b> — 카드 블럭·인라인 확장·시크릿 마스킹</sub></td>
+    <td width="50%"><img src="docs/mockup-timeline.svg" alt="Timeline" width="100%"><br><sub><b>Timeline</b> — 프로젝트 탭·모델 배지·“N일 공백” 구분선</sub></td>
+    <td width="50%"><img src="docs/mockup-catalog.svg" alt="Catalog" width="100%"><br><sub><b>Catalog</b> — 마스터-디테일·프론트매터·본문·시크릿 마스킹</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/mockup-cleanup.svg" alt="Cleanup" width="100%"><br><sub><b>Cleanup</b> — 삭제 없이 아카이브로 이동·복구</sub></td>
+    <td width="50%"><img src="docs/mockup-cleanup.svg" alt="Cleanup" width="100%"><br><sub><b>Cleanup</b> — 뷰 전환·그룹 접기·삭제 없이 아카이브로 이동</sub></td>
     <td width="50%"><img src="docs/mockup-config.svg" alt="Config Editor" width="100%"><br><sub><b>Config Editor</b> — 트리 편집·자동 백업·충돌 방지</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/mockup-news.svg" alt="News" width="100%"><br><sub><b>News</b> — 9소스 통합·언어 토글·원문 전문(마크다운)</sub></td>
+    <td width="50%"><img src="docs/mockup-glossary.svg" alt="Glossary" width="100%"><br><sub><b>Glossary</b> — 3단계 트리·추천 어휘·관계 그래프</sub></td>
   </tr>
 </table>
 

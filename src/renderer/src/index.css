@@ -450,8 +450,9 @@ pre.viewer {
 /* News (라이브 통합 피드) — 2단 마스터-디테일. 그리드(.cat-split)·항목 카드(.cat-master-item)·
    상세 패널(.ws-detail/.ws-detail-inner)은 Catalog 것을 재사용하고, 좌측 목록 스크롤 높이만 덧입힌다.
    (상단 툴바가 있어 Catalog .cat-master와 동일하게 100vh-210px로 여유를 둔다.) */
-/* 좌측 목록 열을 Catalog(300px)보다 약간 넓혀 긴 뉴스 제목이 덜 답답하게 한다 */
-.news-split { grid-template-columns: 400px minmax(0, 1fr); }
+/* 좌측 목록·우측 상세를 4:6 비율로 분할.
+   (.cat-split 기본 규칙이 파일 뒤쪽(더 나중 선언)에 있어 단일 클래스로는 밀린다 — 복합 선택자로 특이도 확보) */
+.cat-split.news-split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .news-master { max-height: calc(100vh - 210px); gap: 4px; }
 /* 우측 상세도 좌측과 같은 높이 상한 + 독립 스크롤 — 상세가 길어도 페이지(창) 전체가 늘어나지 않아
    우측을 스크롤할 때 좌측 목록이 함께 밀려 올라가지 않는다. News 전용(.news-split)으로만 스코프. */

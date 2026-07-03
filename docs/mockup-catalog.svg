@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Catalog 탭">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Catalog 탭 (마스터-디테일)">
   <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── nav ── -->
   <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
   <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
   <text x="20" y="78" font-size="12.5" fill="#9aa3b2">Timeline</text>
@@ -9,44 +11,102 @@
   <text x="20" y="146" font-size="12.5" fill="#f3f5f9">Catalog</text>
   <text x="20" y="180" font-size="12.5" fill="#9aa3b2">Cleanup</text>
   <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+  <line x1="16" y1="240" x2="135" y2="240" stroke="#313742"/>
+  <text x="20" y="266" font-size="12.5" fill="#9aa3b2">News</text>
+  <text x="20" y="300" font-size="12.5" fill="#9aa3b2">Glossary</text>
+
+  <!-- ── page title ── -->
   <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">Catalog</text>
-  <rect x="170" y="54" width="86" height="26" rx="13" fill="#222834" stroke="#e8825f"/>
-  <text x="213" y="71" font-size="11" fill="#f3f5f9" text-anchor="middle">Skills 12</text>
-  <rect x="264" y="54" width="86" height="26" rx="13" fill="#1c2230" stroke="#313742"/>
-  <text x="307" y="71" font-size="11" fill="#9aa3b2" text-anchor="middle">Agents 5</text>
-  <rect x="358" y="54" width="106" height="26" rx="13" fill="#1c2230" stroke="#313742"/>
-  <text x="411" y="71" font-size="11" fill="#9aa3b2" text-anchor="middle">Commands 8</text>
-  <rect x="472" y="54" width="72" height="26" rx="13" fill="#1c2230" stroke="#313742"/>
-  <text x="508" y="71" font-size="11" fill="#9aa3b2" text-anchor="middle">MCP 3</text>
-  <rect x="552" y="54" width="92" height="26" rx="13" fill="#1c2230" stroke="#313742"/>
-  <text x="598" y="71" font-size="11" fill="#9aa3b2" text-anchor="middle">Plugins 4</text>
-  <rect x="170" y="98" width="238" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
-  <text x="186" y="120" font-size="12" font-weight="600" fill="#f3f5f9">brainstorming</text>
-  <text x="186" y="138" font-size="10" fill="#9aa3b2">아이디어를 설계로</text>
-  <rect x="416" y="98" width="238" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
-  <text x="432" y="120" font-size="12" font-weight="600" fill="#f3f5f9">writing-plans</text>
-  <text x="432" y="138" font-size="10" fill="#9aa3b2">구현 계획 작성</text>
-  <rect x="662" y="98" width="262" height="56" rx="8" fill="#1c2230" stroke="#313742"/>
-  <text x="678" y="120" font-size="12" font-weight="600" fill="#f3f5f9">code-review</text>
-  <text x="678" y="138" font-size="10" fill="#9aa3b2">변경 리뷰</text>
-  <rect x="170" y="166" width="754" height="200" rx="8" fill="#15191f" stroke="#e8825f"/>
-  <text x="186" y="190" font-size="13" font-weight="700" fill="#f3f5f9">brainstorming ▾</text>
-  <rect x="320" y="178" width="46" height="18" rx="9" fill="#1c2230" stroke="#313742"/>
-  <text x="343" y="191" font-size="10" fill="#e8825f" text-anchor="middle">skill</text>
-  <text x="186" y="214" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">name: brainstorming</text>
-  <text x="186" y="232" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">description: 아이디어를 설계·스펙으로 다듬는다</text>
-  <line x1="186" y1="246" x2="908" y2="246" stroke="#313742"/>
-  <text x="186" y="270" font-size="11.5" font-weight="700" fill="#f3f5f9"># Brainstorming Ideas Into Designs</text>
-  <text x="186" y="292" font-size="11" fill="#9aa3b2">한 번에 하나씩 질문하며 의도·제약·성공 기준을 좁힌다.</text>
-  <text x="186" y="312" font-size="11" fill="#9aa3b2">· 2–3가지 접근을 트레이드오프와 함께 제시</text>
-  <text x="186" y="332" font-size="11" fill="#9aa3b2">· 설계 승인 후에만 구현으로 이동</text>
-  <text x="186" y="352" font-size="11" fill="#5a6675">…본문 마크다운 미리보기 (읽기 전용)</text>
-  <rect x="170" y="378" width="754" height="44" rx="8" fill="#1c2230" stroke="#313742"/>
-  <text x="186" y="404" font-size="12" font-weight="600" fill="#f3f5f9">🔌 MCP · context7</text>
-  <text x="360" y="404" font-size="11" fill="#9aa3b2" font-family="Consolas, monospace">API_KEY = ●●●●●●●●●●●●</text>
-  <rect x="612" y="392" width="26" height="18" rx="5" fill="#0b0e12" stroke="#313742"/>
-  <text x="625" y="405" font-size="10" fill="#9aa3b2" text-anchor="middle">👁</text>
-  <rect x="858" y="390" width="66" height="20" rx="10" fill="#0b0e12" stroke="#313742"/>
-  <text x="891" y="404" font-size="10" fill="#9aa3b2" text-anchor="middle">읽기 전용</text>
-  <text x="170" y="586" font-size="10.5" fill="#5a6675">Catalog — 종류별 카드 블럭 + 단일 인라인 확장 · MCP 시크릿은 가린 채 표시</text>
+
+  <!-- ── master: search + segments ── -->
+  <rect x="170" y="56" width="228" height="30" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="184" y="76" font-size="11" fill="#5a6675">🔎  이름·설명 검색…</text>
+
+  <rect x="170" y="94" width="72" height="24" rx="12" fill="#222834" stroke="#e8825f"/>
+  <text x="206" y="110" font-size="10" fill="#f3f5f9" text-anchor="middle">전체 32</text>
+  <rect x="248" y="94" width="72" height="24" rx="12" fill="#1c2230" stroke="#313742"/>
+  <text x="284" y="110" font-size="10" fill="#9aa3b2" text-anchor="middle">Skill 12</text>
+  <rect x="326" y="94" width="72" height="24" rx="12" fill="#1c2230" stroke="#313742"/>
+  <text x="362" y="110" font-size="10" fill="#9aa3b2" text-anchor="middle">Agent 5</text>
+  <rect x="170" y="122" width="72" height="24" rx="12" fill="#1c2230" stroke="#313742"/>
+  <text x="206" y="138" font-size="10" fill="#9aa3b2" text-anchor="middle">Cmd 8</text>
+  <rect x="248" y="122" width="72" height="24" rx="12" fill="#1c2230" stroke="#313742"/>
+  <text x="284" y="138" font-size="10" fill="#9aa3b2" text-anchor="middle">MCP 3</text>
+  <rect x="326" y="122" width="72" height="24" rx="12" fill="#1c2230" stroke="#313742"/>
+  <text x="362" y="138" font-size="10" fill="#9aa3b2" text-anchor="middle">Plugin 4</text>
+
+  <!-- ── master list ── -->
+  <text x="170" y="170" font-size="10" font-weight="700" fill="#5a6675">SKILLS</text>
+  <rect x="170" y="178" width="228" height="40" rx="8" fill="#222834" stroke="#e8825f"/>
+  <rect x="184" y="187" width="40" height="15" rx="4" fill="#1c2230" stroke="#313742"/>
+  <text x="204" y="198" font-size="9" fill="#e8825f" text-anchor="middle">skill</text>
+  <text x="232" y="199" font-size="11.5" font-weight="600" fill="#f3f5f9">brainstorming</text>
+  <text x="184" y="213" font-size="9.5" fill="#9aa3b2">4 KB · 2일 전</text>
+
+  <rect x="170" y="222" width="228" height="40" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="231" width="40" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="204" y="242" font-size="9" fill="#9aa3b2" text-anchor="middle">skill</text>
+  <text x="232" y="243" font-size="11.5" font-weight="600" fill="#f3f5f9">writing-plans</text>
+  <text x="184" y="257" font-size="9.5" fill="#9aa3b2">6 KB · 5일 전</text>
+
+  <text x="170" y="284" font-size="10" font-weight="700" fill="#5a6675">AGENTS</text>
+  <rect x="170" y="292" width="228" height="40" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="301" width="46" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="207" y="312" font-size="9" fill="#9aa3b2" text-anchor="middle">agent</text>
+  <text x="238" y="313" font-size="11.5" font-weight="600" fill="#f3f5f9">code-reviewer</text>
+  <text x="360" y="313" font-size="11" fill="#d6b24a">⚠</text>
+  <text x="184" y="327" font-size="9.5" fill="#9aa3b2">21 KB · 대형 에이전트</text>
+
+  <text x="170" y="354" font-size="10" font-weight="700" fill="#5a6675">MCP SERVERS</text>
+  <rect x="170" y="362" width="228" height="40" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="371" width="36" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="202" y="382" font-size="9" fill="#9aa3b2" text-anchor="middle">mcp</text>
+  <text x="228" y="383" font-size="11.5" font-weight="600" fill="#f3f5f9">context7</text>
+  <rect x="300" y="371" width="42" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="321" y="382" font-size="9" fill="#9aa3b2" text-anchor="middle">stdio</text>
+  <text x="184" y="397" font-size="9.5" fill="#9aa3b2">~/.claude.json</text>
+
+  <text x="170" y="424" font-size="10" font-weight="700" fill="#5a6675">PLUGINS</text>
+  <rect x="170" y="432" width="228" height="40" rx="8" fill="#1c2230" stroke="#313742"/>
+  <rect x="184" y="441" width="46" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="207" y="452" font-size="9" fill="#9aa3b2" text-anchor="middle">plugin</text>
+  <text x="238" y="453" font-size="11.5" font-weight="600" fill="#f3f5f9">superpowers</text>
+  <rect x="356" y="441" width="26" height="15" rx="4" fill="#1d3324"/>
+  <text x="369" y="452" font-size="9" fill="#5fb878" text-anchor="middle">on</text>
+  <text x="184" y="467" font-size="9.5" fill="#9aa3b2">global · v1.4.0</text>
+
+  <!-- ── detail panel ── -->
+  <rect x="414" y="56" width="510" height="512" rx="9" fill="#15191f" stroke="#313742"/>
+  <rect x="430" y="74" width="44" height="18" rx="4" fill="#1c2230" stroke="#313742"/>
+  <text x="452" y="87" font-size="10" fill="#e8825f" text-anchor="middle">skill</text>
+  <text x="484" y="90" font-size="15" font-weight="700" fill="#f3f5f9">brainstorming</text>
+  <rect x="852" y="72" width="56" height="22" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="880" y="87" font-size="10.5" fill="#9aa3b2" text-anchor="middle">복사</text>
+
+  <text x="430" y="118" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">…/skills/brainstorming/SKILL.md</text>
+  <text x="430" y="138" font-size="11" fill="#9aa3b2">4 KB · 수정 2일 전</text>
+  <line x1="430" y1="152" x2="908" y2="152" stroke="#313742"/>
+
+  <text x="430" y="176" font-size="11" font-weight="700" fill="#9aa3b2">Frontmatter</text>
+  <text x="430" y="198" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">name: brainstorming</text>
+  <text x="430" y="218" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">description: 아이디어를 설계·스펙으로 다듬는다</text>
+  <line x1="430" y1="234" x2="908" y2="234" stroke="#313742"/>
+
+  <text x="430" y="258" font-size="11" font-weight="700" fill="#9aa3b2">본문</text>
+  <text x="430" y="282" font-size="11.5" font-weight="700" fill="#f3f5f9"># Brainstorming Ideas Into Designs</text>
+  <text x="430" y="304" font-size="11" fill="#9aa3b2">한 번에 하나씩 질문하며 의도·제약·성공 기준을 좁힌다.</text>
+  <text x="430" y="324" font-size="11" fill="#9aa3b2">· 2–3가지 접근을 트레이드오프와 함께 제시</text>
+  <text x="430" y="344" font-size="11" fill="#9aa3b2">· 설계 승인 후에만 구현으로 이동</text>
+  <text x="430" y="366" font-size="11" fill="#5a6675">…본문 마크다운 미리보기 (읽기 전용)</text>
+
+  <!-- MCP masking demo -->
+  <line x1="430" y1="392" x2="908" y2="392" stroke="#313742"/>
+  <text x="430" y="414" font-size="10" fill="#5a6675">MCP 서버 선택 시 — env / headers 값은 가린 채 표시</text>
+  <rect x="430" y="424" width="478" height="42" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="446" y="450" font-size="11.5" font-weight="600" fill="#f3f5f9">🔌 context7 · stdio</text>
+  <text x="578" y="450" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">API_KEY = ●●●●●●●●●●●●</text>
+  <rect x="852" y="434" width="26" height="22" rx="5" fill="#0b0e12" stroke="#313742"/>
+  <text x="865" y="450" font-size="10" fill="#9aa3b2" text-anchor="middle">👁</text>
+
+  <text x="170" y="590" font-size="10.5" fill="#5a6675">Catalog — 좌우 마스터-디테일 · 검색+종류 세그먼트로 거르고, 오른쪽에 프론트매터·마크다운 본문 · MCP 시크릿은 가린 채 표시</text>
 </svg>

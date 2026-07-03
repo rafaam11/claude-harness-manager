@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Glossary 탭 (트리 + 그래프)">
+  <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── nav ── -->
+  <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
+  <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
+  <text x="20" y="78" font-size="12.5" fill="#9aa3b2">Timeline</text>
+  <text x="20" y="111" font-size="12.5" fill="#9aa3b2">Workspace</text>
+  <text x="20" y="146" font-size="12.5" fill="#9aa3b2">Catalog</text>
+  <text x="20" y="180" font-size="12.5" fill="#9aa3b2">Cleanup</text>
+  <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+  <line x1="16" y1="240" x2="135" y2="240" stroke="#313742"/>
+  <text x="20" y="266" font-size="12.5" fill="#9aa3b2">News</text>
+  <rect x="0" y="282" width="151" height="28" fill="#222834"/>
+  <rect x="0" y="282" width="3" height="28" fill="#e8825f"/>
+  <text x="20" y="301" font-size="12.5" fill="#f3f5f9">Glossary</text>
+
+  <!-- ── page title ── -->
+  <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">Glossary</text>
+
+  <!-- ── toolbar: view toggle + search ── -->
+  <rect x="170" y="52" width="56" height="26" rx="6" fill="#e8825f"/>
+  <text x="198" y="69" font-size="10.5" font-weight="600" fill="#0f1318" text-anchor="middle">트리</text>
+  <rect x="226" y="52" width="64" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="258" y="69" font-size="10.5" fill="#9aa3b2" text-anchor="middle">그래프</text>
+  <rect x="300" y="52" width="330" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="314" y="69" font-size="10.5" fill="#5a6675">🔎  용어 검색 (영문·한글) — 전체에서 찾기</text>
+
+  <!-- ── recommend bar (do/don't) ── -->
+  <text x="170" y="102" font-size="12" font-weight="700" fill="#e8825f">✨ 추천 어휘</text>
+  <text x="908" y="102" font-size="10.5" fill="#9aa3b2" text-anchor="end">새 추천 ⟳</text>
+
+  <rect x="170" y="110" width="240" height="80" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="184" y="130" font-size="12" font-weight="700" fill="#f3f5f9">Modal</text>
+  <text x="230" y="130" font-size="10.5" fill="#9aa3b2">모달</text>
+  <rect x="358" y="118" width="38" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="377" y="129" font-size="8.5" fill="#9aa3b2" text-anchor="middle">사전</text>
+  <text x="184" y="147" font-size="9" fill="#5a6675">화면 UI › UI 요소</text>
+  <text x="184" y="166" font-size="10" fill="#ff6b6b">❌ ‘팝업 띄워줘’</text>
+  <text x="184" y="182" font-size="10" fill="#5fb878">✅ ‘Modal 열어줘’</text>
+
+  <rect x="427" y="110" width="240" height="80" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="441" y="130" font-size="12" font-weight="700" fill="#f3f5f9">Toast</text>
+  <text x="484" y="130" font-size="10.5" fill="#9aa3b2">토스트</text>
+  <rect x="615" y="118" width="38" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="634" y="129" font-size="8.5" fill="#9aa3b2" text-anchor="middle">사전</text>
+  <text x="441" y="147" font-size="9" fill="#5a6675">화면 UI › 스타일·상호작용</text>
+  <text x="441" y="166" font-size="10" fill="#ff6b6b">❌ ‘알림 잠깐 뜨게’</text>
+  <text x="441" y="182" font-size="10" fill="#5fb878">✅ ‘Toast 표시해줘’</text>
+
+  <rect x="684" y="110" width="240" height="80" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="698" y="130" font-size="12" font-weight="700" fill="#f3f5f9">Refactor</text>
+  <text x="758" y="130" font-size="10.5" fill="#9aa3b2">리팩터링</text>
+  <rect x="872" y="118" width="38" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="891" y="129" font-size="8.5" fill="#9aa3b2" text-anchor="middle">사전</text>
+  <text x="698" y="147" font-size="9" fill="#5a6675">개발 기초 › 기본 개념</text>
+  <text x="698" y="166" font-size="10" fill="#ff6b6b">❌ ‘코드 좀 정리해’</text>
+  <text x="698" y="182" font-size="10" fill="#5fb878">✅ ‘이 함수 Refactor’</text>
+
+  <!-- ── tree master ── -->
+  <text x="176" y="222" font-size="12" font-weight="700" fill="#f3f5f9">▾ 화면 UI</text>
+  <circle cx="200" cy="243" r="4" fill="#3b82f6"/>
+  <text x="212" y="247" font-size="11" fill="#9aa3b2">레이아웃</text>
+  <rect x="188" y="256" width="210" height="22" rx="6" fill="#222834" stroke="#e8825f"/>
+  <circle cx="200" cy="267" r="4" fill="#8b5cf6"/>
+  <text x="212" y="271" font-size="11" font-weight="600" fill="#f3f5f9">UI 요소</text>
+  <text x="388" y="271" font-size="9.5" fill="#9aa3b2" text-anchor="end">8</text>
+  <circle cx="200" cy="291" r="4" fill="#ec4899"/>
+  <text x="212" y="295" font-size="11" fill="#9aa3b2">스타일·상호작용</text>
+
+  <text x="176" y="322" font-size="12" font-weight="700" fill="#f3f5f9">▸ AI 활용</text>
+  <text x="176" y="348" font-size="12" font-weight="700" fill="#f3f5f9">▸ 개발 기초</text>
+  <text x="176" y="374" font-size="12" font-weight="700" fill="#f3f5f9">▸ 도구·협업</text>
+
+  <line x1="170" y1="394" x2="398" y2="394" stroke="#313742"/>
+  <text x="176" y="416" font-size="12" font-weight="700" fill="#f3f5f9">▸ ＋ 내 용어집</text>
+  <rect x="300" y="405" width="60" height="15" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="330" y="416" font-size="8.5" fill="#94a3b8" text-anchor="middle">내 용어집</text>
+  <text x="196" y="437" font-size="10" fill="#5a6675">2개 도메인 · 18개 용어 불러옴</text>
+  <text x="196" y="454" font-size="9.5" fill="#5a6675">로보틱스 · 비전 (Claude Code로 채움)</text>
+
+  <!-- ── detail panel ── -->
+  <rect x="414" y="204" width="510" height="364" rx="9" fill="#15191f" stroke="#313742"/>
+  <text x="430" y="228" font-size="12" fill="#9aa3b2"><tspan fill="#8b5cf6">◧</tspan>  화면 UI <tspan fill="#5a6675">›</tspan> <tspan font-weight="700" fill="#f3f5f9">UI 요소</tspan>  <tspan fill="#5a6675">8</tspan></text>
+  <line x1="430" y1="238" x2="908" y2="238" stroke="#313742"/>
+
+  <!-- Modal (expanded) -->
+  <rect x="430" y="248" width="52" height="16" rx="4" fill="#0b0e12" stroke="#2e2450"/>
+  <text x="456" y="260" font-size="9" fill="#8b5cf6" text-anchor="middle">UI 요소</text>
+  <text x="490" y="261" font-size="12" font-weight="700" fill="#f3f5f9">Modal</text>
+  <text x="534" y="261" font-size="10.5" fill="#9aa3b2">모달</text>
+  <text x="586" y="261" font-size="10.5" fill="#9aa3b2">— 화면 위에 겹쳐 뜨는 대화 상자</text>
+  <text x="900" y="261" font-size="10" fill="#9aa3b2" text-anchor="end">▾</text>
+
+  <text x="430" y="286" font-size="10.5" fill="#9aa3b2">배경을 어둡게 덮고(overlay) 초점을 가두어, 확인·입력을 강제하는 대화상자.</text>
+  <rect x="430" y="298" width="40" height="16" rx="4" fill="#0b0e12" stroke="#3a3320"/>
+  <text x="450" y="310" font-size="9" fill="#e8825f" text-anchor="middle">예시</text>
+  <text x="478" y="310" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">‘삭제 확인 Modal 띄워줘’</text>
+
+  <text x="430" y="336" font-size="10" fill="#5a6675">관련 용어</text>
+  <rect x="486" y="326" width="66" height="16" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="519" y="337" font-size="9.5" fill="#9aa3b2" text-anchor="middle">Popover</text>
+  <rect x="558" y="326" width="58" height="16" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="587" y="337" font-size="9.5" fill="#9aa3b2" text-anchor="middle">Dialog</text>
+  <rect x="622" y="326" width="62" height="16" rx="8" fill="#1c2230" stroke="#313742"/>
+  <text x="653" y="337" font-size="9.5" fill="#9aa3b2" text-anchor="middle">Overlay</text>
+
+  <line x1="430" y1="352" x2="908" y2="352" stroke="#313742"/>
+  <!-- Popover (collapsed) -->
+  <rect x="430" y="360" width="52" height="16" rx="4" fill="#0b0e12" stroke="#2e2450"/>
+  <text x="456" y="372" font-size="9" fill="#8b5cf6" text-anchor="middle">UI 요소</text>
+  <text x="490" y="373" font-size="12" font-weight="700" fill="#f3f5f9">Popover</text>
+  <text x="548" y="373" font-size="10.5" fill="#9aa3b2">팝오버</text>
+  <text x="600" y="373" font-size="10.5" fill="#5a6675">— 앵커 옆에 붙어 뜨는 작은 패널</text>
+  <text x="900" y="373" font-size="10" fill="#9aa3b2" text-anchor="end">▸</text>
+
+  <!-- ── graph-view mini preview ── -->
+  <line x1="430" y1="392" x2="908" y2="392" stroke="#313742"/>
+  <text x="430" y="412" font-size="11" font-weight="700" fill="#f3f5f9">관계 그래프 (Graph View)</text>
+  <text x="430" y="428" font-size="9.5" fill="#5a6675">본문에서 용어 연결을 자동 추출 · 소분류색 노드</text>
+
+  <!-- edges -->
+  <line x1="560" y1="486" x2="646" y2="464" stroke="#4a5568" stroke-width="1.4"/>
+  <line x1="560" y1="486" x2="504" y2="524" stroke="#4a5568" stroke-width="1.4"/>
+  <line x1="560" y1="486" x2="616" y2="528" stroke="#4a5568" stroke-width="1.4"/>
+  <line x1="560" y1="486" x2="486" y2="462" stroke="#313742" stroke-width="1"/>
+  <line x1="646" y1="464" x2="710" y2="500" stroke="#313742" stroke-width="1"/>
+  <!-- nodes -->
+  <circle cx="560" cy="486" r="11" fill="#8b5cf6" stroke="#15191f" stroke-width="1.5"/>
+  <text x="560" y="510" font-size="9" fill="#c9b8ef" text-anchor="middle">Modal</text>
+  <circle cx="646" cy="464" r="7" fill="#8b5cf6" stroke="#15191f" stroke-width="1.5"/>
+  <text x="646" y="450" font-size="8.5" fill="#9aa3b2" text-anchor="middle">Popover</text>
+  <circle cx="504" cy="524" r="7" fill="#8b5cf6" stroke="#15191f" stroke-width="1.5"/>
+  <text x="504" y="544" font-size="8.5" fill="#9aa3b2" text-anchor="middle">Dialog</text>
+  <circle cx="616" cy="528" r="6" fill="#ec4899" stroke="#15191f" stroke-width="1.5"/>
+  <text x="622" y="546" font-size="8.5" fill="#9aa3b2" text-anchor="middle">Overlay</text>
+  <circle cx="486" cy="462" r="7" fill="#3b82f6" stroke="#15191f" stroke-width="1.5"/>
+  <text x="486" y="448" font-size="8.5" fill="#9aa3b2" text-anchor="middle">Layout</text>
+  <circle cx="710" cy="500" r="6" fill="#10b981" stroke="#15191f" stroke-width="1.5"/>
+  <text x="710" y="518" font-size="8.5" fill="#9aa3b2" text-anchor="middle">Prop</text>
+
+  <!-- legend -->
+  <circle cx="792" cy="456" r="4.5" fill="#3b82f6"/>
+  <text x="802" y="460" font-size="9.5" fill="#9aa3b2">레이아웃</text>
+  <circle cx="792" cy="476" r="4.5" fill="#8b5cf6"/>
+  <text x="802" y="480" font-size="9.5" fill="#9aa3b2">UI 요소</text>
+  <circle cx="792" cy="496" r="4.5" fill="#ec4899"/>
+  <text x="802" y="500" font-size="9.5" fill="#9aa3b2">스타일·상호작용</text>
+  <circle cx="792" cy="516" r="4.5" fill="#10b981"/>
+  <text x="802" y="520" font-size="9.5" fill="#9aa3b2">기본 개념</text>
+  <text x="430" y="552" font-size="9.5" fill="#5a6675">휠 = 확대/축소 · 드래그 = 이동 · 노드 클릭 = 상세·관련 용어</text>
+
+  <text x="170" y="590" font-size="10.5" fill="#5a6675">Glossary — 3단계 트리(대분류›소분류›용어) · 추천 어휘(do/don’t) · 커스텀 용어집 · 관계 그래프(Graph View)</text>
+</svg>

@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Cleanup 탭">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Cleanup 탭 (뷰 전환 + 그룹 접기)">
   <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
+
+  <!-- ── nav ── -->
   <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
   <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
   <text x="20" y="78" font-size="12.5" fill="#9aa3b2">Timeline</text>
@@ -9,38 +11,87 @@
   <rect x="0" y="161" width="3" height="28" fill="#e8825f"/>
   <text x="20" y="180" font-size="12.5" fill="#f3f5f9">Cleanup</text>
   <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+  <line x1="16" y1="240" x2="135" y2="240" stroke="#313742"/>
+  <text x="20" y="266" font-size="12.5" fill="#9aa3b2">News</text>
+  <text x="20" y="300" font-size="12.5" fill="#9aa3b2">Glossary</text>
+
+  <!-- ── page title ── -->
   <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">Cleanup</text>
-  <rect x="170" y="56" width="72" height="28" rx="6" fill="#2a1d17" stroke="#e8825f"/>
-  <text x="206" y="74" font-size="11.5" font-weight="600" fill="#e8825f" text-anchor="middle">스캔</text>
-  <text x="256" y="74" font-size="11.5" fill="#9aa3b2">정리 후보 14개 · 약 1.2 MB</text>
-  <rect x="170" y="96" width="754" height="34" rx="8" fill="#15191f" stroke="#3a3320"/>
-  <text x="186" y="117" font-size="11.5" fill="#9aa3b2"><tspan fill="#e8825f" font-weight="700">안전 순서</tspan>  ① dry-run으로 미리보기  →  ② 실행  →  ③ manifest로 복구</text>
-  <rect x="170" y="142" width="754" height="34" rx="7" fill="#1c2230" stroke="#313742"/>
-  <text x="188" y="164" font-size="12" fill="#5fb878">☑</text>
-  <text x="210" y="164" font-size="11.5" fill="#f3f5f9">stale-skill-old.md</text>
-  <rect x="640" y="150" width="64" height="18" rx="9" fill="#0b0e12" stroke="#313742"/>
-  <text x="672" y="163" font-size="9.5" fill="#9aa3b2" text-anchor="middle">skills</text>
-  <text x="908" y="164" font-size="10.5" fill="#9aa3b2" text-anchor="end">4 KB</text>
-  <rect x="170" y="182" width="754" height="34" rx="7" fill="#1c2230" stroke="#313742"/>
-  <text x="188" y="204" font-size="12" fill="#5fb878">☑</text>
-  <text x="210" y="204" font-size="11.5" fill="#f3f5f9">tmp-cache/</text>
-  <rect x="640" y="190" width="64" height="18" rx="9" fill="#0b0e12" stroke="#313742"/>
-  <text x="672" y="203" font-size="9.5" fill="#9aa3b2" text-anchor="middle">temp</text>
-  <text x="908" y="204" font-size="10.5" fill="#9aa3b2" text-anchor="end">820 KB</text>
-  <rect x="170" y="222" width="754" height="34" rx="7" fill="#1c2230" stroke="#313742"/>
-  <text x="188" y="244" font-size="12" fill="#5fb878">☑</text>
-  <text x="210" y="244" font-size="11.5" fill="#f3f5f9">duplicate-agent.md</text>
-  <rect x="640" y="230" width="64" height="18" rx="9" fill="#0b0e12" stroke="#313742"/>
-  <text x="672" y="243" font-size="9.5" fill="#9aa3b2" text-anchor="middle">agents</text>
-  <text x="908" y="244" font-size="10.5" fill="#9aa3b2" text-anchor="end">12 KB</text>
-  <rect x="170" y="262" width="754" height="34" rx="7" fill="#15171c" stroke="#262b34"/>
-  <text x="188" y="284" font-size="12" fill="#5a6675">☐</text>
-  <text x="210" y="284" font-size="11.5" fill="#5a6675">big-agent.md (19 KB · 대형 에이전트)</text>
-  <rect x="620" y="270" width="84" height="18" rx="9" fill="#2a2410" stroke="#5a4a18"/>
-  <text x="662" y="283" font-size="9.5" fill="#d6b24a" text-anchor="middle">warn-only</text>
-  <text x="908" y="284" font-size="10" fill="#5a6675" text-anchor="end">이동 불가</text>
-  <line x1="170" y1="318" x2="924" y2="318" stroke="#313742"/>
-  <text x="170" y="346" font-size="11.5" fill="#9aa3b2">→ 선택 항목은 <tspan fill="#5fb878" font-family="Consolas, monospace">~/.claude/archive/2026-06-22/&lt;category&gt;/</tspan> 로 이동</text>
-  <text x="170" y="368" font-size="11" fill="#5a6675">삭제 핸들러는 의도적으로 존재하지 않음 — 정리 = 이동 + 기록(manifest)</text>
-  <text x="170" y="586" font-size="10.5" fill="#5a6675">Cleanup — 스캔 → 선택 → dry-run → 실행, 삭제 없이 아카이브로 이동 · 단건 복구</text>
+
+  <!-- ── view toggle ── -->
+  <rect x="170" y="54" width="110" height="28" rx="6" fill="#2a1d17" stroke="#e8825f"/>
+  <text x="225" y="72" font-size="11.5" font-weight="600" fill="#e8825f" text-anchor="middle">정리 후보 14</text>
+  <rect x="286" y="54" width="104" height="28" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="338" y="72" font-size="11.5" fill="#9aa3b2" text-anchor="middle">아카이브 기록</text>
+
+  <!-- ── toolbar ── -->
+  <text x="170" y="106" font-size="11.5" fill="#5fb878">☑</text>
+  <text x="188" y="106" font-size="11.5" fill="#f3f5f9">전체 선택</text>
+  <text x="270" y="106" font-size="11" fill="#9aa3b2">선택 3 / 14</text>
+  <rect x="560" y="90" width="70" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="595" y="107" font-size="11" fill="#9aa3b2" text-anchor="middle">재스캔</text>
+  <rect x="636" y="90" width="96" height="26" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="684" y="107" font-size="11" fill="#9aa3b2" text-anchor="middle">dry-run (3)</text>
+  <rect x="738" y="90" width="186" height="26" rx="6" fill="#2a1d17" stroke="#e8825f"/>
+  <text x="831" y="107" font-size="11" font-weight="600" fill="#e8825f" text-anchor="middle">실행 — 아카이브로 이동</text>
+
+  <!-- ── dry-run banner ── -->
+  <rect x="170" y="126" width="754" height="32" rx="8" fill="#15191f" stroke="#3a3320"/>
+  <text x="186" y="146" font-size="11" fill="#9aa3b2"><tspan fill="#e8825f" font-weight="700">dry-run</tspan>  3개 항목이 이동 대상입니다. 아래 목록을 확인하고 ‘실행’을 누르세요.</text>
+
+  <!-- ── group: temp (open) ── -->
+  <text x="176" y="185" font-size="11" fill="#9aa3b2">▾</text>
+  <rect x="192" y="172" width="48" height="16" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="216" y="184" font-size="9.5" fill="#9aa3b2" text-anchor="middle">temp</text>
+  <text x="250" y="185" font-size="10.5" fill="#9aa3b2">3</text>
+  <text x="908" y="185" font-size="10.5" fill="#9aa3b2" text-anchor="end">☑ 그룹 선택</text>
+
+  <rect x="180" y="194" width="744" height="30" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="196" y="213" font-size="11.5" fill="#5fb878">☑</text>
+  <text x="216" y="213" font-size="11" fill="#f3f5f9" font-family="Consolas, monospace">~/.claude/tmp-cache/</text>
+  <text x="540" y="213" font-size="10" fill="#9aa3b2">30일+ 미사용</text>
+  <text x="852" y="213" font-size="10.5" fill="#9aa3b2" text-anchor="end">820 KB</text>
+  <text x="912" y="213" font-size="10.5" fill="#9aa3b2" text-anchor="end">45일</text>
+
+  <rect x="180" y="228" width="744" height="30" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="196" y="247" font-size="11.5" fill="#5fb878">☑</text>
+  <text x="216" y="247" font-size="11" fill="#f3f5f9" font-family="Consolas, monospace">~/.claude/temp/old-download/</text>
+  <text x="540" y="247" font-size="10" fill="#9aa3b2">30일+ 미사용</text>
+  <text x="852" y="247" font-size="10.5" fill="#9aa3b2" text-anchor="end">1.1 MB</text>
+  <text x="912" y="247" font-size="10.5" fill="#9aa3b2" text-anchor="end">61일</text>
+
+  <!-- ── group: skills (open) ── -->
+  <text x="176" y="285" font-size="11" fill="#9aa3b2">▾</text>
+  <rect x="192" y="272" width="48" height="16" rx="4" fill="#0b0e12" stroke="#313742"/>
+  <text x="216" y="284" font-size="9.5" fill="#9aa3b2" text-anchor="middle">skills</text>
+  <text x="250" y="285" font-size="10.5" fill="#9aa3b2">1</text>
+  <text x="908" y="285" font-size="10.5" fill="#9aa3b2" text-anchor="end">☑ 그룹 선택</text>
+
+  <rect x="180" y="294" width="744" height="30" rx="6" fill="#1c2230" stroke="#313742"/>
+  <text x="196" y="313" font-size="11.5" fill="#5fb878">☑</text>
+  <text x="216" y="313" font-size="11" fill="#f3f5f9" font-family="Consolas, monospace">~/.claude/skills/stale-skill-old.md</text>
+  <text x="560" y="313" font-size="10" fill="#9aa3b2">38일 미수정 · stale</text>
+  <text x="852" y="313" font-size="10.5" fill="#9aa3b2" text-anchor="end">4 KB</text>
+  <text x="912" y="313" font-size="10.5" fill="#9aa3b2" text-anchor="end">38일</text>
+
+  <!-- ── group: warn (warn-only) ── -->
+  <text x="176" y="351" font-size="11" fill="#9aa3b2">▾</text>
+  <rect x="192" y="338" width="48" height="16" rx="4" fill="#2a2410" stroke="#5a4a18"/>
+  <text x="216" y="350" font-size="9.5" fill="#d6b24a" text-anchor="middle">경고</text>
+  <text x="250" y="351" font-size="10.5" fill="#9aa3b2">1</text>
+  <text x="908" y="351" font-size="10.5" fill="#5a6675" text-anchor="end">표시용 · 이동 불가</text>
+
+  <rect x="180" y="360" width="744" height="30" rx="6" fill="#15171c" stroke="#262b34"/>
+  <text x="196" y="379" font-size="11.5" fill="#d6b24a">⚠</text>
+  <text x="216" y="379" font-size="11" fill="#5a6675" font-family="Consolas, monospace">~/.claude/agents/big-agent.md</text>
+  <text x="540" y="379" font-size="10" fill="#5a6675">19KB+ 대형 에이전트</text>
+  <text x="852" y="379" font-size="10.5" fill="#5a6675" text-anchor="end">21 KB</text>
+  <text x="912" y="379" font-size="10.5" fill="#5a6675" text-anchor="end">—</text>
+
+  <!-- ── move note ── -->
+  <line x1="170" y1="416" x2="924" y2="416" stroke="#313742"/>
+  <text x="170" y="440" font-size="11" fill="#9aa3b2">→ 선택 항목은 <tspan fill="#5fb878" font-family="Consolas, monospace">~/.claude/archive/2026-07-03/&lt;category&gt;/</tspan> 로 이동 · manifest 기록</text>
+  <text x="170" y="462" font-size="11" fill="#5a6675">삭제 핸들러는 의도적으로 존재하지 않음 — 정리 = 이동 + 기록 · [아카이브 기록] 뷰에서 단건 복원</text>
+
+  <text x="170" y="586" font-size="10.5" fill="#5a6675">Cleanup — 정리 후보 / 아카이브 기록 뷰 전환 · 분류별 그룹 접기 · dry-run 미리보기 → 삭제 없이 아카이브로 이동 · 단건 복구</text>
 </svg>

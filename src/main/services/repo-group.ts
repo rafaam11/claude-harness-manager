@@ -7,7 +7,7 @@
 // 홈으로 접히려면 홈 자체가 git repo여야만 하고, 그 경우도 BROAD_DIRS 블록리스트로 차단한다.
 import fs from "node:fs/promises";
 import path from "node:path";
-import { BROAD_DIRS } from "../config.js";
+import { BROAD_DIRS, REPO_TOPOLOGY_CACHE_TTL_MS } from "../config.js";
 import { execGit } from "./git/GitService.js";
 import type { ProjectRecall } from "./recall.js";
 
@@ -78,17 +78,21 @@ function realCase(target: string, recalls: ProjectRecall[]): string {
   return target;
 }
 
-// --- 토폴로지 해석(영속 캐시) ---
-// git 토폴로지는 사실상 안정적이라 WORKSPACE_CACHE_TTL_MS보다 오래 캐시한다(realPath 기준).
-const topoCache = new Map<string, RepoTopology | null>();
+// --- 토폴로지 해석(TTL 캐시) ---
+// git 토폴로지는 사실상 안정적이라 REPO_TOPOLOGY_CACHE_TTL_MS만큼 오래 캐시한다(realPath 기준).
+// TTL 없이 영구 캐시하면 워크트리 생성/삭제 등 구조 변화가 앱을 껐다 켜기 전까진 전혀
+// 반영되지 않으므로, 만료 후에는 재계산해 자가 치유되게 한다.
+const topoCache = new Map<string, { value: RepoTopology | null; ts: number }>();
 
 export async function resolveRepoTopology(realPath: string | null): Promise<RepoTopology | null> {
   if (!realPath) return null;
   const key = norm(realPath);
   const cached = topoCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && Date.now() - cached.ts < REPO_TOPOLOGY_CACHE_TTL_MS) {
+    return cached.value;
+  }
   const result = await computeTopology(realPath);
-  topoCache.set(key, result);
+  topoCache.set(key, { value: result, ts: Date.now() });
   return result;
 }
 
@@ -282,21 +286,48 @@ function buildGroup(
     repNode.recalls.find((r) => r.realPath && norm(r.realPath) === repNode.worktreeRoot) ??
     pickNewest(repNode.recalls);
 
-  const worktrees: WorktreeMember[] = memberNodes
-    .map((n) => {
+  const memberWorktrees: WorktreeMember[] = memberNodes.map((n) => {
+    const newest = pickNewest(n.recalls);
+    return {
+      projectId: newest.id,
+      worktreeRoot: realCase(n.worktreeRoot, n.recalls),
+      name: baseName(n.worktreeRoot),
+      gitBranch: newest.gitBranch,
+      lastActivity: Math.max(...n.recalls.map((r) => r.lastActivity)),
+      lastPrompt: newest.recall?.lastPrompt ?? null,
+      lastAssistantSnippet: newest.recall?.lastAssistantSnippet ?? null,
+      removed: false,
+    };
+  });
+
+  // 노드당 대표(memberNode는 최신 하나, repNode는 루트 세션)로 뽑히지 않은 recall은 같은
+  // 트리의 다른 cwd에서 실행된 세션이다 — 예전엔 조용히 버려져 Workspace 카드/워크트리
+  // 목록 어디에도 안 보였다(Timeline에만 남음). worktreeRoot를 자기 realPath로 두면
+  // resolveWorktreePath가 결국 같은 저장소 toplevel로 안전하게 resolve하므로, 실제
+  // 워크트리와 동일한 방식으로 노출해도 다른 저장소로 오인식될 위험이 없다.
+  const leftoverToMember = (r: ProjectRecall): WorktreeMember => {
+    const root = r.realPath ?? r.id;
+    return {
+      projectId: r.id,
+      worktreeRoot: root,
+      name: baseName(norm(root)),
+      gitBranch: r.gitBranch,
+      lastActivity: r.lastActivity,
+      lastPrompt: r.recall?.lastPrompt ?? null,
+      lastAssistantSnippet: r.recall?.lastAssistantSnippet ?? null,
+      removed: false,
+    };
+  };
+  const leftoverWorktrees: WorktreeMember[] = [
+    ...repNode.recalls.filter((r) => r !== repRootRecall).map(leftoverToMember),
+    ...memberNodes.flatMap((n) => {
       const newest = pickNewest(n.recalls);
-      return {
-        projectId: newest.id,
-        worktreeRoot: realCase(n.worktreeRoot, n.recalls),
-        name: baseName(n.worktreeRoot),
-        gitBranch: newest.gitBranch,
-        lastActivity: Math.max(...n.recalls.map((r) => r.lastActivity)),
-        lastPrompt: newest.recall?.lastPrompt ?? null,
-        lastAssistantSnippet: newest.recall?.lastAssistantSnippet ?? null,
-        removed: false,
-      };
-    })
-    .sort((a, b) => b.lastActivity - a.lastActivity);
+      return n.recalls.filter((r) => r !== newest).map(leftoverToMember);
+    }),
+  ];
+  const worktrees: WorktreeMember[] = [...memberWorktrees, ...leftoverWorktrees].sort(
+    (a, b) => b.lastActivity - a.lastActivity,
+  );
 
   const representative: ProjectRecall = {
     ...groupNewest,

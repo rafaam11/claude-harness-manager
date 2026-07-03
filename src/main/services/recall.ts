@@ -83,7 +83,6 @@ export interface WorkspaceProject extends ProjectRecall {
     hidden: boolean;
     order: number | null;
   };
-  plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
   // --- 워크트리 그룹핑(repo-group.ts) ---
   repoRoot: string | null; // 메인 워킹트리 루트(대표=repo 자신이면 realPath와 동일)
   isWorktree: boolean; // 대표가 (메인이 아닌) 워크트리인가(메인 세션이 아예 없을 때만)
@@ -508,11 +507,7 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
 }
 
 export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
-  const [recalls, board, plans] = await Promise.all([
-    getProjectRecalls(),
-    readBoard(),
-    getEnrichedPlans(false),
-  ]);
+  const [recalls, board] = await Promise.all([getProjectRecalls(), readBoard()]);
   // 워크트리·하위폴더를 같은 git 저장소(공유 .git)로 접어 대표 카드 하나로 만든다.
   const groups = await computeRepoGroups(recalls);
 
@@ -553,16 +548,32 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
         hidden: canon?.hidden ?? false,
         order: canon?.order ?? null,
       },
-      plans: plans
-        .filter((p) => p.projectId != null && g.memberIds.includes(p.projectId))
-        .map((p) => ({
-          filename: p.filename,
-          title: p.title,
-          status: p.status,
-          archived: p.archived,
-        })),
     };
   });
+}
+
+/**
+ * 특정 프로젝트(대표 repo)에 속한 모든 세션 기록. getProjectRecalls/getWorkspaceProjects는
+ * 프로젝트 디렉토리당 최신 transcript 하나만 읽지만, 여기서는 그룹의 memberIds(워크트리·하위폴더
+ * 포함) 전체 디렉토리에서 모든 transcript를 열거해 실제 세션 히스토리를 통째로 보여준다.
+ */
+export async function getProjectSessions(projectId: string): Promise<SessionRecall[]> {
+  const recalls = await getProjectRecalls();
+  const groups = await computeRepoGroups(recalls);
+  const group = groups.find(
+    (g) => g.canonicalId === projectId || g.memberIds.includes(projectId),
+  );
+  const memberIds = group ? group.memberIds : [projectId];
+
+  const lists = await Promise.all(
+    memberIds.map(async (id) => {
+      const transcripts = await findAllTranscripts(path.join(PROJECTS_DIR, id));
+      return Promise.all(
+        transcripts.map((t) => readSessionRecallFromFile(t.path, t.size, t.mtime)),
+      );
+    }),
+  );
+  return lists.flat().sort((a, b) => b.transcriptMtime - a.transcriptMtime);
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {

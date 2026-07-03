@@ -132,6 +132,9 @@ export const RECALL_TAIL_BYTES = 512 * 1024;
 export const RECALL_MAX_FULL_SCAN_BYTES = 8 * 1024 * 1024;
 // 무거운 스캔(recall/plans/history) 결과 캐시 수명.
 export const WORKSPACE_CACHE_TTL_MS = 5000;
+// repo-group의 git 토폴로지(rev-parse) 캐시 수명. 사실상 안정적이라 WORKSPACE_CACHE_TTL_MS보다
+// 오래 두되, 워크트리 생성/삭제 등 구조 변화가 앱 재시작 없이도 결국 반영되도록 무한 캐시는 피한다.
+export const REPO_TOPOLOGY_CACHE_TTL_MS = 5 * 60 * 1000;
 // 계획 파일 mtime과 history 기록의 시각차가 이 안이면 같은 프로젝트로 추정.
 export const PLAN_GUESS_WINDOW_MS = 6 * 60 * 60 * 1000;
 

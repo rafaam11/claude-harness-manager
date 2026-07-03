@@ -12,6 +12,7 @@ export interface SessionRecall {
   cwd: string | null;
   gitBranch: string | null;
   lastModel: string | null; // 마지막 assistant 메시지의 모델 ID
+  transcriptPath: string; // 세션 목록에서 고유 key로 쓴다(sessionId는 재개된 세션끼리 겹칠 수 있음)
   transcriptMtime: number;
   truncatedScan: boolean;
 }
@@ -61,7 +62,6 @@ export interface WorkspaceProject {
     hidden: boolean;
     order: number | null;
   };
-  plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
   // --- 워크트리 그룹핑 ---
   repoRoot: string | null; // 메인 워킹트리 루트(대표=repo 자신이면 realPath와 동일)
   isWorktree: boolean; // 대표가 (메인이 아닌) 워크트리인가

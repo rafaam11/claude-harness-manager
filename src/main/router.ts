@@ -14,6 +14,7 @@ import {
   getEnrichedPlans,
   getTimeline,
   getPromptCorpus,
+  getProjectSessions,
 } from "./services/recall.js";
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
@@ -258,6 +259,11 @@ const routes: Route[] = [
 
   // --- workspace (작업 회상 대시보드) ---
   { method: "GET", pattern: "/api/workspace/projects", handler: async () => getWorkspaceProjects() },
+  {
+    method: "GET",
+    pattern: "/api/workspace/projects/:id/sessions",
+    handler: async ({ params }) => getProjectSessions(params.id),
+  },
   {
     method: "GET",
     pattern: "/api/workspace/plans",

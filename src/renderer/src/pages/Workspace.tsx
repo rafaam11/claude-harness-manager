@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { marked } from "marked";
-import { api, fmtDate, fmtRelative, fmtSize } from "../api/client";
+import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
 import GitPanel from "./git/GitPanel";
 import {
   STATUSES,
@@ -13,6 +13,7 @@ import {
   type BoardStatus,
   type EnrichedPlan,
   type ProjectTrack,
+  type SessionRecall,
   type WorkspaceProject,
   type WorktreeMember,
 } from "./workspace-shared";
@@ -405,7 +406,7 @@ function ProjectDetail({
   const r = p.recall;
   const base = shortName(p.realPath, p.id);
 
-  const [detailMode, setDetailMode] = useState<"overview" | "git">("overview");
+  const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
   // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
   // ProjectDetail이 key로 리마운트되므로 프로젝트 전환 시 자동으로 ""로 초기화된다.
   const [gitTargetWt, setGitTargetWt] = useState("");
@@ -492,6 +493,12 @@ function ProjectDetail({
           개요
         </button>
         <button
+          className={`ws-mode-tab${detailMode === "session" ? " active" : ""}`}
+          onClick={() => setDetailMode("session")}
+        >
+          세션
+        </button>
+        <button
           className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
           onClick={() => setDetailMode("git")}
         >
@@ -525,6 +532,11 @@ function ProjectDetail({
             worktreePath={gitTargetWt || undefined}
             onError={onError}
           />
+        </>
+      ) : detailMode === "session" ? (
+        <>
+          <SessionsSection projectId={p.id} />
+          <MemorySection projectId={p.id} />
         </>
       ) : (
         <>
@@ -583,8 +595,6 @@ function ProjectDetail({
         })()}
       </div>
       <TrackEditor tracks={p.board.tracks} onSave={(tracks) => onPatch(p.id, { tracks })} />
-
-          <MemorySection projectId={p.id} />
         </>
       )}
     </div>
@@ -612,25 +622,107 @@ function WorktreeSection({
         <div className="ws-worktrees">
           {worktrees.map((w) => (
             <div key={w.worktreeRoot} className={`ws-wt-row${w.removed ? " removed" : ""}`}>
-              <span className="ws-wt-name">⑂ {w.name}</span>
-              {w.gitBranch && <span className="t-tag">⎇ {w.gitBranch}</span>}
-              <span className="ws-when">{fmtRelative(w.lastActivity)}</span>
-              {w.removed ? (
-                <span className="muted ws-wt-removed">삭제됨</span>
-              ) : (
-                <button
-                  className="ws-icon-btn"
-                  title="Git 모드에서 이 워크트리 열기"
-                  onClick={() => onOpenGit(w.worktreeRoot)}
-                >
-                  Git ▸
-                </button>
-              )}
+              <div className="ws-wt-row-top">
+                <span className="ws-wt-name">⑂ {w.name}</span>
+                {w.gitBranch && <span className="t-tag">⎇ {w.gitBranch}</span>}
+                <span className="ws-when">{fmtRelative(w.lastActivity)}</span>
+                {w.removed ? (
+                  <span className="muted ws-wt-removed">삭제됨</span>
+                ) : (
+                  <button
+                    className="ws-icon-btn"
+                    title="Git 모드에서 이 워크트리 열기"
+                    onClick={() => onOpenGit(w.worktreeRoot)}
+                  >
+                    Git ▸
+                  </button>
+                )}
+              </div>
+              {w.lastPrompt && <div className="ws-wt-preview muted">{w.lastPrompt}</div>}
             </div>
           ))}
         </div>
       )}
     </>
+  );
+}
+
+// ============================ 세션 탭(그룹 내 모든 세션 — Timeline 행 스타일 재사용) ============================
+function SessionsSection({ projectId }: { projectId: string }) {
+  const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let alive = true;
+    setSessions(null);
+    setError("");
+    api
+      .get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`)
+      .then((d) => alive && setSessions(d))
+      .catch((e) => alive && setError((e as Error).message));
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  if (error) return <div className="banner err">{error}</div>;
+  if (!sessions) return <div className="muted">불러오는 중…</div>;
+  if (sessions.length === 0) return <div className="muted">세션 기록이 없습니다.</div>;
+
+  return (
+    <div className="timeline">
+      {sessions.map((s) => {
+        const key = s.transcriptPath;
+        const open = expanded.has(key);
+        return (
+          <div className="timeline-row" key={key}>
+            <div className="timeline-item" onClick={() => toggle(key)}>
+              {s.lastModel && (
+                <span className={`bdg ${modelBadgeClass(s.lastModel)}`} title={s.lastModel}>
+                  {modelDisplayName(s.lastModel)}
+                </span>
+              )}
+              <span className="timeline-time muted">
+                {fmtDay(s.transcriptMtime)} {fmtTime(s.transcriptMtime)}
+              </span>
+              <span className="timeline-title">{s.aiTitle ?? s.lastPrompt ?? "(제목 없음)"}</span>
+              <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
+            </div>
+            {open && (
+              <div className="timeline-expand">
+                {s.lastPrompt && (
+                  <p className="tl-prompt">
+                    <span className="ws-line-k">마지막 입력</span> {s.lastPrompt}
+                  </p>
+                )}
+                {s.lastAssistantSnippet && (
+                  <div>
+                    <span className="ws-line-k">마지막 응답</span>
+                    <div
+                      className="md-body ws-snippet-md"
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parse(s.lastAssistantSnippet, { breaks: true }) as string,
+                      }}
+                    />
+                  </div>
+                )}
+                {!s.lastPrompt && !s.lastAssistantSnippet && (
+                  <div className="muted">표시할 내용이 없습니다.</div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1074,13 +1166,20 @@ function TrackRow({
                 checked={i.done}
                 onChange={(e) => setItem(i.id, { done: e.target.checked }, true)}
               />
-              <input
+              <textarea
                 className={`ws-todo-text${i.done ? " done" : ""}`}
+                rows={1}
                 value={i.text}
                 placeholder="할 일…"
                 autoFocus={focusId === i.id}
                 onChange={(e) => setItem(i.id, { text: e.target.value }, false)}
                 onBlur={onFlush}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
               />
               <button className="ws-icon-btn" onClick={() => removeItem(i.id)} title="삭제">
                 ✕

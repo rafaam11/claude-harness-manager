@@ -211,6 +211,11 @@ export default function Timeline() {
             {showDay ? `${fmtDay(e.ts)} ${fmtTime(e.ts)}` : fmtTime(e.ts)}
           </span>
           <span className="timeline-title">{e.title}</span>
+          {e.worktreeName && (
+            <span className="t-tag" title="워크트리 세션">
+              ⑂ {e.worktreeName}
+            </span>
+          )}
           {activeTab === "all" && <span className="timeline-proj muted">{label(e)}</span>}
           <select
             className="ws-select"

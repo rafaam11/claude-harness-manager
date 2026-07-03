@@ -90,13 +90,21 @@ const q = encodeURIComponent;
 
 export function GitProvider({
   projectId,
+  worktreePath,
   onError,
   children,
 }: {
   projectId: string;
+  /** 워크트리 전환 대상 경로(선택). 있으면 모든 git 호출이 이 워킹트리를 대상으로 한다. */
+  worktreePath?: string;
   onError: (message: string) => void;
   children: ReactNode;
 }): React.JSX.Element {
+  // 워크트리 전환 대상을 모든 요청에 실어 보낸다(GET은 query 접미사 wtQ, POST는 body에 wtBody 스프레드).
+  // GitProvider는 target 변경 시 key로 리마운트되므로 worktreePath는 이 인스턴스 생애 동안 고정이고,
+  // 두 값 모두 원시값이라 useCallback 의존성에 안정적으로 넣을 수 있다.
+  const wtQ = worktreePath ? `&worktreePath=${q(worktreePath)}` : "";
+  const wtBody: { worktreePath?: string } = worktreePath ? { worktreePath } : {};
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [selected, setSelected] = useState<{ path: string; staged: boolean } | null>(null);
@@ -138,7 +146,7 @@ export function GitProvider({
   const refreshStatus = useCallback(async () => {
     setStatusLoading(true);
     try {
-      const s = await api.get<RepoStatus>(`/api/git/status?projectId=${q(projectId)}`);
+      const s = await api.get<RepoStatus>(`/api/git/status?projectId=${q(projectId)}${wtQ}`);
       setStatus(s);
     } catch (e) {
       setStatus(null);
@@ -146,13 +154,13 @@ export function GitProvider({
     } finally {
       setStatusLoading(false);
     }
-  }, [projectId, fail]);
+  }, [projectId, wtQ, fail]);
 
   const loadGraph = useCallback(async () => {
     const seq = ++graphSeq.current;
     setGraphLoading(true);
     try {
-      const r = await api.get<GraphPayload>(`/api/git/graph?projectId=${q(projectId)}`);
+      const r = await api.get<GraphPayload>(`/api/git/graph?projectId=${q(projectId)}${wtQ}`);
       if (graphSeq.current !== seq) return;
       if (!r.ok) {
         fail(r.message);
@@ -178,16 +186,18 @@ export function GitProvider({
         setGraphLoading(false);
       }
     }
-  }, [projectId, fail]);
+  }, [projectId, wtQ, fail]);
 
   const refreshInProgress = useCallback(async () => {
     try {
-      const r = await api.get<InProgressResult>(`/api/git/in-progress?projectId=${q(projectId)}`);
+      const r = await api.get<InProgressResult>(
+        `/api/git/in-progress?projectId=${q(projectId)}${wtQ}`,
+      );
       setInProgress(r.ok ? r.state : { kind: null });
     } catch {
       setInProgress({ kind: null });
     }
-  }, [projectId]);
+  }, [projectId, wtQ]);
 
   const refreshAll = useCallback(() => {
     void refreshStatus();
@@ -202,7 +212,13 @@ export function GitProvider({
       setDiff(null);
       setDiffLoading(true);
       try {
-        const d = await api.post<DiffResult>("/api/git/diff", { projectId, path, staged, kind });
+        const d = await api.post<DiffResult>("/api/git/diff", {
+          projectId,
+          path,
+          staged,
+          kind,
+          ...wtBody,
+        });
         if (diffSeq.current === seq) {
           setDiff(d);
           setDiffLoading(false);
@@ -214,13 +230,13 @@ export function GitProvider({
         }
       }
     },
-    [projectId],
+    [projectId, worktreePath],
   );
 
   const runMutation = useCallback(
     async (url: string, paths: string[]) => {
       try {
-        const r = await api.post<GitActionResult>(url, { projectId, paths });
+        const r = await api.post<GitActionResult>(url, { projectId, paths, ...wtBody });
         if (!r.ok) {
           fail(r.message);
           return;
@@ -231,7 +247,7 @@ export function GitProvider({
         fail((e as Error).message);
       }
     },
-    [projectId, fail, refreshStatus, loadGraph],
+    [projectId, worktreePath, fail, refreshStatus, loadGraph],
   );
   const stage = useCallback((paths: string[]) => void runMutation("/api/git/stage", paths), [runMutation]);
   const unstage = useCallback(
@@ -241,7 +257,7 @@ export function GitProvider({
   const discard = useCallback(
     async (paths: string[]) => {
       try {
-        const r = await api.post<GitActionResult>("/api/git/discard", { projectId, paths });
+        const r = await api.post<GitActionResult>("/api/git/discard", { projectId, paths, ...wtBody });
         if (!r.ok) {
           fail(r.message);
           return;
@@ -259,7 +275,7 @@ export function GitProvider({
         fail((e as Error).message);
       }
     },
-    [projectId, fail, refreshStatus, loadGraph],
+    [projectId, worktreePath, fail, refreshStatus, loadGraph],
   );
 
   const commit = useCallback(async () => {
@@ -271,6 +287,7 @@ export function GitProvider({
       const r = await api.post<{ ok: true } | { ok: false; message: string }>("/api/git/commit", {
         projectId,
         message,
+        ...wtBody,
       });
       if (!r.ok) {
         fail(r.message);
@@ -285,7 +302,7 @@ export function GitProvider({
     } catch (e) {
       fail((e as Error).message);
     }
-  }, [projectId, summary, description, fail, refreshStatus, loadGraph]);
+  }, [projectId, worktreePath, summary, description, fail, refreshStatus, loadGraph]);
 
   const selectCommit = useCallback(
     async (oid: string) => {
@@ -298,7 +315,7 @@ export function GitProvider({
       setFileDiff(null);
       try {
         const r = await api.get<CommitDetailResult>(
-          `/api/git/commit?projectId=${q(projectId)}&oid=${q(oid)}`,
+          `/api/git/commit?projectId=${q(projectId)}&oid=${q(oid)}${wtQ}`,
         );
         if (detailSeq.current !== seq) return;
         setDetail(r.ok ? r.detail : null);
@@ -312,7 +329,7 @@ export function GitProvider({
         }
       }
     },
-    [projectId, fail],
+    [projectId, wtQ, fail],
   );
 
   const selectCommitFile = useCallback(
@@ -329,6 +346,7 @@ export function GitProvider({
           oid: d.oid,
           parentOid: d.parents[0] ?? null,
           path: file.path,
+          ...wtBody,
         });
         if (fileDiffSeq.current === seq) {
           setFileDiff(diffResult);
@@ -341,13 +359,13 @@ export function GitProvider({
         }
       }
     },
-    [projectId],
+    [projectId, worktreePath],
   );
 
   const runAction = useCallback(
     async (req: ActionReq) => {
       try {
-        const r = await api.post<GitActionResult>("/api/git/action", { projectId, ...req });
+        const r = await api.post<GitActionResult>("/api/git/action", { projectId, ...req, ...wtBody });
         if (!r.ok) {
           fail(r.message);
           return;
@@ -360,7 +378,7 @@ export function GitProvider({
         fail((e as Error).message);
       }
     },
-    [projectId, fail, loadGraph, refreshStatus, refreshInProgress],
+    [projectId, worktreePath, fail, loadGraph, refreshStatus, refreshInProgress],
   );
 
   const runRemote = useCallback(
@@ -368,7 +386,7 @@ export function GitProvider({
       if (remoteRunningRef.current) return;
       setRemoteRunning(true);
       try {
-        const r = await api.post<GitOpResult>("/api/git/remote", { projectId, kind });
+        const r = await api.post<GitOpResult>("/api/git/remote", { projectId, kind, ...wtBody });
         if (!r.ok && !r.canceled) fail(r.message);
       } catch (e) {
         fail((e as Error).message);
@@ -377,12 +395,12 @@ export function GitProvider({
         refreshAll();
       }
     },
-    [projectId, fail, refreshAll],
+    [projectId, worktreePath, fail, refreshAll],
   );
 
   const listBranches = useCallback(
-    () => api.get<BranchListResult>(`/api/git/branches?projectId=${q(projectId)}`),
-    [projectId],
+    () => api.get<BranchListResult>(`/api/git/branches?projectId=${q(projectId)}${wtQ}`),
+    [projectId, wtQ],
   );
 
   // 최초 로드(projectId 고정 — key 리마운트라 1회)

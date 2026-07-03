@@ -14,7 +14,7 @@ export interface GitVersionInfo {
 /** projectId로 해석한 실제 git 저장소 경로. source는 어디서 왔는지(디버그/UI 표시용). */
 export interface RepoResolution {
   repoPath: string;
-  source: "board" | "recall" | "guess";
+  source: "board" | "recall" | "guess" | "worktree";
 }
 
 export type StatusEntryKind = "tracked" | "renamed" | "unmerged" | "untracked" | "ignored";

@@ -14,6 +14,7 @@ import {
   type EnrichedPlan,
   type ProjectTrack,
   type WorkspaceProject,
+  type WorktreeMember,
 } from "./workspace-shared";
 
 // 왼쪽 마스터 목록의 '미연결 계획' 가상 항목 식별자(프로젝트 id와 충돌 안 나는 센티넬)
@@ -323,6 +324,7 @@ function ProjectMasterCard({
 }) {
   const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
   const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+  const liveWorktrees = p.worktrees.filter((w) => !w.removed).length;
   // 자식 컨트롤 클릭이 카드 선택으로 번지지 않게 막는다.
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -353,6 +355,7 @@ function ProjectMasterCard({
           </span>
         )}
         {planCount > 0 && <span>📄 {planCount}</span>}
+        {liveWorktrees > 0 && <span title="워크트리">⑂ {liveWorktrees}</span>}
       </div>
       <div className="ws-mi-actions">
         {sortMode === "manual" && !p.board.hidden && (
@@ -403,6 +406,13 @@ function ProjectDetail({
   const base = shortName(p.realPath, p.id);
 
   const [detailMode, setDetailMode] = useState<"overview" | "git">("overview");
+  // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
+  // ProjectDetail이 key로 리마운트되므로 프로젝트 전환 시 자동으로 ""로 초기화된다.
+  const [gitTargetWt, setGitTargetWt] = useState("");
+  const openWorktreeInGit = (worktreeRoot: string) => {
+    setGitTargetWt(worktreeRoot);
+    setDetailMode("git");
+  };
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const startEditName = () => {
@@ -489,10 +499,38 @@ function ProjectDetail({
         </button>
       </div>
       {detailMode === "git" ? (
-        <GitPanel projectId={p.id} onError={onError} />
+        <>
+          {p.worktrees.length > 0 && (
+            <div className="ws-git-target">
+              <label className="ws-sort-k">대상</label>
+              <select
+                className="ws-select"
+                value={gitTargetWt}
+                onChange={(e) => setGitTargetWt(e.target.value)}
+              >
+                <option value="">메인 ({base})</option>
+                {p.worktrees.map((w) => (
+                  <option key={w.worktreeRoot} value={w.worktreeRoot} disabled={w.removed}>
+                    ⑂ {w.name}
+                    {w.removed ? " (삭제됨)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {/* 전환 시 GitPanel을 리마운트(대상 경로 기준)해 그 워킹트리로 갱신. projectId는 대표 고정. */}
+          <GitPanel
+            key={gitTargetWt || "main"}
+            projectId={p.id}
+            worktreePath={gitTargetWt || undefined}
+            onError={onError}
+          />
+        </>
       ) : (
         <>
           <div className="ws-path mono">{p.realPath ?? p.id}</div>
+
+          <WorktreeSection worktrees={p.worktrees} onOpenGit={openWorktreeInGit} />
 
       {r ? (
         <div className="ws-recall">
@@ -550,6 +588,49 @@ function ProjectDetail({
         </>
       )}
     </div>
+  );
+}
+
+// ============================ 워크트리 섹션(대표 repo에 접힌 linked 워크트리) ============================
+function WorktreeSection({
+  worktrees,
+  onOpenGit,
+}: {
+  worktrees: WorktreeMember[];
+  onOpenGit: (worktreeRoot: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  if (worktrees.length === 0) return null;
+  const live = worktrees.filter((w) => !w.removed).length;
+  return (
+    <>
+      <button className="ws-section-toggle" onClick={() => setOpen((v) => !v)}>
+        <span className="ws-plan-caret">{open ? "▾" : "▸"}</span>
+        워크트리 <span className="cat-count">{live}</span>
+      </button>
+      {open && (
+        <div className="ws-worktrees">
+          {worktrees.map((w) => (
+            <div key={w.worktreeRoot} className={`ws-wt-row${w.removed ? " removed" : ""}`}>
+              <span className="ws-wt-name">⑂ {w.name}</span>
+              {w.gitBranch && <span className="t-tag">⎇ {w.gitBranch}</span>}
+              <span className="ws-when">{fmtRelative(w.lastActivity)}</span>
+              {w.removed ? (
+                <span className="muted ws-wt-removed">삭제됨</span>
+              ) : (
+                <button
+                  className="ws-icon-btn"
+                  title="Git 모드에서 이 워크트리 열기"
+                  onClick={() => onOpenGit(w.worktreeRoot)}
+                >
+                  Git ▸
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

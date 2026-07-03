@@ -19,6 +19,7 @@ import { getProjects, guessOriginalPath } from "./projects.js";
 import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -70,11 +71,25 @@ export interface TimelineEvent {
   archived?: boolean; // 계획: 본문 fetch 시 archived 파라미터
   parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
+  worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 어느 워크트리인지 표시).
 }
 
 export interface WorkspaceProject extends ProjectRecall {
-  board: { status: BoardStatus | null; memo: string; nameOverride: string; tracks: ProjectTrack[] };
+  board: {
+    status: BoardStatus | null;
+    memo: string;
+    nameOverride: string;
+    tracks: ProjectTrack[];
+    hidden: boolean;
+    order: number | null;
+  };
   plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
+  // --- 워크트리 그룹핑(repo-group.ts) ---
+  repoRoot: string | null; // 메인 워킹트리 루트(대표=repo 자신이면 realPath와 동일)
+  isWorktree: boolean; // 대표가 (메인이 아닌) 워크트리인가(메인 세션이 아예 없을 때만)
+  worktreeName: string | null;
+  worktrees: WorktreeMember[]; // 이 repo에 접힌 linked 워크트리(최근활동순)
+  memberIds: string[]; // 이 그룹에 속한 모든 projectId(board 상속·plan 필터에 사용)
 }
 
 interface HistoryEntry {
@@ -498,20 +513,56 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
     readBoard(),
     getEnrichedPlans(false),
   ]);
-  return recalls.map((r) => ({
-    ...r,
-    board: {
-      status: board.projects[r.id]?.status ?? null,
-      memo: board.projects[r.id]?.memo ?? "",
-      nameOverride: board.projects[r.id]?.nameOverride ?? "",
-      tracks: board.projects[r.id]?.tracks ?? [],
-      hidden: board.projects[r.id]?.hidden ?? false,
-      order: board.projects[r.id]?.order ?? null,
-    },
-    plans: plans
-      .filter((p) => p.projectId === r.id)
-      .map((p) => ({ filename: p.filename, title: p.title, status: p.status, archived: p.archived })),
-  }));
+  // 워크트리·하위폴더를 같은 git 저장소(공유 .git)로 접어 대표 카드 하나로 만든다.
+  const groups = await computeRepoGroups(recalls);
+
+  // board는 대표(canonicalId)로 읽되, 대표에 값이 없고 멤버(워크트리) id에 있으면 상속한다 —
+  // 예전에 워크트리 id로 저장해둔 상태/메모/이름/트랙을 잃지 않도록. hidden/order는 목록 동작이라
+  // 대표 전용. 앞으로의 쓰기는 canonicalId로만 간다.
+  const readField = <T>(
+    ids: string[],
+    sel: (e: NonNullable<(typeof board)["projects"][string]>) => T | null | undefined,
+  ): T | null => {
+    for (const id of ids) {
+      const e = board.projects[id];
+      if (!e) continue;
+      const v = sel(e);
+      if (v == null) continue;
+      if (typeof v === "string" && v === "") continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      return v as T;
+    }
+    return null;
+  };
+
+  return groups.map((g) => {
+    const ids = [g.canonicalId, ...g.memberIds.filter((id) => id !== g.canonicalId)];
+    const canon = board.projects[g.canonicalId];
+    return {
+      ...g.representative,
+      repoRoot: g.repoRoot,
+      isWorktree: g.isWorktree,
+      worktreeName: g.worktreeName,
+      worktrees: g.worktrees,
+      memberIds: g.memberIds,
+      board: {
+        status: readField(ids, (e) => e.status),
+        memo: readField<string>(ids, (e) => e.memo) ?? "",
+        nameOverride: readField<string>(ids, (e) => e.nameOverride) ?? "",
+        tracks: readField<ProjectTrack[]>(ids, (e) => e.tracks) ?? [],
+        hidden: canon?.hidden ?? false,
+        order: canon?.order ?? null,
+      },
+      plans: plans
+        .filter((p) => p.projectId != null && g.memberIds.includes(p.projectId))
+        .map((p) => ({
+          filename: p.filename,
+          title: p.title,
+          status: p.status,
+          archived: p.archived,
+        })),
+    };
+  });
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
@@ -524,6 +575,18 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.
   // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
   const idToRealPath = new Map(recalls.map((r) => [r.id, r.realPath]));
+
+  // 워크트리·하위폴더를 대표 repo로 귀속하는 맵. 이벤트를 대표 id/repoRoot로 접어 탭이 repo당 하나가 되게 한다.
+  const groups = await computeRepoGroups(recalls);
+  const idToCanon = new Map<string, string>();
+  const canonToRepoRoot = new Map<string, string | null>();
+  const idToWorktreeName = new Map<string, string>();
+  for (const g of groups) {
+    canonToRepoRoot.set(g.canonicalId, g.repoRoot);
+    for (const id of g.memberIds) idToCanon.set(id, g.canonicalId);
+    for (const w of g.worktrees) idToWorktreeName.set(w.projectId, w.name);
+    if (g.isWorktree && g.worktreeName) idToWorktreeName.set(g.canonicalId, g.worktreeName);
+  }
 
   // 계획 마커가 가리키는 세션이 프로젝트 "최신" 세션이 아니면 SESS 행이 없어 계획이
   // flat으로 남는다 — 마커 세션의 transcript를 추가로 tail-read해 SESS 행으로 포함시킨다.
@@ -601,5 +664,17 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       parentSessionId,
     });
   }
-  return events.sort((a, b) => b.ts - a.ts);
+
+  // 각 이벤트를 대표 repo로 귀속: projectId→canonical, realPath→repoRoot, 어느 워크트리인지 태그.
+  const remapped = events.map((e) => {
+    if (e.projectId == null) return e;
+    const canon = idToCanon.get(e.projectId) ?? e.projectId;
+    return {
+      ...e,
+      projectId: canon,
+      realPath: canonToRepoRoot.get(canon) ?? e.realPath,
+      worktreeName: idToWorktreeName.get(e.projectId) ?? null,
+    };
+  });
+  return remapped.sort((a, b) => b.ts - a.ts);
 }

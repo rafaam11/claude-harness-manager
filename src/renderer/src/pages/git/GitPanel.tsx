@@ -9,26 +9,30 @@ import Spinner from "./Spinner";
 
 export default function GitPanel({
   projectId,
+  worktreePath,
   onError,
 }: {
   projectId: string;
+  /** 워크트리 전환 대상 경로(선택). 있으면 이 워킹트리를 대상으로 해석·조작한다. */
+  worktreePath?: string;
   onError: (message: string) => void;
 }): React.JSX.Element {
   // undefined = 확인 중, null = 못 찾음, RepoResolution = 확정
   const [resolution, setResolution] = useState<RepoResolution | null | undefined>(undefined);
+  const wtQ = worktreePath ? `&worktreePath=${encodeURIComponent(worktreePath)}` : "";
 
   const resolve = useCallback(async () => {
     setResolution(undefined);
     try {
       const r = await api.get<RepoResolution | null>(
-        `/api/git/resolve?projectId=${encodeURIComponent(projectId)}`,
+        `/api/git/resolve?projectId=${encodeURIComponent(projectId)}${wtQ}`,
       );
       setResolution(r);
     } catch (e) {
       onError((e as Error).message);
       setResolution(null);
     }
-  }, [projectId, onError]);
+  }, [projectId, wtQ, onError]);
 
   useEffect(() => {
     void resolve();
@@ -65,7 +69,7 @@ export default function GitPanel({
     );
   }
   return (
-    <GitProvider projectId={projectId} onError={onError}>
+    <GitProvider projectId={projectId} worktreePath={worktreePath} onError={onError}>
       <GitWorkbench />
     </GitProvider>
   );

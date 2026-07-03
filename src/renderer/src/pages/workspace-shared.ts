@@ -33,6 +33,18 @@ export interface ProjectTrack {
   items: ProjectTodo[];
 }
 
+// 이 repo에 접힌 linked 워크트리(대표 카드 아래 나열/Git 전환 대상). 서버 repo-group.ts와 1:1.
+export interface WorktreeMember {
+  projectId: string;
+  worktreeRoot: string; // 워킹트리 toplevel 절대경로(Git 전환 대상)
+  name: string;
+  gitBranch: string | null;
+  lastActivity: number;
+  lastPrompt: string | null;
+  lastAssistantSnippet: string | null;
+  removed: boolean; // 디스크에서 사라진(pruned) 워크트리
+}
+
 export interface WorkspaceProject {
   id: string;
   realPath: string | null;
@@ -50,6 +62,12 @@ export interface WorkspaceProject {
     order: number | null;
   };
   plans: { filename: string; title: string; status: BoardStatus; archived: boolean }[];
+  // --- 워크트리 그룹핑 ---
+  repoRoot: string | null; // 메인 워킹트리 루트(대표=repo 자신이면 realPath와 동일)
+  isWorktree: boolean; // 대표가 (메인이 아닌) 워크트리인가
+  worktreeName: string | null;
+  worktrees: WorktreeMember[];
+  memberIds: string[];
 }
 export interface EnrichedPlan {
   filename: string;
@@ -77,6 +95,7 @@ export interface TimelineEvent {
   archived?: boolean;
   parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
+  worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 표시).
 }
 
 /** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름(경로 마지막 세그먼트) */

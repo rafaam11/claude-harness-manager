@@ -355,107 +355,125 @@ const routes: Route[] = [
   {
     method: "GET",
     pattern: "/api/git/resolve",
-    handler: async ({ query }) => git.resolveRepo(reqProjectId(query)),
+    handler: async ({ query }) => git.resolveRepo(reqProjectId(query), reqWorktree(query)),
   },
   {
     method: "GET",
     pattern: "/api/git/status",
-    handler: async ({ query }) => git.gitStatus(reqProjectId(query)),
+    handler: async ({ query }) => git.gitStatus(reqProjectId(query), reqWorktree(query)),
   },
   {
     method: "GET",
     pattern: "/api/git/graph",
     handler: async ({ query }) =>
-      git.gitGraph(reqProjectId(query), query.limit ? Number(query.limit) : undefined),
+      git.gitGraph(
+        reqProjectId(query),
+        query.limit ? Number(query.limit) : undefined,
+        reqWorktree(query),
+      ),
   },
   {
     method: "GET",
     pattern: "/api/git/branches",
-    handler: async ({ query }) => git.gitBranches(reqProjectId(query)),
+    handler: async ({ query }) => git.gitBranches(reqProjectId(query), reqWorktree(query)),
   },
   {
     method: "GET",
     pattern: "/api/git/in-progress",
-    handler: async ({ query }) => git.gitInProgress(reqProjectId(query)),
+    handler: async ({ query }) => git.gitInProgress(reqProjectId(query), reqWorktree(query)),
   },
   {
     method: "GET",
     pattern: "/api/git/commit",
     handler: async ({ query }) => {
       if (!query.oid) throw new HttpError(400, "oid 필요");
-      return git.gitCommitDetail(reqProjectId(query), query.oid);
+      return git.gitCommitDetail(reqProjectId(query), query.oid, reqWorktree(query));
     },
   },
   {
     method: "POST",
     pattern: "/api/git/diff",
     handler: async ({ body }) => {
-      const b = body as Partial<DiffRequest>;
+      const b = body as Partial<DiffRequest> & { worktreePath?: string };
       if (!b.projectId || !b.path || !b.kind) throw new HttpError(400, "projectId/path/kind 필요");
-      return git.gitDiff({
-        projectId: b.projectId,
-        path: b.path,
-        staged: b.staged === true,
-        kind: b.kind as StatusEntryKind,
-      });
+      return git.gitDiff(
+        {
+          projectId: b.projectId,
+          path: b.path,
+          staged: b.staged === true,
+          kind: b.kind as StatusEntryKind,
+        },
+        b.worktreePath,
+      );
     },
   },
   {
     method: "POST",
     pattern: "/api/git/commit-diff",
     handler: async ({ body }) => {
-      const b = body as Partial<CommitDiffRequest>;
+      const b = body as Partial<CommitDiffRequest> & { worktreePath?: string };
       if (!b.projectId || !b.oid || !b.path) throw new HttpError(400, "projectId/oid/path 필요");
-      return git.gitCommitDiff({
-        projectId: b.projectId,
-        oid: b.oid,
-        parentOid: b.parentOid ?? null,
-        path: b.path,
-      });
+      return git.gitCommitDiff(
+        {
+          projectId: b.projectId,
+          oid: b.oid,
+          parentOid: b.parentOid ?? null,
+          path: b.path,
+        },
+        b.worktreePath,
+      );
     },
   },
   {
     method: "POST",
     pattern: "/api/git/stage",
-    handler: async ({ body }) => git.gitStage(...reqPaths(body)),
+    handler: async ({ body }) => git.gitStage(...reqPaths(body), reqWorktreeBody(body)),
   },
   {
     method: "POST",
     pattern: "/api/git/unstage",
-    handler: async ({ body }) => git.gitUnstage(...reqPaths(body)),
+    handler: async ({ body }) => git.gitUnstage(...reqPaths(body), reqWorktreeBody(body)),
   },
   {
     method: "POST",
     pattern: "/api/git/discard",
-    handler: async ({ body }) => git.gitDiscard(...reqPaths(body)),
+    handler: async ({ body }) => git.gitDiscard(...reqPaths(body), reqWorktreeBody(body)),
   },
   {
     method: "POST",
     pattern: "/api/git/commit",
     handler: async ({ body }) => {
-      const { projectId, message } = body as { projectId?: string; message?: string };
+      const { projectId, message, worktreePath } = body as {
+        projectId?: string;
+        message?: string;
+        worktreePath?: string;
+      };
       if (!projectId || typeof message !== "string") {
         throw new HttpError(400, "projectId/message 필요");
       }
-      return git.gitCommit(projectId, message);
+      return git.gitCommit(projectId, message, worktreePath);
     },
   },
   {
     method: "POST",
     pattern: "/api/git/action",
     handler: async ({ body }) => {
-      const b = body as Partial<GraphActionRequest>;
+      const b = body as Partial<GraphActionRequest> & { worktreePath?: string };
       if (!b.projectId || !b.kind) throw new HttpError(400, "projectId/kind 필요");
-      return git.gitAction(b as GraphActionRequest);
+      return git.gitAction(b as GraphActionRequest, b.worktreePath);
     },
   },
   {
     method: "POST",
     pattern: "/api/git/remote",
     handler: async ({ body }) => {
-      const { projectId, kind } = body as { projectId?: string; kind?: GitOpKind };
+      const { projectId, kind, worktreePath } = body as {
+        projectId?: string;
+        kind?: GitOpKind;
+        worktreePath?: string;
+      };
       if (!projectId || !kind) throw new HttpError(400, "projectId/kind 필요");
-      return git.gitRemote(projectId, kind);
+      return git.gitRemote(projectId, kind, worktreePath);
     },
   },
 ];
@@ -464,6 +482,15 @@ const routes: Route[] = [
 function reqProjectId(query: Record<string, string>): string {
   if (!query.projectId) throw new HttpError(400, "projectId 필요");
   return query.projectId;
+}
+
+/** git 라우트 공용: 워크트리 전환 대상 경로(선택). GET은 query, POST는 body에서 읽는다. */
+function reqWorktree(query: Record<string, string>): string | undefined {
+  return query.worktreePath || undefined;
+}
+function reqWorktreeBody(body: unknown): string | undefined {
+  const wt = (body as { worktreePath?: string })?.worktreePath;
+  return wt || undefined;
 }
 
 /** stage/unstage/discard 공용: body에서 (projectId, paths)를 검증해 튜플로 반환. */

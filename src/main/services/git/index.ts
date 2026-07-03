@@ -3,6 +3,7 @@
 import { readBoard } from "../../lib/board.js";
 import { guessOriginalPath } from "../projects.js";
 import { getProjectRecalls } from "../recall.js";
+import { resolveRepoTopology } from "../repo-group.js";
 import { assertGitRepo } from "./repo-guard.js";
 import { getGitVersion, getRepoStatus } from "./GitService.js";
 import { getGraph } from "./LogService.js";
@@ -55,8 +56,33 @@ export async function resolveRepoPath(projectId: string): Promise<RepoResolution
   return null;
 }
 
-/** repoPath를 해석하거나, 못 찾으면 statusCode 404 에러를 던진다(라우트 핸들러용). */
-async function requireRepoPath(projectId: string): Promise<string> {
+/**
+ * worktreePath가 projectId 대표 repo와 "같은 저장소(공유 .git)"인지 검증하고 toplevel을 반환한다.
+ * 워크트리 전환 대상 검증용 — 다른 저장소 경로 주입을 막는다(assertGitRepo + common-dir 일치).
+ * 부적격이면 null(호출부가 대표 repo로 폴백).
+ */
+async function resolveWorktreePath(projectId: string, worktreePath: string): Promise<string | null> {
+  const wt = await assertGitRepo(worktreePath);
+  if (!wt) return null;
+  const base = await resolveRepoPath(projectId);
+  if (!base) return wt; // 대표를 못 찾으면 assertGitRepo 통과한 wt를 신뢰
+  const [a, b] = await Promise.all([
+    resolveRepoTopology(wt),
+    resolveRepoTopology(base.repoPath),
+  ]);
+  if (a && b && a.commonDir === b.commonDir) return wt;
+  return null; // 같은 저장소가 아니면 거부
+}
+
+/**
+ * repoPath를 해석하거나, 못 찾으면 statusCode 404 에러를 던진다(라우트 핸들러용).
+ * worktreePath가 오면(워크트리 전환) 같은 저장소인지 검증해 그 워킹트리를 cwd로 쓴다.
+ */
+async function requireRepoPath(projectId: string, worktreePath?: string): Promise<string> {
+  if (worktreePath) {
+    const wt = await resolveWorktreePath(projectId, worktreePath);
+    if (wt) return wt;
+  }
   const r = await resolveRepoPath(projectId);
   if (!r) {
     const err = new Error(
@@ -72,49 +98,86 @@ async function requireRepoPath(projectId: string): Promise<string> {
 export function gitVersion(): Promise<GitVersionInfo | null> {
   return getGitVersion();
 }
-export function resolveRepo(projectId: string): Promise<RepoResolution | null> {
+export function resolveRepo(projectId: string, worktreePath?: string): Promise<RepoResolution | null> {
+  // 워크트리 전환 대상이 오면 그 워킹트리로 해석(같은 저장소 검증). 아니면 대표 repo.
+  if (worktreePath) {
+    return resolveWorktreePath(projectId, worktreePath).then((wt) =>
+      wt ? { repoPath: wt, source: "worktree" as const } : resolveRepoPath(projectId),
+    );
+  }
   return resolveRepoPath(projectId);
 }
-export async function gitStatus(projectId: string): Promise<RepoStatus> {
-  return getRepoStatus(await requireRepoPath(projectId));
+export async function gitStatus(projectId: string, worktreePath?: string): Promise<RepoStatus> {
+  return getRepoStatus(await requireRepoPath(projectId, worktreePath));
 }
-export async function gitGraph(projectId: string, limit?: number): Promise<GraphPayload> {
-  return getGraph(await requireRepoPath(projectId), limit);
+export async function gitGraph(
+  projectId: string,
+  limit?: number,
+  worktreePath?: string,
+): Promise<GraphPayload> {
+  return getGraph(await requireRepoPath(projectId, worktreePath), limit);
 }
-export async function gitBranches(projectId: string): Promise<BranchListResult> {
-  return listBranches(await requireRepoPath(projectId));
+export async function gitBranches(projectId: string, worktreePath?: string): Promise<BranchListResult> {
+  return listBranches(await requireRepoPath(projectId, worktreePath));
 }
-export async function gitInProgress(projectId: string): Promise<InProgressResult> {
-  return getInProgress(await requireRepoPath(projectId));
+export async function gitInProgress(projectId: string, worktreePath?: string): Promise<InProgressResult> {
+  return getInProgress(await requireRepoPath(projectId, worktreePath));
 }
-export async function gitCommitDetail(projectId: string, oid: string): Promise<CommitDetailResult> {
-  return getCommitDetail(await requireRepoPath(projectId), oid);
+export async function gitCommitDetail(
+  projectId: string,
+  oid: string,
+  worktreePath?: string,
+): Promise<CommitDetailResult> {
+  return getCommitDetail(await requireRepoPath(projectId, worktreePath), oid);
 }
-export async function gitDiff(req: DiffRequest): Promise<DiffResult> {
-  return getDiff(await requireRepoPath(req.projectId), req);
+export async function gitDiff(req: DiffRequest, worktreePath?: string): Promise<DiffResult> {
+  return getDiff(await requireRepoPath(req.projectId, worktreePath), req);
 }
-export async function gitCommitDiff(req: CommitDiffRequest): Promise<DiffResult> {
-  return getCommitDiff(await requireRepoPath(req.projectId), req);
+export async function gitCommitDiff(
+  req: CommitDiffRequest,
+  worktreePath?: string,
+): Promise<DiffResult> {
+  return getCommitDiff(await requireRepoPath(req.projectId, worktreePath), req);
 }
 
 // --- 변경(staging/commit) ---
-export async function gitStage(projectId: string, paths: string[]): Promise<GitActionResult> {
-  return stageFiles(await requireRepoPath(projectId), paths);
+export async function gitStage(
+  projectId: string,
+  paths: string[],
+  worktreePath?: string,
+): Promise<GitActionResult> {
+  return stageFiles(await requireRepoPath(projectId, worktreePath), paths);
 }
-export async function gitUnstage(projectId: string, paths: string[]): Promise<GitActionResult> {
-  return unstageFiles(await requireRepoPath(projectId), paths);
+export async function gitUnstage(
+  projectId: string,
+  paths: string[],
+  worktreePath?: string,
+): Promise<GitActionResult> {
+  return unstageFiles(await requireRepoPath(projectId, worktreePath), paths);
 }
-export async function gitDiscard(projectId: string, paths: string[]): Promise<GitActionResult> {
-  return discardFiles(await requireRepoPath(projectId), paths);
+export async function gitDiscard(
+  projectId: string,
+  paths: string[],
+  worktreePath?: string,
+): Promise<GitActionResult> {
+  return discardFiles(await requireRepoPath(projectId, worktreePath), paths);
 }
-export async function gitCommit(projectId: string, message: string): Promise<CommitResult> {
-  return commit(await requireRepoPath(projectId), message);
+export async function gitCommit(
+  projectId: string,
+  message: string,
+  worktreePath?: string,
+): Promise<CommitResult> {
+  return commit(await requireRepoPath(projectId, worktreePath), message);
 }
 
 // --- 그래프 액션 / remote ---
-export async function gitAction(req: GraphActionRequest): Promise<GitActionResult> {
-  return runGraphAction(await requireRepoPath(req.projectId), req);
+export async function gitAction(req: GraphActionRequest, worktreePath?: string): Promise<GitActionResult> {
+  return runGraphAction(await requireRepoPath(req.projectId, worktreePath), req);
 }
-export async function gitRemote(projectId: string, kind: GitOpKind): Promise<GitOpResult> {
-  return runRemoteOp(await requireRepoPath(projectId), kind);
+export async function gitRemote(
+  projectId: string,
+  kind: GitOpKind,
+  worktreePath?: string,
+): Promise<GitOpResult> {
+  return runRemoteOp(await requireRepoPath(projectId, worktreePath), kind);
 }

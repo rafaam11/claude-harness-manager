@@ -32,6 +32,15 @@ export const TEMP_DIRS = [
 
 // --- Workspace 대시보드 ---
 export const PROJECTS_DIR = path.join(CLAUDE_HOME, "projects");
+// 워크트리/하위폴더 그룹핑에서 "접기 앵커"가 될 수 없는 넓은 디렉토리들.
+// (누가 홈에 git init을 해도 그 하위 세션들이 전부 "홈" 하나로 접히는 것을 막는 방어선.
+//  드라이브 루트(C:\)·unix 루트(/)는 repo-group의 isBroadDir가 별도 규칙으로 처리한다.)
+export const BROAD_DIRS: readonly string[] = [
+  os.homedir(),
+  path.join(os.homedir(), "Desktop"),
+  path.join(os.homedir(), "Documents"),
+  path.join(os.homedir(), "Downloads"),
+];
 export const PLANS_DIR = path.join(CLAUDE_HOME, "plans");
 export const PLANS_ARCHIVE_DIR = path.join(PLANS_DIR, "_archive");
 export const HISTORY_FILE = path.join(CLAUDE_HOME, "history.jsonl");

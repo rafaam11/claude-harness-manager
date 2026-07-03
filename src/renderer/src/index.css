@@ -493,6 +493,39 @@ pre.viewer {
 /* RSS 요약 발췌(평문) — main이 줄바꿈을 보존해 내려주므로 pre-wrap */
 .news-summary { white-space: pre-wrap; }
 
+/* 즐겨찾기(북마크) — 목록 행 별표 / 상세 헤더 버튼 / 툴바 토글. 활성은 amber(★). */
+.news-star {
+  margin-left: auto; flex-shrink: 0; cursor: pointer; font-size: 15px; line-height: 1;
+  color: var(--muted); padding: 0 2px; user-select: none;
+}
+.news-star:hover, .news-star.on { color: #f59e0b; }
+.news-star-btn {
+  margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 12px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
+}
+.news-star-btn:hover, .news-star-btn.on { color: #f59e0b; border-color: #f59e0b; }
+.news-fav-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 12px; padding: 5px 10px; cursor: pointer;
+}
+.news-fav-toggle:hover { color: var(--text); }
+.news-fav-toggle.on { color: #f59e0b; border-color: #f59e0b; }
+/* .md 내보내기 — 툴바 버튼 / 상세 개별 버튼 / 결과 알림 배너 */
+.news-export-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 12px; padding: 5px 10px; cursor: pointer;
+}
+.news-export-btn:hover:not(:disabled) { color: var(--text); }
+.news-export-btn:disabled { opacity: 0.5; cursor: default; }
+.news-export-one { margin-left: 0; } /* 상세 헤더에서 별표 뒤에 붙되 auto-push는 별표만 */
+.news-export-notice { display: flex; align-items: center; gap: 10px; }
+.news-export-dir { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.news-notice-x { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; flex-shrink: 0; }
+.news-notice-x:hover { color: var(--text); }
+
 /* 언어 3단 토글(EN / 한국어 / EN+한) — 세그먼트 버튼 */
 .news-mode-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .news-mode-toggle .mode-btn {

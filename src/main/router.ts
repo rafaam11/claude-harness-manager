@@ -19,6 +19,7 @@ import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
 import { getNews, refreshNews, getNewsImage, getNewsBody } from "./services/news.js";
 import { translateItems } from "./services/translate.js";
+import { listFavorites, addFavorite, removeFavorite, getFavoriteItem } from "./lib/favorites.js";
 import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
   setPlanField,
@@ -94,7 +95,10 @@ const routes: Route[] = [
       if (target !== "ko") throw new HttpError(400, "지원하지 않는 target");
       const feed = await getNews();
       const byId = new Map(feed.items.map((i) => [i.id, i]));
-      const items = ids.map((id) => byId.get(id)).filter((x): x is NewsItem => Boolean(x));
+      // 피드에 없으면(즐겨찾기가 상한에 밀려 빠짐) 저장된 스냅샷으로 fallback해 제목 번역이 되게 한다.
+      const items = (
+        await Promise.all(ids.map(async (id) => byId.get(id) ?? (await getFavoriteItem(id))))
+      ).filter((x): x is NewsItem => Boolean(x));
       return translateItems(items, { withBody: withBody === true });
     },
   },
@@ -116,6 +120,28 @@ const routes: Route[] = [
       const { id } = (body ?? {}) as { id?: string };
       if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
       return getNewsBody(id);
+    },
+  },
+  // 즐겨찾기(북마크): 피드와 분리된 앱 소유 store(favorites.json). 새로고침에도 유지된다.
+  // add는 renderer가 손에 든 NewsItem 스냅샷을 그대로 보낸다(피드에서 빠진 뒤에도 표시하려면 스냅샷 필요).
+  { method: "GET", pattern: "/api/news/favorites", handler: async () => listFavorites() },
+  {
+    method: "POST",
+    pattern: "/api/news/favorites",
+    handler: async ({ body }) => {
+      const { item } = (body ?? {}) as { item?: unknown };
+      if (!item) throw new HttpError(400, "item 필요");
+      return addFavorite(item); // main이 sanitize; 유효하지 않으면 400
+    },
+  },
+  // router는 GET/POST만 지원 → 삭제도 POST(body의 id).
+  {
+    method: "POST",
+    pattern: "/api/news/favorites/remove",
+    handler: async ({ body }) => {
+      const { id } = (body ?? {}) as { id?: string };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return removeFavorite(id);
     },
   },
   // DeepL 키 존재 여부(boolean만). 키 원문은 절대 반환하지 않는다.

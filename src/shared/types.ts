@@ -5,6 +5,8 @@ export * from "./git-types.js";
 
 // News 탭 도메인 타입(세 소스 정규화·소스별 상태). 분량상 별도 파일로 분리.
 export * from "./news-types.js";
+// AppApi에서 참조하는 export 결과 타입(re-export만으론 로컬 스코프에 안 들어와 명시 import).
+import type { ExportResult } from "./news-types.js";
 
 // News 번역·시크릿 타입(DeepL 번역 요청/응답, 키 존재여부). 분량상 별도 파일로 분리.
 export * from "./translate-types.js";
@@ -36,6 +38,7 @@ export const IpcChannels = {
   appOpenPath: "app:open-path",
   appOpenExternal: "app:open-external",
   appPickDirectory: "app:pick-directory",
+  appExportFavorites: "app:export-favorites",
   updaterCheck: "updater:check",
   updaterQuitAndInstall: "updater:quit-and-install",
   updaterStatus: "updater:status",
@@ -65,6 +68,12 @@ export interface AppApi {
   openExternal: (url: string) => Promise<void>;
   /** 폴더 선택 dialog를 연다(Git repo 경로 수동 교정용). 취소 시 null. */
   pickDirectory: () => Promise<string | null>;
+  /**
+   * 즐겨찾기(또는 지정 ids)를 각 기사별 .md 파일로 사용자가 고른 폴더에 저장한다.
+   * main이 폴더 dialog를 열고(취소 시 null) 본문 fetch·번역·파일 쓰기까지 수행한다.
+   * @param opts.ids 지정하면 그 기사들만(상세 개별 export), 생략하면 즐겨찾기 전체.
+   */
+  exportFavorites: (opts?: { ids?: string[] }) => Promise<ExportResult | null>;
   /** 수동 "업데이트 확인". packaged에서 autoUpdater.checkForUpdates(), dev면 즉시 idle. */
   checkForUpdates: () => Promise<void>;
   /** 다운로드 완료된 업데이트를 적용하며 앱 재시작(autoUpdater.quitAndInstall). */

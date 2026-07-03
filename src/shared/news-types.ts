@@ -41,6 +41,28 @@ export interface NewsItem {
   meta?: string;
 }
 
+/**
+ * 즐겨찾기 저장 항목 = NewsItem 스냅샷 + 저장 시각.
+ * 피드는 소스별 15개 상한이라 즐겨찾기한 기사가 새로고침 후 피드에서 빠질 수 있어, id만이 아니라
+ * NewsItem 필드 전체를 스냅샷으로 보관해야 나중에도 목록/상세에 뜬다.
+ */
+export interface StoredFavorite extends NewsItem {
+  /** 즐겨찾기에 추가한 epoch ms(main이 서버측에서 기록). */
+  savedAt: number;
+}
+
+/** 즐겨찾기 .md export 결과. main이 폴더에 파일을 쓴 뒤 renderer에 요약을 돌려준다. */
+export interface ExportResult {
+  /** 파일을 쓴 폴더 절대경로(사용자가 dialog로 고른 곳). */
+  dir: string;
+  /** 성공적으로 쓴 파일 수. */
+  written: number;
+  /** 실패한 항목 수(본문 fetch/쓰기 실패 등, 나머지는 계속 진행). */
+  failed: number;
+  /** 실패 항목의 사람이 읽을 사유(선택). */
+  failures?: string[];
+}
+
 /** 소스별 마지막 fetch 결과. graceful degradation — 한 소스 실패해도 ok 소스는 표시한다. */
 export interface NewsSourceStatus {
   source: NewsSource;

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { routeRequest } from "./router.js";
 import { checkForUpdates, quitAndInstall } from "./updater.js";
 import { openExternalSafely } from "./lib/open-external.js";
+import { exportFavoritesMarkdown } from "./services/news-export.js";
 import { IpcChannels, type ApiRequest, type ApiResult } from "@shared/types";
 
 // 자동 업데이트 실패 시 fallback: 버튼이 이 페이지를 OS 브라우저로 연다(최신 setup.exe 수동 설치용).
@@ -40,5 +41,15 @@ export function registerIpcHandlers(): void {
       ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
       : await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
+  // 즐겨찾기(또는 지정 ids)를 폴더에 각 기사 .md로 저장. 다이얼로그는 여기(main)서, 본문 fetch·번역·쓰기는
+  // 서비스에 위임. 취소하면 null. allowlist 밖 폴더 쓰기라 router/guardPath가 아닌 app IPC로 둔다.
+  ipcMain.handle(IpcChannels.appExportFavorites, async (e, opts?: { ids?: string[] }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    return exportFavoritesMarkdown(res.filePaths[0], opts?.ids);
   });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import { api, fmtDay, fmtTime, fmtRelative } from "../api/client";
 import type {
@@ -7,6 +7,7 @@ import type {
   NewsSource,
   ItemTranslation,
   SecretStatus,
+  StoredFavorite,
   TranslateResponse,
 } from "@shared/types";
 
@@ -48,6 +49,8 @@ const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set([
 ]);
 // 소스 필터 선택 상태 저장 키(localStorage: 제외된/꺼진 소스 배열 JSON). 기본은 "제외 없음"(전체 표시).
 const FILTER_KEY = "news.source.filter";
+// "즐겨찾기만 보기" 토글 저장 키(localStorage: "1"/"0").
+const FAV_KEY = "news.fav.only";
 
 // News 탭 UI 문구 사전(en/ko). 병기 모드는 한국어 UI를 쓴다.
 interface UIText {
@@ -64,6 +67,15 @@ interface UIText {
   keyHint: string;
   save: string;
   saving: string;
+  favorites: string;
+  favEmpty: string;
+  bookmark: string;
+  bookmarked: string;
+  exportBtn: string;
+  exporting: string;
+  exportTitle: string;
+  exportOne: string;
+  openFolder: string;
 }
 const UI: Record<"en" | "ko", UIText> = {
   en: {
@@ -80,6 +92,15 @@ const UI: Record<"en" | "ko", UIText> = {
     keyHint: "Free key ends with :fx",
     save: "Save",
     saving: "Saving…",
+    favorites: "Favorites",
+    favEmpty: "No bookmarked news yet. Tap ☆ on an article to save it.",
+    bookmark: "Bookmark",
+    bookmarked: "Bookmarked",
+    exportBtn: "Export",
+    exporting: "Exporting…",
+    exportTitle: "Export all favorites as .md files",
+    exportOne: "Export this article as .md",
+    openFolder: "Open folder",
   },
   ko: {
     refresh: "새로고침",
@@ -95,6 +116,15 @@ const UI: Record<"en" | "ko", UIText> = {
     keyHint: "무료 키는 :fx 로 끝납니다",
     save: "저장",
     saving: "저장 중…",
+    favorites: "즐겨찾기",
+    favEmpty: "즐겨찾기한 뉴스가 없습니다. 기사의 ☆를 눌러 저장하세요.",
+    bookmark: "즐겨찾기",
+    bookmarked: "즐겨찾기됨",
+    exportBtn: "내보내기",
+    exporting: "내보내는 중…",
+    exportTitle: "즐겨찾기 전체를 .md 파일로 내보내기",
+    exportOne: "이 기사를 .md로 내보내기",
+    openFolder: "폴더 열기",
   },
 };
 
@@ -116,6 +146,11 @@ export default function News() {
     }
   });
   const [filterOpen, setFilterOpen] = useState(false); // 소스 필터 드롭다운 열림 상태(Timeline 방식)
+  // 즐겨찾기: id → 저장된 스냅샷. 마운트 시 서버에서 로드하고 토글은 낙관적 업데이트.
+  const [favorites, setFavorites] = useState<Record<string, StoredFavorite>>({});
+  const [favOnly, setFavOnly] = useState<boolean>(() => localStorage.getItem(FAV_KEY) === "1");
+  const [exporting, setExporting] = useState(false);
+  const [notice, setNotice] = useState<{ msg: string; dir?: string } | null>(null);
   const [trans, setTrans] = useState<Record<string, ItemTranslation>>({});
   const [transErr, setTransErr] = useState("");
   const [translating, setTranslating] = useState(false);
@@ -136,6 +171,12 @@ export default function News() {
   useEffect(() => {
     localStorage.setItem(FILTER_KEY, JSON.stringify([...excludedSources]));
   }, [excludedSources]);
+
+  useEffect(() => {
+    localStorage.setItem(FAV_KEY, favOnly ? "1" : "0");
+  }, [favOnly]);
+
+  const asFavMap = (list: StoredFavorite[]) => Object.fromEntries(list.map((f) => [f.id, f]));
 
   const toggleSource = (s: NewsSource) =>
     setExcludedSources((prev) => {
@@ -164,24 +205,88 @@ export default function News() {
       .get<SecretStatus>("/api/app/secrets/deepl")
       .then((s) => setKeyConfigured(s.configured))
       .catch(() => setKeyConfigured(false));
+    api
+      .get<StoredFavorite[]>("/api/news/favorites")
+      .then((list) => setFavorites(asFavMap(list)))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 선택 유지/자동선택: feed 로드·필터 변경 시 현재 선택이 표시 목록에 있으면 유지, 없으면 첫 항목을
-  // 자동 선택(읽기용 표면이라 우측 상세가 비어 보이지 않게). 표시할 항목이 없으면 선택 해제.
-  useEffect(() => {
-    if (!feed) return;
-    const vis = feed.items.filter((it) => !excludedSources.has(it.source));
-    setSelectedId((cur) => {
-      if (vis.length === 0) return null;
-      if (cur && vis.some((it) => it.id === cur)) return cur;
-      return vis[0].id;
+  // 즐겨찾기 토글(낙관적 → 서버 확정 목록으로 재동기화, 실패 시 GET으로 롤백).
+  const toggleFavorite = (it: NewsItem) => {
+    const isFav = it.id in favorites;
+    setFavorites((prev) => {
+      const next = { ...prev };
+      if (isFav) delete next[it.id];
+      else next[it.id] = { ...it, savedAt: Date.now() };
+      return next;
     });
-  }, [feed, excludedSources]);
+    const req = isFav
+      ? api.post<StoredFavorite[]>("/api/news/favorites/remove", { id: it.id })
+      : api.post<StoredFavorite[]>("/api/news/favorites", { item: it });
+    req
+      .then((list) => setFavorites(asFavMap(list)))
+      .catch((e) => {
+        setError((e as Error).message);
+        api
+          .get<StoredFavorite[]>("/api/news/favorites")
+          .then((list) => setFavorites(asFavMap(list)))
+          .catch(() => {});
+      });
+  };
 
-  // (A) 목록 제목 일괄 번역: ko/both + feed 준비 + 키 설정됨 + 미번역 존재. trans는 의도적 제외(루프 방지).
+  // .md export: ids 지정하면 그 기사만(상세 개별), 없으면 즐겨찾기 전체. main이 폴더 dialog+쓰기 수행.
+  const runExport = async (ids?: string[]) => {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    setNotice(null);
+    try {
+      const res = await window.app.exportFavorites(ids ? { ids } : undefined);
+      if (!res) return; // 다이얼로그 취소
+      const msg =
+        res.failed > 0
+          ? `${res.written}개 내보냄 · ${res.failed}개 실패`
+          : `${res.written}개 기사를 내보냈습니다`;
+      setNotice({ msg, dir: res.dir });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 표시 목록: favOnly면 즐겨찾기 스냅샷 ∪ 피드(같은 id는 피드 최신본 우선, timestamp 역순)로 피드에서
+  // 빠진 즐겨찾기까지 보여준다. 아니면 기존 피드. 소스 제외 필터는 두 경우 모두 적용.
+  const visibleItems = useMemo<NewsItem[]>(() => {
+    if (!feed) return [];
+    let pool: NewsItem[];
+    if (favOnly) {
+      const byId = new Map(feed.items.map((i) => [i.id, i] as const));
+      pool = Object.values(favorites)
+        .map((f) => byId.get(f.id) ?? f)
+        .sort((a, b) => b.timestamp - a.timestamp);
+    } else {
+      pool = feed.items;
+    }
+    return pool.filter((it) => !excludedSources.has(it.source));
+  }, [feed, favOnly, favorites, excludedSources]);
+
+  // 선택 유지/자동선택: 표시 목록 변경 시 현재 선택이 목록에 있으면 유지, 없으면 첫 항목을 자동 선택
+  // (읽기용 표면이라 우측 상세가 비어 보이지 않게). 표시할 항목이 없으면 선택 해제.
   useEffect(() => {
-    if (mode === "en" || !feed || keyConfigured !== true) return;
-    const missing = feed.items
+    setSelectedId((cur) => {
+      if (visibleItems.length === 0) return null;
+      if (cur && visibleItems.some((it) => it.id === cur)) return cur;
+      return visibleItems[0].id;
+    });
+  }, [visibleItems]);
+
+  // (A) 목록 제목 일괄 번역: ko/both + 키 설정됨 + 미번역 존재. trans는 의도적 제외(루프 방지).
+  // 표시 목록 기준이라 favOnly의 out-of-feed 즐겨찾기 제목도 번역된다(translate 라우트가 favorites fallback).
+  useEffect(() => {
+    if (mode === "en" || keyConfigured !== true) return;
+    const missing = visibleItems
       .filter((i) => !KOREAN_SOURCES.has(i.source) && !trans[i.id]?.titleKo)
       .map((i) => i.id);
     if (missing.length === 0) return;
@@ -197,7 +302,7 @@ export default function News() {
       .catch((e) => setTransErr((e as Error).message))
       .finally(() => setTranslating(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, feed, keyConfigured]);
+  }, [mode, visibleItems, keyConfigured]);
 
   const ensureBody = (it: NewsItem) => {
     if (mode === "en" || !it.body || keyConfigured !== true) return;
@@ -253,8 +358,7 @@ export default function News() {
   if (error && !feed) return <div className="banner err">{error}</div>;
   if (!feed) return <div className="muted">{t.loading}</div>;
 
-  // 날짜별 그룹(items는 이미 시각 역순 정렬됨). 소스 필터는 표시에만 적용(번역 대상 판단은 feed.items 그대로).
-  const visibleItems = feed.items.filter((it) => !excludedSources.has(it.source));
+  // 날짜별 그룹(visibleItems는 이미 시각 역순 정렬됨).
   const groups: { day: string; items: NewsItem[] }[] = [];
   for (const it of visibleItems) {
     const day = fmtDay(it.timestamp);
@@ -264,7 +368,10 @@ export default function News() {
   }
 
   const showKeyPanel = mode !== "en" && keyConfigured === false;
-  const selected = feed.items.find((it) => it.id === selectedId) ?? null;
+  // 선택 항목: 피드 우선, 없으면 즐겨찾기 스냅샷(피드에서 빠진 즐겨찾기 상세가 비지 않게).
+  const selected = selectedId
+    ? (feed.items.find((it) => it.id === selectedId) ?? favorites[selectedId] ?? null)
+    : null;
 
   return (
     <div className="news-page">
@@ -287,6 +394,24 @@ export default function News() {
             </button>
           ))}
         </div>
+        <button
+          className={`news-fav-toggle${favOnly ? " on" : ""}`}
+          onClick={() => setFavOnly((v) => !v)}
+          title={t.favorites}
+        >
+          {favOnly ? "★" : "☆"} {t.favorites}
+          {Object.keys(favorites).length > 0 && (
+            <span className="cat-count">{Object.keys(favorites).length}</span>
+          )}
+        </button>
+        <button
+          className="news-export-btn"
+          onClick={() => void runExport()}
+          disabled={exporting || Object.keys(favorites).length === 0}
+          title={t.exportTitle}
+        >
+          {exporting ? t.exporting : `⬇ ${t.exportBtn}`}
+        </button>
         <div className="tl-filter news-filter" ref={filterRef}>
           <button
             className={`tl-filter-btn${filterOpen ? " open" : ""}`}
@@ -344,31 +469,72 @@ export default function News() {
       {translating && <div className="muted news-translating-bar">{t.translating}</div>}
       {transErr && <div className="banner warn">{t.transFail}</div>}
       {error && <div className="banner err">{error}</div>}
+      {notice && (
+        <div className="banner ok news-export-notice">
+          <span>✓ {notice.msg}</span>
+          {notice.dir && (
+            <button className="update-link" onClick={() => void window.app.openPath(notice.dir!)}>
+              {t.openFolder}
+            </button>
+          )}
+          {notice.dir && <span className="muted news-export-dir">{notice.dir}</span>}
+          <button className="news-notice-x" title="닫기" onClick={() => setNotice(null)}>
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="cat-split news-split">
         <div className="ws-master news-master">
           {visibleItems.length === 0 ? (
-            <div className="muted cat-master-empty">{t.empty}</div>
+            <div className="muted cat-master-empty">{favOnly ? t.favEmpty : t.empty}</div>
           ) : (
             groups.map((g) => (
               <div key={g.day}>
                 <div className="timeline-day">{g.day}</div>
-                {g.items.map((it) => (
-                  <button
-                    key={it.id}
-                    className={`cat-master-item${selectedId === it.id ? " active" : ""}`}
-                    onClick={() => select(it)}
-                  >
-                    <div className="cat-mi-head">
-                      <span className={`bdg ${SOURCE_BDG[it.source]}`}>{SOURCE_LABEL[it.source]}</span>
-                      <span className="cat-mi-name">{titleText(it, mode, trans[it.id]?.titleKo)}</span>
-                    </div>
-                    <div className="cat-mi-meta">
-                      <span>{fmtTime(it.timestamp)}</span>
-                      {it.meta && <span>{it.meta}</span>}
-                    </div>
-                  </button>
-                ))}
+                {g.items.map((it) => {
+                  const fav = it.id in favorites;
+                  return (
+                    <button
+                      key={it.id}
+                      className={`cat-master-item${selectedId === it.id ? " active" : ""}`}
+                      onClick={() => select(it)}
+                    >
+                      <div className="cat-mi-head">
+                        <span className={`bdg ${SOURCE_BDG[it.source]}`}>
+                          {SOURCE_LABEL[it.source]}
+                        </span>
+                        <span className="cat-mi-name">
+                          {titleText(it, mode, trans[it.id]?.titleKo)}
+                        </span>
+                        {/* 행 전체가 button이라 별표는 span role=button + stopPropagation로 중첩 회피 */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className={`news-star${fav ? " on" : ""}`}
+                          title={fav ? t.bookmarked : t.bookmark}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(it);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleFavorite(it);
+                            }
+                          }}
+                        >
+                          {fav ? "★" : "☆"}
+                        </span>
+                      </div>
+                      <div className="cat-mi-meta">
+                        <span>{fmtTime(it.timestamp)}</span>
+                        {it.meta && <span>{it.meta}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             ))
           )}
@@ -385,6 +551,10 @@ export default function News() {
                 image={selected.image ?? images[selected.id]}
                 full={fullBodies[selected.id]}
                 fetched={selected.id in fullBodies}
+                bookmarked={selected.id in favorites}
+                onToggleFav={toggleFavorite}
+                onExport={(it) => void runExport([it.id])}
+                exporting={exporting}
                 onNeedBody={ensureBody}
                 onNeedImage={ensureImage}
                 onNeedFull={ensureFullBody}
@@ -423,6 +593,10 @@ function NewsDetail({
   image,
   full,
   fetched,
+  bookmarked,
+  onToggleFav,
+  onExport,
+  exporting,
   onNeedBody,
   onNeedImage,
   onNeedFull,
@@ -434,6 +608,10 @@ function NewsDetail({
   image?: string;
   full?: string; // 원문 전문 마크다운(""=추출 실패, undefined=미조회)
   fetched: boolean; // 전문 fetch 시도 완료 여부
+  bookmarked: boolean;
+  onToggleFav: (it: NewsItem) => void;
+  onExport: (it: NewsItem) => void;
+  exporting: boolean;
   onNeedBody: (it: NewsItem) => void;
   onNeedImage: (it: NewsItem) => void;
   onNeedFull: (it: NewsItem) => void;
@@ -464,6 +642,21 @@ function NewsDetail({
       <div className="cat-detail-title">
         <span className={`bdg ${SOURCE_BDG[item.source]}`}>{SOURCE_LABEL[item.source]}</span>
         <span className="cat-detail-name">{titleText(item, mode, ko?.titleKo)}</span>
+        <button
+          className={`news-star-btn${bookmarked ? " on" : ""}`}
+          onClick={() => onToggleFav(item)}
+          title={bookmarked ? t.bookmarked : t.bookmark}
+        >
+          {bookmarked ? "★" : "☆"} {t.bookmark}
+        </button>
+        <button
+          className="news-star-btn news-export-one"
+          onClick={() => onExport(item)}
+          disabled={exporting}
+          title={t.exportOne}
+        >
+          ⬇ md
+        </button>
       </div>
       <div className="cat-detail-meta">
         {new Date(item.timestamp).toLocaleString()}

@@ -54,6 +54,9 @@ export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json"
 // --- News 탭 (라이브 뉴스 통합 피드) ---
 // 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).
 export const NEWS_CACHE_FILE = path.join(CLAUDE_HOME, "harness-manager", "news-cache.json");
+// 뉴스 즐겨찾기(북마크). 피드는 소스별 15개 상한이라 새로고침 시 지난 기사가 빠지므로, 캐시와 분리된
+// 앱 소유 파일에 NewsItem 스냅샷을 보관한다(board.json 패턴 — atomic rename + .bak).
+export const FAVORITES_FILE = path.join(CLAUDE_HOME, "harness-manager", "favorites.json");
 // 각 소스에서 가져올 항목 수(GitHub per_page / anthropic 정규식 매치 상한 / RSS 소스별 상한).
 export const NEWS_CLAUDE_COUNT = 15;
 export const NEWS_ANTHROPIC_COUNT = 15;

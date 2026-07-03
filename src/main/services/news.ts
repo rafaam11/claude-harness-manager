@@ -19,6 +19,7 @@ import {
   NEWS_REFRESH_MIN_INTERVAL_MS,
 } from "../config.js";
 import { readNewsCache, writeNewsCacheAtomic } from "../lib/news-cache.js";
+import { getFavoriteItem } from "../lib/favorites.js";
 import { decodeEntities, extractSummary, parseFeed } from "../lib/rss.js";
 import type { NewsFeed, NewsItem, NewsSource, NewsSourceStatus } from "@shared/types";
 
@@ -321,7 +322,8 @@ async function fetchOgImage(url: string): Promise<string | null> {
 /** POST /api/news/image: id로 캐시 피드에서 item을 찾아 인라인 이미지 우선, 없으면 og:image lazy-fetch(메모리 캐시). */
 export async function getNewsImage(id: string): Promise<{ image: string | null }> {
   const feed = await getNews();
-  const item = feed.items.find((i) => i.id === id);
+  // 피드에 없으면(즐겨찾기가 15개 상한에 밀려 빠짐) 저장된 스냅샷으로 fallback.
+  const item = feed.items.find((i) => i.id === id) ?? (await getFavoriteItem(id));
   if (!item) return { image: null };
   if (item.image) return { image: item.image };
   const cached = imageCache.get(id);
@@ -621,7 +623,8 @@ async function fetchArticleBody(url: string): Promise<string | null> {
 /** POST /api/news/body: id로 원문 전문(마크다운) lazy-fetch. claude-code는 이미 body 보유 → 그대로 반환. */
 export async function getNewsBody(id: string): Promise<{ body: string | null }> {
   const feed = await getNews();
-  const item = feed.items.find((i) => i.id === id);
+  // 피드에 없으면(즐겨찾기가 15개 상한에 밀려 빠짐) 저장된 스냅샷의 url/body로 fallback.
+  const item = feed.items.find((i) => i.id === id) ?? (await getFavoriteItem(id));
   if (!item) return { body: null };
   if (item.body) return { body: item.body }; // claude-code 패치노트(마크다운)
   const cached = bodyCache.get(id);

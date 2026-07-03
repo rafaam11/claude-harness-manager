@@ -16,11 +16,30 @@ export interface FeedEntry {
   image?: string;
 }
 
-/** 기본 HTML 엔티티 + 숫자 참조 복원(파서 라이브러리 없이). &amp;는 이중 복원을 피해 마지막에. */
+// 자주 나오는 명명 엔티티(따옴표/대시/가운뎃점 등). 기사 본문·요약에 흔해 미복원 시 &apos; 같은 게 그대로 노출된다.
+const NAMED_ENTITIES: Record<string, string> = {
+  "&apos;": "'",
+  "&lsquo;": "‘", "&rsquo;": "’",
+  "&ldquo;": "“", "&rdquo;": "”",
+  "&middot;": "·", "&bull;": "•",
+  "&hellip;": "…",
+  "&mdash;": "—", "&ndash;": "–",
+  "&laquo;": "«", "&raquo;": "»",
+  "&times;": "×", "&divide;": "÷",
+  "&deg;": "°", "&plusmn;": "±",
+  "&copy;": "©", "&reg;": "®", "&trade;": "™",
+  "&euro;": "€", "&pound;": "£", "&yen;": "¥", "&cent;": "¢",
+  "&sect;": "§", "&para;": "¶", "&dagger;": "†", "&Dagger;": "‡",
+  "&frac12;": "½", "&frac14;": "¼", "&frac34;": "¾",
+  "&emsp;": " ", "&ensp;": " ", "&thinsp;": " ", "&shy;": "",
+};
+
+/** 기본 HTML 엔티티 + 명명/숫자 참조 복원(파서 라이브러리 없이). &amp;는 이중 복원을 피해 마지막에. */
 export function decodeEntities(s: string): string {
   return s
     .replace(/&#(\d+);/g, (_, d: string) => safeCodePoint(parseInt(d, 10)))
     .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => safeCodePoint(parseInt(h, 16)))
+    .replace(/&[a-zA-Z][a-zA-Z0-9]+;/g, (e) => NAMED_ENTITIES[e] ?? e)
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
@@ -94,9 +113,10 @@ export function parseFeed(xml: string, maxItems: number): FeedEntry[] {
     const title = cleanText(field(block, "title"));
     const link = isAtom ? atomLink(block) : cleanText(field(block, "link"));
     if (!title || !/^https?:\/\//i.test(link)) continue;
+    // RSS는 content:encoded(전문)가 있으면 우선(미리보기 요약이 더 풍부해진다), 없으면 description.
     const descRaw = isAtom
       ? (field(block, "content") ?? field(block, "summary") ?? "")
-      : (field(block, "description") ?? "");
+      : (field(block, "content:encoded") ?? field(block, "description") ?? "");
     const dateRaw = cleanText(field(block, isAtom ? "published" : "pubDate"));
     const ts = dateRaw ? Date.parse(dateRaw) : NaN;
     out.push({

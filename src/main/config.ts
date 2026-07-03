@@ -49,8 +49,10 @@ export const NEWS_CACHE_FILE = path.join(CLAUDE_HOME, "harness-manager", "news-c
 export const NEWS_CLAUDE_COUNT = 15;
 export const NEWS_ANTHROPIC_COUNT = 15;
 export const NEWS_RSS_COUNT = 15;
-// RSS description 발췌 길이 상한(자). 과대 본문 절단용.
+// RSS description 발췌 길이 상한(자). 목록/상세의 즉시 미리보기용(전문은 lazy fetch로 대체).
 export const NEWS_SUMMARY_MAX = 600;
+// 원문 페이지에서 추출한 전문(마크다운) 길이 상한(자). "최대한 많이"라 넉넉히 두되 과대 페이지 폭주만 막는다.
+export const NEWS_BODY_MAX = 20000;
 // 단일 fetch 타임아웃(AbortController). 외부 소스라 보수적으로.
 export const NEWS_FETCH_TIMEOUT_MS = 8000;
 // 메모리 캐시 수명. 탭 재진입·중복 GET 시 디스크/네트워크 재방문 방지(recall WORKSPACE_CACHE_TTL_MS 패턴).

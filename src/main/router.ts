@@ -17,7 +17,7 @@ import {
 } from "./services/recall.js";
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
-import { getNews, refreshNews, getNewsImage } from "./services/news.js";
+import { getNews, refreshNews, getNewsImage, getNewsBody } from "./services/news.js";
 import { translateItems } from "./services/translate.js";
 import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
@@ -106,6 +106,16 @@ const routes: Route[] = [
       const { id } = (body ?? {}) as { id?: string };
       if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
       return getNewsImage(id);
+    },
+  },
+  // 기사 전문(마크다운): id를 받아 원문 페이지를 lazy-fetch해 본문(문단·이미지 포함)을 마크다운으로 추출.
+  {
+    method: "POST",
+    pattern: "/api/news/body",
+    handler: async ({ body }) => {
+      const { id } = (body ?? {}) as { id?: string };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return getNewsBody(id);
     },
   },
   // DeepL 키 존재 여부(boolean만). 키 원문은 절대 반환하지 않는다.

@@ -121,8 +121,10 @@ export default function News() {
   const [translating, setTranslating] = useState(false);
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   const [images, setImages] = useState<Record<string, string>>({}); // id → 해석된 og:image URL(lazy)
+  const [fullBodies, setFullBodies] = useState<Record<string, string>>({}); // id → 원문 전문(마크다운). "" = 추출 실패
   const bodyReq = useRef<Set<string>>(new Set()); // 본문 번역 중복 요청 방지
   const imgReq = useRef<Set<string>>(new Set()); // 이미지 중복 요청 방지
+  const fullReq = useRef<Set<string>>(new Set()); // 전문 fetch 중복 요청 방지
   const filterRef = useRef<HTMLDivElement>(null);
 
   const t = mode === "en" ? UI.en : UI.ko;
@@ -206,6 +208,17 @@ export default function News() {
       .then((r) => setTrans((p) => ({ ...p, ...r.translations })))
       .catch(() => {})
       .finally(() => bodyReq.current.delete(it.id));
+  };
+
+  // 선택 시 원문 전문(마크다운) 보장: claude-code는 이미 body 보유(스킵), 그 외는 원문 페이지에서 1회 lazy-fetch.
+  const ensureFullBody = (it: NewsItem) => {
+    if (it.body || it.id in fullBodies || fullReq.current.has(it.id)) return;
+    fullReq.current.add(it.id);
+    api
+      .post<{ body: string | null }>("/api/news/body", { id: it.id })
+      .then((r) => setFullBodies((p) => ({ ...p, [it.id]: r.body ?? "" })))
+      .catch(() => setFullBodies((p) => ({ ...p, [it.id]: "" })))
+      .finally(() => fullReq.current.delete(it.id));
   };
 
   // 펼칠 때 대표 이미지 보장: 인라인(it.image)이 있으면 그대로 쓰고, 없으면 원문 og:image를 1회 lazy-fetch.
@@ -370,8 +383,11 @@ export default function News() {
                 t={t}
                 ko={trans[selected.id]}
                 image={selected.image ?? images[selected.id]}
+                full={fullBodies[selected.id]}
+                fetched={selected.id in fullBodies}
                 onNeedBody={ensureBody}
                 onNeedImage={ensureImage}
+                onNeedFull={ensureFullBody}
               />
             ) : (
               <div className="cat-detail-empty">왼쪽에서 뉴스를 선택하세요.</div>
@@ -395,23 +411,32 @@ function titleText(item: NewsItem, mode: Mode, titleKo?: string): ReactNode {
   );
 }
 
-/** 상세 패널: claude-code는 body(패치노트) 마크다운을 모드별로 렌더, 한국어 RSS는 summary 평문, 그 외는 메타 + 원문 열기. */
+/**
+ * 상세 패널: claude-code는 body(패치노트) 마크다운을 모드별로 렌더. 그 외 소스는 원문 전문(full, 마크다운)을
+ * 우선 렌더(문단·이미지 보존)하고, 아직 없으면 요약 미리보기 + 로딩 표시로 fallback한다.
+ */
 function NewsDetail({
   item,
   mode,
   t,
   ko,
   image,
+  full,
+  fetched,
   onNeedBody,
   onNeedImage,
+  onNeedFull,
 }: {
   item: NewsItem;
   mode: Mode;
   t: UIText;
   ko?: ItemTranslation;
   image?: string;
+  full?: string; // 원문 전문 마크다운(""=추출 실패, undefined=미조회)
+  fetched: boolean; // 전문 fetch 시도 완료 여부
   onNeedBody: (it: NewsItem) => void;
   onNeedImage: (it: NewsItem) => void;
+  onNeedFull: (it: NewsItem) => void;
 }) {
   // 선택 시(그리고 모드가 ko/both로 바뀔 때) 본문 번역을 보장.
   useEffect(() => {
@@ -422,6 +447,12 @@ function NewsDetail({
   // 선택 시 대표 이미지 보장(인라인 없으면 og:image lazy-fetch).
   useEffect(() => {
     if (!item.image) onNeedImage(item);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  // 선택 시 원문 전문(마크다운) 보장.
+  useEffect(() => {
+    onNeedFull(item);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id]);
 
@@ -438,7 +469,8 @@ function NewsDetail({
         {new Date(item.timestamp).toLocaleString()}
         {item.meta ? ` · ${item.meta}` : ""}
       </div>
-      {image && (
+      {/* 전문 마크다운이 있으면 그 안에 본문 이미지가 포함되므로 상단 대표 이미지(hero)는 생략(중복 방지). */}
+      {!full && image && (
         <img
           className="news-img"
           src={image}
@@ -469,10 +501,21 @@ function NewsDetail({
             )}
           </>
         )
-      ) : item.summary ? (
-        // 서드파티 HTML 주입 차단 — summary는 main에서 정제된 평문이며 평문으로만 렌더한다.
-        <p className="news-summary">{item.summary}</p>
-      ) : null}
+      ) : full ? (
+        // 원문 전문(마크다운). main의 htmlToMarkdown이 태그를 마크다운 토큰으로만 변환(raw HTML 제거)하므로
+        // marked 렌더 대상엔 서드파티 HTML이 남지 않는다. 본문 이미지도 인라인으로 포함된다.
+        <div className="md-body" dangerouslySetInnerHTML={html(full)} />
+      ) : (
+        // 전문 로딩 전/실패: 요약 미리보기(평문) + 조회 중 표시.
+        <>
+          {item.summary && <p className="news-summary">{item.summary}</p>}
+          {!fetched && (
+            <p className="muted news-translating">
+              {mode === "en" ? "Loading full article…" : "본문 불러오는 중…"}
+            </p>
+          )}
+        </>
+      )}
       <button className="update-link" onClick={() => void window.app.openExternal(item.url)}>
         {t.openOriginal}
       </button>

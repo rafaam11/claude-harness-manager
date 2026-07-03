@@ -13,6 +13,7 @@ import {
   NEWS_ANTHROPIC_COUNT,
   NEWS_RSS_COUNT,
   NEWS_SUMMARY_MAX,
+  NEWS_BODY_MAX,
   NEWS_FETCH_TIMEOUT_MS,
   NEWS_MEMORY_TTL_MS,
   NEWS_REFRESH_MIN_INTERVAL_MS,
@@ -328,4 +329,304 @@ export async function getNewsImage(id: string): Promise<{ image: string | null }
   const image = await fetchOgImage(item.url);
   if (image) imageCache.set(id, image);
   return { image };
+}
+
+// --- 기사 전문(마크다운) lazy-fetch ---
+// RSS 요약은 짧아 가독성이 부족하다. 선택 시 원문 페이지를 1회 fetch해 본문 영역을 **마크다운으로** 추출하고
+// (문단/제목/목록/링크/본문 이미지 전부 보존) renderer가 claude-code 패치노트와 같은 marked 경로로 렌더한다.
+// 추출 우선순위: <article> HTML(구조+이미지) → JSON-LD articleBody(평문) → meta description. 소스별 HTML이
+// 제각각이라 완벽하지 않고, 실패하면 null(요약으로 fallback). 새 의존성 없이 정규식만 사용한다.
+const bodyCache = new Map<string, string>(); // id → 추출 마크다운("" = 시도했으나 추출 실패)
+
+/** 태그 문자열에서 속성 값 추출(첫 매치). */
+function attrOf(tag: string, name: string): string | undefined {
+  const m = tag.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"));
+  return m?.[1];
+}
+
+/** 상대/프로토콜 상대 URL을 원문 기준 절대 http(s)로 해석. 실패·비http면 null. */
+function absUrl(href: string, base: string): string | null {
+  try {
+    const u = new URL(href.trim(), base);
+    return /^https?:$/i.test(u.protocol) ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * <img> 태그에서 실제 소스 추출(lazy-load 속성 우선). data:·비http·아이콘류는 버린다.
+ * 공유버튼/SNS 아이콘/스피너/로고 SVG가 본문 사진처럼 섞여 나오는 것(etnews·hankyung)을 막는다.
+ */
+function imgSrc(tag: string, base: string): string | null {
+  const raw =
+    attrOf(tag, "data-src") ??
+    attrOf(tag, "data-original") ??
+    attrOf(tag, "data-lazy-src") ??
+    attrOf(tag, "src") ??
+    attrOf(tag, "srcset")?.split(",")[0]?.trim().split(/\s+/)[0];
+  if (!raw || /^data:/i.test(raw)) return null;
+  const cls = attrOf(tag, "class") ?? "";
+  if (/(icon|sns|share|badge|spinner|loading|emoji|emoticon|avatar|profile|blank|dummy|placeholder|logo|btn)/i.test(cls)) {
+    return null;
+  }
+  const u = absUrl(decodeEntities(raw), base);
+  if (!u) return null;
+  if (/\.svg(\?|$)/i.test(u)) return null; // SVG는 대개 아이콘/스피너(본문 사진은 jpg/png/webp)
+  if (/(sprite|\bicon|logo|share|sns|bookmark|spinner|loading|blank|1x1|pixel|spacer|btn_)/i.test(u)) return null;
+  return u;
+}
+
+// 기호/구분선만으로 이뤄진 줄(▲, ■, ─ 등). 캡션·본문 필터 양쪽에서 재사용.
+const SYMBOL_ONLY_RE = /^[▲▼◀▶◁▷△▽▴▾■□◼◻○●◆◇★☆♥♡·•※#＃*_=~\-–—\s]+$/;
+
+// 기사 본문에 섞여 들어오는 사이트 UI/부가 텍스트(스크랩·공유·글자크기·입력시각·저작권·기자 바이라인 등).
+// 한 줄이 아래에 해당하면 통째로 버린다. 실제 본문을 지우지 않도록 보수적으로 고신뢰 패턴만 둔다.
+// 주의: 한글은 \w가 아니라 \b 경계가 먹지 않는다 — 바이라인 등은 \s/문자열 끝으로만 앵커한다.
+const BOILERPLATE_RE: RegExp[] = [
+  /^(입력|수정|등록|승인|발행|송고|게재)\s*[:·]?\s*\d{4}[.\-/]/, // 입력 2026.07.03 09:06
+  /^\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}(\s+\d{1,2}:\d{2})?$/, // 날짜/시각만 있는 줄
+  /선호\s*출처로\s*추가/, // 구글 "선호 출처로 추가"
+  /Google\s*검색에서/i,
+  /무단\s*(전재|복제|배포|사용)/,
+  /재\s*배포\s*금지/,
+  /저작권자?\s*[ⓒ©(]/,
+  /All rights reserved/i,
+  /by\s*GN⁺/, // GeekNews 메타
+  /★\s*favorite/i,
+  /^댓글\s*\d+\s*개$/,
+  SYMBOL_ONLY_RE, // 기호/구분선만
+  /^[\w.+-]+@[\w.-]+\.\w+$/, // 기자 이메일만
+  /^(글|사진|정리|취재|영상|편집|그래픽|디자인|자료)\s+[가-힣]{2,4}\s.*(기자|본부장|대표|팀장|부장|차장|과장|국장|위원|앵커|특파원|에디터|아나운서|연구원|교수|원장|소장|실장|센터장|PD)$/, // 바이라인
+  /^[가-힣]{2,4}\s*기자(\s*[\w.+-]+@[\w.-]+)?$/, // "홍길동 기자" / "홍길동 기자 mail@x.com"
+];
+
+// 라벨만으로 이뤄진 줄(예: "기사 스크랩 기사 스크랩", "댓글 댓글", "글자크기 조절 글자크기")을 걸러낸다.
+// 긴 라벨 우선으로 앞에서부터 소거해 줄이 전부 라벨로 소진되면 버린다(실제 문장은 라벨 아닌 토큰이 남아 보존).
+const UI_LABELS = [
+  "본문 글씨 키우기", "본문 글씨 줄이기", "글자크기 조절", "글자 크기", "글자크기",
+  "기사 스크랩", "기사 공유", "스크랩", "공유하기", "공유", "프린트", "인쇄",
+  "카카오톡", "카카오스토리", "페이스북", "트위터", "네이버", "밴드", "라인", "텔레그램",
+  "URL 복사", "링크 복사", "주소 복사", "댓글", "좋아요", "구독", "구독하기", "SNS",
+  "이전", "다음", "목록", "맨위로", "TOP",
+].sort((a, b) => b.length - a.length);
+
+function isLabelOnlyLine(line: string): boolean {
+  let rest = line.replace(/\s+/g, " ").trim();
+  if (!rest) return false;
+  let consumed = false;
+  while (rest.length) {
+    const lb = UI_LABELS.find((l) => rest === l || rest.startsWith(l + " "));
+    if (!lb) return false; // 라벨 아닌 실제 텍스트가 남음 → 이 줄은 본문일 수 있으니 보존
+    rest = rest.slice(lb.length).trim();
+    consumed = true;
+  }
+  return consumed;
+}
+
+function isBoilerplateLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (BOILERPLATE_RE.some((re) => re.test(t))) return true;
+  if (isLabelOnlyLine(t)) return true;
+  return false;
+}
+
+/** 본문 영역 HTML → 마크다운. 인라인 서식·이미지·링크를 보존하고 나머지 태그는 제거한다. */
+function htmlToMarkdown(html: string, base: string, maxLen: number): string {
+  let s = html
+    // 비본문 블록 제거
+    .replace(/<(script|style|noscript|svg|iframe|form)\b[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  // 이미지: 본문에 등장하는 모든 <img>를 인라인 마크다운 이미지로. (해석 실패분은 제거)
+  s = s.replace(/<img\b[^>]*>/gi, (tag) => {
+    const src = imgSrc(tag, base);
+    return src ? `\n\n![](${src})\n\n` : "";
+  });
+  // figcaption → 이탤릭 캡션(기호만 있는 캡션 ▲/■ 등은 버린다)
+  s = s.replace(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/gi, (_m, inner) => {
+    const t = stripTags(inner);
+    return t && !SYMBOL_ONLY_RE.test(t) ? `\n\n*${t}*\n\n` : "";
+  });
+  // 헤딩
+  s = s.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, lvl: string, inner: string) => {
+    const t = stripTags(inner);
+    return t ? `\n\n${"#".repeat(Number(lvl))} ${t}\n\n` : "";
+  });
+  // 링크(인라인 서식 유지 위해 태그 제거 전에)
+  s = s.replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
+    const t = stripTags(inner);
+    if (!t) return "";
+    const u = absUrl(decodeEntities(href), base);
+    return u ? `[${t}](${u})` : t;
+  });
+  // 강조
+  s = s
+    .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => `**${stripTags(inner)}**`)
+    .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => `*${stripTags(inner)}*`);
+  // 목록: <ul>/<ol> 시작 앞에도 빈 줄을 넣어 목록이 앞 문단에 붙어 파싱 실패하는 것을 막는다.
+  s = s.replace(/<(ul|ol)\b[^>]*>/gi, "\n\n");
+  s = s.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, inner: string) => `\n- ${stripTags(inner)}`);
+  // 블록 경계 → 문단 구분
+  s = s
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(p|div|section|article|ul|ol|blockquote|tr|h[1-6])\s*>/gi, "\n\n");
+  // 남은 태그 제거 + 엔티티 복원
+  s = decodeEntities(s.replace(/<[^>]+>/g, " "));
+  // 줄 단위 정리 + 보일러플레이트(스크랩·공유·입력시각·저작권·바이라인 등) 제거
+  s = s
+    .split("\n")
+    .filter((ln) => !isBoilerplateLine(ln))
+    .map((ln) => ln.replace(/[ \t ]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (s.length > maxLen) s = s.slice(0, maxLen).replace(/\s+\S*$/, "") + " …";
+  return s;
+}
+
+/** 태그 제거 + 엔티티 복원 + 공백 정규화(인라인 텍스트용). */
+function stripTags(s: string): string {
+  return decodeEntities(s.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+// 여는 태그 위치에서 같은 태그의 depth를 세어 매칭 닫는 지점까지의 내부 HTML을 잘라낸다(정규식은 중첩을
+// 못 세므로). 언밸런스면 문서 끝까지 반환.
+function sliceElement(html: string, startIdx: number, tag: string): string | null {
+  const gt = html.indexOf(">", startIdx);
+  if (gt < 0) return null;
+  const contentStart = gt + 1;
+  let depth = 1;
+  const tokRe = new RegExp(`<${tag}\\b|</${tag}\\s*>`, "gi");
+  tokRe.lastIndex = contentStart;
+  let m: RegExpExecArray | null;
+  while ((m = tokRe.exec(html))) {
+    if (m[0][1] === "/") {
+      if (--depth === 0) return html.slice(contentStart, m.index);
+    } else depth++;
+  }
+  return html.slice(contentStart);
+}
+
+// 본문 컨테이너 후보(id·class에 이 토큰이 들어가면 본문 영역으로 본다). 가장 앞선 토큰이 우선.
+// <article> 태그는 공유바·관련기사·헤더까지 감싸는 매체가 많아(etnews/hankyung) 특정 컨테이너를 먼저 찾는다.
+const CONTENT_TOKENS = [
+  "articletxt", // 한국경제
+  "article-view-content", "article_view_content", "article-content",
+  "topic_contents", // GeekNews
+  "articleBody", "article_body", "article-body",
+  "news_body", "newsct_article", "art_txt", "read_body", "view_cont",
+  "entry-content", "post-content",
+];
+
+/** 원문 페이지에서 본문 영역 HTML을 찾는다: itemprop=articleBody → 알려진 컨테이너 토큰 → 최장 <article>. */
+function findContentRegion(html: string): string | undefined {
+  const gate = (inner: string | null): string | undefined =>
+    inner && stripTags(inner).length >= 150 ? inner : undefined;
+  // 1) itemprop="articleBody" (schema.org 시맨틱 — 가장 신뢰도 높음)
+  const ip = html.match(/<(div|section|article|main)\b[^>]*\bitemprop=["']articleBody["'][^>]*>/i);
+  if (ip) {
+    const r = gate(sliceElement(html, ip.index!, ip[1]));
+    if (r) return r;
+  }
+  // 2) 알려진 본문 컨테이너 토큰
+  for (const tok of CONTENT_TOKENS) {
+    const re = new RegExp(
+      `<(div|section|article|main)\\b[^>]*\\b(?:id|class)=["'][^"']*${tok}[^"']*["'][^>]*>`,
+      "i",
+    );
+    const m = re.exec(html);
+    if (m) {
+      const r = gate(sliceElement(html, m.index, m[1]));
+      if (r) return r;
+    }
+  }
+  // 3) 최장 <article>
+  const blocks = [...html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi)].map((m) => m[1]);
+  if (blocks.length) return gate(blocks.sort((a, b) => b.length - a.length)[0]);
+  return undefined;
+}
+
+/** JSON-LD(NewsArticle 등)에서 articleBody 문자열을 재귀 탐색(@graph/배열 포함). */
+function jsonLdBody(html: string): string | undefined {
+  for (const m of html.matchAll(
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    let data: unknown;
+    try {
+      data = JSON.parse(m[1].trim());
+    } catch {
+      continue;
+    }
+    const found = findKey(data, "articleBody");
+    if (typeof found === "string" && found.trim()) return found;
+  }
+  return undefined;
+}
+
+/** 중첩 객체/배열에서 키를 DFS로 찾음(첫 문자열 매치 반환). */
+function findKey(node: unknown, key: string): unknown {
+  if (!node || typeof node !== "object") return undefined;
+  if (Array.isArray(node)) {
+    for (const el of node) {
+      const r = findKey(el, key);
+      if (r !== undefined) return r;
+    }
+    return undefined;
+  }
+  const obj = node as Record<string, unknown>;
+  if (key in obj && typeof obj[key] === "string") return obj[key];
+  for (const v of Object.values(obj)) {
+    const r = findKey(v, key);
+    if (r !== undefined) return r;
+  }
+  return undefined;
+}
+
+/** meta property/name의 content 추출(og:description 등). */
+function metaContent(html: string, name: string): string | undefined {
+  const attr = `(?:property|name)=["']${name}["']`;
+  const m =
+    html.match(new RegExp(`<meta\\b[^>]*${attr}[^>]*\\bcontent=["']([^"']*)["']`, "i")) ??
+    html.match(new RegExp(`<meta\\b[^>]*\\bcontent=["']([^"']*)["'][^>]*${attr}`, "i"));
+  return m?.[1];
+}
+
+/** 원문 페이지 → 본문 마크다운. article HTML(구조+이미지) 우선, 없으면 JSON-LD 평문, 그다음 meta description. */
+async function fetchArticleBody(url: string): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const html = await res.text();
+    // 1) 본문 컨테이너 HTML → 마크다운(문단·이미지 보존). 충분히 길면 채택.
+    const region = findContentRegion(html);
+    if (region) {
+      const md = htmlToMarkdown(region, url, NEWS_BODY_MAX);
+      if (md.length >= 200) return md;
+    }
+    // 2) JSON-LD articleBody(평문, 이미지 없음). 문단 구분 보존.
+    const jb = jsonLdBody(html);
+    if (jb) {
+      const text = decodeEntities(jb).replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      if (text.length >= 120) return text.slice(0, NEWS_BODY_MAX);
+    }
+    // 3) meta description fallback(짧지만 없는 것보단 낫다).
+    const desc = metaContent(html, "og:description") ?? metaContent(html, "description");
+    return desc ? decodeEntities(desc).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/news/body: id로 원문 전문(마크다운) lazy-fetch. claude-code는 이미 body 보유 → 그대로 반환. */
+export async function getNewsBody(id: string): Promise<{ body: string | null }> {
+  const feed = await getNews();
+  const item = feed.items.find((i) => i.id === id);
+  if (!item) return { body: null };
+  if (item.body) return { body: item.body }; // claude-code 패치노트(마크다운)
+  const cached = bodyCache.get(id);
+  if (cached !== undefined) return { body: cached || null };
+  const body = await fetchArticleBody(item.url);
+  bodyCache.set(id, body ?? ""); // 실패도 캐시("")해 재클릭 재요청 방지
+  return { body };
 }

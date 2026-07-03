@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 200" width="920" height="200" role="img" aria-label="Claude Harness Manager">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 200" width="920" height="200" role="img" aria-label="하네스 매니저">
   <defs>
     <linearGradient id="chm-bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#171b22"/>
@@ -22,7 +22,7 @@
   </g>
 
   <!-- title + tagline -->
-  <text x="186" y="92" font-family="Segoe UI, system-ui, sans-serif" font-size="40" font-weight="700" fill="#f3f5f9">Claude Harness Manager</text>
+  <text x="186" y="92" font-family="Segoe UI, system-ui, sans-serif" font-size="40" font-weight="700" fill="#f3f5f9">하네스 매니저</text>
   <text x="188" y="125" font-family="Segoe UI, system-ui, sans-serif" font-size="18" fill="#9aa3b2">~/.claude 환경 조회·편집·정리  ·  프로젝트 Git 작업 — 로컬 전용 데스크톱 앱</text>
 
   <!-- chips -->

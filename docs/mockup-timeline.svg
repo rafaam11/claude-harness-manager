@@ -1,22 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Timeline 탭 (프로젝트 탭 + 모델 배지)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="타임라인 탭 (프로젝트 탭 + 모델 배지)">
   <rect width="960" height="600" rx="12" fill="#0f1318" stroke="#313742"/>
 
   <!-- ── nav ── -->
   <rect x="1" y="1" width="150" height="598" rx="11" fill="#171b22"/>
-  <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">Harness Manager</text>
+  <text x="18" y="34" font-size="13" font-weight="700" fill="#e8825f">하네스 매니저</text>
   <rect x="0" y="59" width="151" height="28" fill="#222834"/>
   <rect x="0" y="59" width="3" height="28" fill="#e8825f"/>
-  <text x="20" y="78" font-size="12.5" fill="#f3f5f9">Timeline</text>
-  <text x="20" y="111" font-size="12.5" fill="#9aa3b2">Workspace</text>
-  <text x="20" y="146" font-size="12.5" fill="#9aa3b2">Catalog</text>
-  <text x="20" y="180" font-size="12.5" fill="#9aa3b2">Cleanup</text>
-  <text x="20" y="214" font-size="12.5" fill="#9aa3b2">Config Editor</text>
+  <text x="20" y="78" font-size="12.5" fill="#f3f5f9">타임라인</text>
+  <text x="20" y="111" font-size="12.5" fill="#9aa3b2">워크스페이스</text>
+  <text x="20" y="146" font-size="12.5" fill="#9aa3b2">카탈로그</text>
+  <text x="20" y="180" font-size="12.5" fill="#9aa3b2">정리</text>
+  <text x="20" y="214" font-size="12.5" fill="#9aa3b2">설정 편집기</text>
   <line x1="16" y1="240" x2="135" y2="240" stroke="#313742"/>
-  <text x="20" y="266" font-size="12.5" fill="#9aa3b2">News</text>
-  <text x="20" y="300" font-size="12.5" fill="#9aa3b2">Glossary</text>
+  <text x="20" y="266" font-size="12.5" fill="#9aa3b2">뉴스</text>
+  <text x="20" y="300" font-size="12.5" fill="#9aa3b2">용어집</text>
 
   <!-- ── page title ── -->
-  <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">Timeline</text>
+  <text x="170" y="40" font-size="17" font-weight="700" fill="#f3f5f9">타임라인</text>
 
   <!-- ── project tabs ── -->
   <text x="170" y="66" font-size="11.5" font-weight="700" fill="#e8825f">전체 32</text>
@@ -100,5 +100,5 @@
   <rect x="858" y="525" width="48" height="18" rx="9" fill="#1d3324"/>
   <text x="882" y="538" font-size="9.5" fill="#5fb878" text-anchor="middle">완료</text>
 
-  <text x="170" y="586" font-size="10.5" fill="#5a6675">Timeline — 프로젝트 탭(상태 점)으로 필터 · 세션 모델 배지(Sonnet/Opus/Haiku) · ‘N일 공백’ 갭 · 세션 아래 계획을 들여쓰기로 계층 표시</text>
+  <text x="170" y="586" font-size="10.5" fill="#5a6675">타임라인 — 프로젝트 탭(상태 점)으로 필터 · 세션 모델 배지(Sonnet/Opus/Haiku) · ‘N일 공백’ 갭 · 세션 아래 계획을 들여쓰기로 계층 표시</text>
 </svg>

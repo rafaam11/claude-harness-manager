@@ -10,13 +10,13 @@ import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
 
 const PAGES = {
-  timeline: { label: "Timeline", el: <Timeline /> },
-  workspace: { label: "Workspace", el: <Workspace /> },
-  catalog: { label: "Catalog", el: <Catalog /> },
-  cleanup: { label: "Cleanup", el: <Cleanup /> },
-  configs: { label: "Config Editor", el: <ConfigEditor /> },
-  news: { label: "News", el: <News /> },
-  glossary: { label: "Glossary", el: <Glossary /> },
+  timeline: { label: "타임라인", el: <Timeline /> },
+  workspace: { label: "워크스페이스", el: <Workspace /> },
+  catalog: { label: "카탈로그", el: <Catalog /> },
+  cleanup: { label: "정리", el: <Cleanup /> },
+  configs: { label: "설정 편집기", el: <ConfigEditor /> },
+  news: { label: "뉴스", el: <News /> },
+  glossary: { label: "용어집", el: <Glossary /> },
 } as const;
 
 type PageKey = keyof typeof PAGES;
@@ -57,7 +57,7 @@ export default function App() {
     <div className="layout">
       <nav>
         <div className="nav-head">
-          <h1>Harness Manager</h1>
+          <h1>하네스 매니저</h1>
           <button
             className="theme-toggle"
             onClick={toggleTheme}

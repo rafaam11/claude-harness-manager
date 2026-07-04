@@ -94,6 +94,11 @@ function prefixLegacyKey(key: string): string {
   return key.startsWith("claude:") || key.startsWith("codex:") ? key : `claude:${key}`;
 }
 
+type ReadBoardFileResult =
+  | { kind: "missing" }
+  | { kind: "corrupt" }
+  | { kind: "ok"; board: BoardData };
+
 /** 신뢰할 수 없는 입력(파일 내용/요청)을 board 스키마로 정제 — 화이트리스트 밖 값은 버린다. */
 function sanitize(parsed: unknown): BoardData {
   const board = emptyBoard();
@@ -164,31 +169,32 @@ export function migrateBoard(parsed: unknown): BoardData {
   return migrated;
 }
 
-async function readBoardFile(filePath: string): Promise<BoardData | null> {
+async function readBoardFile(filePath: string): Promise<ReadBoardFileResult> {
   const p = guardPath(filePath);
   let raw: string;
   try {
     raw = await fs.readFile(p, "utf8");
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { kind: "missing" };
     throw e;
   }
   try {
-    return migrateBoard(JSON.parse(raw));
+    return { kind: "ok", board: migrateBoard(JSON.parse(raw)) };
   } catch {
     // 손상본은 옆에 보관하고 기본값으로 생존(페이지가 죽지 않게)
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     await fs.rename(p, guardPath(`${filePath}.corrupt.${stamp}`)).catch(() => {});
-    return null;
+    return { kind: "corrupt" };
   }
 }
 
 export async function readBoard(): Promise<BoardData> {
   const nextBoard = await readBoardFile(BOARD_FILE_V2);
-  if (nextBoard) return nextBoard;
+  if (nextBoard.kind === "ok") return nextBoard.board;
+  if (nextBoard.kind === "corrupt") return emptyBoard();
 
   const legacyBoard = await readBoardFile(BOARD_FILE);
-  if (legacyBoard) return legacyBoard;
+  if (legacyBoard.kind === "ok") return legacyBoard.board;
 
   return emptyBoard();
 }

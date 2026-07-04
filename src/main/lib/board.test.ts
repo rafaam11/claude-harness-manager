@@ -1,8 +1,52 @@
-import { describe, expect, it } from "vitest";
-import { migrateBoard } from "./board.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+let homeDir = "";
+let previousHome = "";
+let previousUserProfile = "";
+let previousHomeDrive = "";
+let previousHomePath = "";
+
+async function loadBoardModule() {
+  return import("./board.js");
+}
+
+async function writeJson(filePath: string, value: unknown) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
+}
+
+beforeEach(async () => {
+  previousHome = process.env.HOME ?? "";
+  previousUserProfile = process.env.USERPROFILE ?? "";
+  previousHomeDrive = process.env.HOMEDRIVE ?? "";
+  previousHomePath = process.env.HOMEPATH ?? "";
+  homeDir = await fs.mkdtemp(path.join(os.tmpdir(), "harness-board-"));
+  process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  process.env.HOMEDRIVE = "";
+  process.env.HOMEPATH = "";
+  vi.resetModules();
+});
+
+afterEach(async () => {
+  await fs.rm(homeDir, { recursive: true, force: true });
+  if (previousHome) process.env.HOME = previousHome;
+  else delete process.env.HOME;
+  if (previousUserProfile) process.env.USERPROFILE = previousUserProfile;
+  else delete process.env.USERPROFILE;
+  if (previousHomeDrive) process.env.HOMEDRIVE = previousHomeDrive;
+  else delete process.env.HOMEDRIVE;
+  if (previousHomePath) process.env.HOMEPATH = previousHomePath;
+  else delete process.env.HOMEPATH;
+  homeDir = "";
+});
 
 describe("board migration", () => {
-  it("prefixes legacy keys with claude provider", () => {
+  it("prefixes legacy keys with claude provider", async () => {
+    const { migrateBoard } = await loadBoardModule();
     const migrated = migrateBoard({
       version: 1,
       projects: { "D--repo": { memo: "x" } },
@@ -15,7 +59,8 @@ describe("board migration", () => {
     expect(migrated.sessions["claude:session-1"]?.memo).toBe("s");
   });
 
-  it("keeps already-prefixed keys stable", () => {
+  it("keeps already-prefixed keys stable", async () => {
+    const { migrateBoard } = await loadBoardModule();
     const migrated = migrateBoard({
       schemaVersion: 2,
       projects: { "codex:repo": { memo: "c" } },
@@ -25,5 +70,51 @@ describe("board migration", () => {
       migratedAt: "2026-07-04T00:00:00.000Z",
     });
     expect(migrated.projects["codex:repo"]?.memo).toBe("c");
+  });
+});
+
+describe("readBoard", () => {
+  it("quarantines a corrupt v2 board and does not fall back to legacy state", async () => {
+    const { readBoard } = await loadBoardModule();
+    const v2Path = path.join(homeDir, ".harness-manager", "board.json");
+    const legacyPath = path.join(homeDir, ".claude", "harness-manager", "board.json");
+    await writeJson(legacyPath, {
+      version: 1,
+      projects: { "old-repo": { memo: "legacy" } },
+      plans: { "old-plan.md": { status: "완료" } },
+      sessions: { "old-session": { memo: "legacy-session" } },
+    });
+    await fs.mkdir(path.dirname(v2Path), { recursive: true });
+    await fs.writeFile(v2Path, "{not-json", "utf8");
+
+    const board = await readBoard();
+
+    expect(board).toEqual({
+      schemaVersion: 2,
+      plans: {},
+      projects: {},
+      sessions: {},
+    });
+    expect(await fs.readFile(legacyPath, "utf8")).toContain("legacy");
+    const quarantined = await fs.readdir(path.dirname(v2Path));
+    expect(quarantined.some((name) => name.startsWith("board.json.corrupt."))).toBe(true);
+  });
+
+  it("migrates legacy state when v2 is missing", async () => {
+    const { readBoard } = await loadBoardModule();
+    const legacyPath = path.join(homeDir, ".claude", "harness-manager", "board.json");
+    await writeJson(legacyPath, {
+      version: 1,
+      projects: { "old-repo": { memo: "legacy" } },
+      plans: { "old-plan.md": { status: "완료" } },
+      sessions: { "old-session": { memo: "legacy-session" } },
+    });
+
+    const board = await readBoard();
+
+    expect(board.schemaVersion).toBe(2);
+    expect(board.projects["claude:old-repo"]?.memo).toBe("legacy");
+    expect(board.plans["claude:old-plan.md"]?.status).toBe("완료");
+    expect(board.sessions["claude:old-session"]?.memo).toBe("legacy-session");
   });
 });

@@ -604,6 +604,9 @@ pre.viewer {
 .bdg-model-haiku { background: #14b8a6; }
 .bdg-model-fable { background: #ec4899; }
 .bdg-model-unknown { background: #6b7280; }
+.bdg-model-missing { background: #6b7280; opacity: 0.82; }
+.bdg-model-missing-claude { background: #d97706; }
+.bdg-model-missing-codex { background: #14b8a6; }
 
 /* News (라이브 통합 피드) — 2단 마스터-디테일. 그리드(.cat-split)·항목 카드(.cat-master-item)·
    상세 패널(.ws-detail/.ws-detail-inner)은 Catalog 것을 재사용하고, 좌측 목록 스크롤 높이만 덧입힌다.

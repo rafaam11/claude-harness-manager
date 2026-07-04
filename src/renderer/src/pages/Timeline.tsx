@@ -8,6 +8,7 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  providerLabel,
   shortName,
   type BoardStatus,
   type TimelineEvent,
@@ -207,13 +208,14 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     const isOpen = expanded.has(key);
     const showDay = isChild && parentDay !== undefined && fmtDay(e.ts) !== parentDay;
     const providerAccent = e.provider ? ` tl-provider-${e.provider}` : "";
+    const modelBadge = e.kind === "session" ? timelineModelBadge(e) : null;
     return (
       <div className={`timeline-row${isChild ? " timeline-row-child" : ""}${providerAccent}`} key={key}>
         <div className="timeline-item" onClick={() => toggleExpand(key)}>
           {e.kind === "plan" && <span className="bdg bdg-plan">PLAN</span>}
-          {e.kind === "session" && e.lastModel && (
-            <span className={`bdg ${modelBadgeClass(e.lastModel)}`} title={e.lastModel}>
-              {modelDisplayName(e.lastModel)}
+          {modelBadge && (
+            <span className={`bdg ${modelBadge.className}`} title={modelBadge.title}>
+              {modelBadge.label}
             </span>
           )}
           <span className="timeline-time muted">
@@ -316,6 +318,24 @@ export function isTopLevelTimelineEvent(e: TimelineEvent, visibleSessionIds: Set
   if (e.kind !== "plan") return true;
   if (!e.parentSessionId) return false;
   return !visibleSessionIds.has(e.parentSessionId);
+}
+
+export function timelineModelBadge(e: TimelineEvent): { label: string; className: string; title: string } {
+  if (e.lastModel) {
+    return {
+      label: modelDisplayName(e.lastModel),
+      className: modelBadgeClass(e.lastModel),
+      title: e.lastModel,
+    };
+  }
+  if (e.provider) {
+    return {
+      label: providerLabel(e.provider),
+      className: `bdg-model-missing bdg-model-missing-${e.provider}`,
+      title: "모델 정보 없음",
+    };
+  }
+  return { label: "Model ?", className: "bdg-model-missing", title: "모델 정보 없음" };
 }
 
 function chipDotClass(status: BoardStatus | null): string {

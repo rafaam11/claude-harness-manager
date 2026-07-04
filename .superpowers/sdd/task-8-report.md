@@ -28,3 +28,18 @@
 
 ## Concerns
 - None at this time.
+
+## Fix
+- Files changed: `src/main/router.ts`, `src/main/router.test.ts`
+- Commit: `5c9be741447b46d06b5c767970c42c7969fd45f2`
+
+## Test commands
+- `npm run test -- src/main/router.test.ts src/main/providers/codex.test.ts` - PASS
+- `npm run typecheck` - PASS
+- `npm run build` - PASS
+
+## PASS/FAIL summary
+- PASS: `/api/catalog` and `/api/mcp` default to Claude only when `provider` is missing.
+- PASS: `provider=claude`, `provider=codex`, and `provider=all` resolve correctly.
+- PASS: `provider=` and invalid provider values now fail with a 400-level `HttpError`.
+- PASS: `src/main/providers/codex.test.ts` still passes alongside the router contract test.

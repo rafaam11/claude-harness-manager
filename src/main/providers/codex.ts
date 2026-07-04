@@ -277,9 +277,8 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
     }
   }
   const sessions = [...byId.values()];
-  const historyHasEntries = history.size > 0;
   return sessions
-    .filter((session) => !historyHasEntries || history.has(session.localId))
+    .filter((session) => session.lastUserText || session.lastAssistantText || history.has(session.localId))
     .map((session) => {
       const h = history.get(session.localId);
       if (!h) return session;

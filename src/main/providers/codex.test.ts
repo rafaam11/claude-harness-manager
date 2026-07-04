@@ -276,4 +276,49 @@ describe("codex provider", () => {
       lastUserText: "최신 요청",
     });
   });
+
+  it("uses history as a title overlay without hiding real rollout sessions", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const indexedSessionId = "019f2aaa-indexed-7222-8333-444455556666";
+    const rolloutOnlySessionId = "019f2bbb-rollout-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "history.jsonl"),
+      JSON.stringify({ session_id: indexedSessionId, ts: 1783171120, text: "history title" }),
+    );
+
+    for (const [sessionId, prompt] of [
+      [indexedSessionId, "indexed prompt"],
+      [rolloutOnlySessionId, "rollout only prompt"],
+    ] as const) {
+      await writeText(
+        path.join(codexHome, "sessions", "2026", "07", "04", `rollout-2026-07-04T10-00-00-${sessionId}.jsonl`),
+        [
+          JSON.stringify({
+            timestamp: "2026-07-04T01:00:00.000Z",
+            type: "session_meta",
+            payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+          }),
+          JSON.stringify({
+            timestamp: "2026-07-04T01:01:00.000Z",
+            type: "response_item",
+            payload: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: prompt }],
+            },
+          }),
+        ].join("\n"),
+      );
+    }
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions.map((s) => s.id).sort()).toEqual([
+      `codex:${indexedSessionId}`,
+      `codex:${rolloutOnlySessionId}`,
+    ]);
+    expect(sessions.find((s) => s.id === `codex:${indexedSessionId}`)?.title).toBe("history title");
+    expect(sessions.find((s) => s.id === `codex:${rolloutOnlySessionId}`)?.title).toBe("rollout only prompt");
+  });
 });

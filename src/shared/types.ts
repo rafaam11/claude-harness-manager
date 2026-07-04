@@ -1,5 +1,7 @@
 // renderer ↔ main IPC 계약. preload와 renderer가 함께 import한다(@shared).
 
+export * from "./provider-types.js";
+
 // DT_GitManager에서 흡수한 git 도메인 타입(요청은 projectId 기반). 분량이 커서 별도 파일로 분리.
 export * from "./git-types.js";
 

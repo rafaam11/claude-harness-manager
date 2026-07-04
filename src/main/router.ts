@@ -4,12 +4,11 @@ import { readConfig, safeWrite, listBackups, restoreBackup } from "./lib/safe-wr
 import { assertCleanupCategory } from "./lib/path-scope.js";
 import { detectClaude } from "./lib/cc-detect.js";
 import { archiveItems, restoreItem, listManifests } from "./lib/archive.js";
-import { getCatalog, readCatalogContent } from "./services/catalog.js";
+import { readCatalogContent } from "./services/catalog.js";
 import { readStampPlanSessionHook } from "./services/hooks.js";
 import { getPlugins } from "./services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
-import { getMcpServers } from "./services/mcp.js";
 import {
   getWorkspaceProjects,
   getEnrichedPlans,
@@ -70,6 +69,11 @@ interface Route {
   method: ApiMethod;
   pattern: string;
   handler: Handler;
+}
+
+function resolveProviderFilter(filter: string | undefined, fallback: "claude" | "all" = "all") {
+  if (filter === undefined) return fallback;
+  return parseProviderFilter(filter);
 }
 
 function configEntry(name: string) {
@@ -248,7 +252,15 @@ const routes: Route[] = [
   },
 
   // --- catalog / plugins / projects ---
-  { method: "GET", pattern: "/api/catalog", handler: async () => getCatalog() },
+  {
+    method: "GET",
+    pattern: "/api/catalog",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider, "claude");
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return (await Promise.all(getProviders(provider).map((p) => p.listCatalog()))).flat();
+    },
+  },
   {
     method: "GET",
     pattern: "/api/catalog/content",
@@ -271,7 +283,15 @@ const routes: Route[] = [
   },
   { method: "GET", pattern: "/api/plugins", handler: async () => getPlugins() },
   { method: "GET", pattern: "/api/projects", handler: async () => getProjects() },
-  { method: "GET", pattern: "/api/mcp", handler: async () => getMcpServers() },
+  {
+    method: "GET",
+    pattern: "/api/mcp",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider, "claude");
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return (await Promise.all(getProviders(provider).map((p) => p.readMcpServers()))).flat();
+    },
+  },
   {
     method: "GET",
     pattern: "/api/projects/:id/files",

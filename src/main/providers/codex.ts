@@ -8,11 +8,19 @@ import type { ProviderAdapter } from "./types.js";
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
 
+async function listProfileConfigs(): Promise<string[]> {
+  const entries = await fs.readdir(CODEX_HOME).catch(() => [] as string[]);
+  return entries
+    .filter((name) => name.endsWith(".config.toml") && name !== "config.toml")
+    .map((name) => path.join(CODEX_HOME, name));
+}
+
 export const codexProvider: ProviderAdapter = {
   id: "codex",
   label: "Codex",
   roots: { home: CODEX_HOME, configFiles: [CODEX_CONFIG] },
   async listConfigFiles() {
+    const profiles = await listProfileConfigs();
     return [
       {
         id: "codex-config",
@@ -23,6 +31,15 @@ export const codexProvider: ProviderAdapter = {
         scope: "user",
         writable: true,
       },
+      ...profiles.map((p) => ({
+        id: `codex-profile:${path.basename(p)}`,
+        provider: "codex" as const,
+        label: path.basename(p),
+        path: p,
+        format: "toml" as const,
+        scope: "user" as const,
+        writable: true,
+      })),
     ];
   },
   async readMcpServers() {
@@ -30,7 +47,36 @@ export const codexProvider: ProviderAdapter = {
     return raw ? readCodexMcpServersFromToml(raw) : [];
   },
   async listCatalog() {
-    return [];
+    const items = [];
+    const globalAgents = path.join(CODEX_HOME, "AGENTS.md");
+    const globalOverride = path.join(CODEX_HOME, "AGENTS.override.md");
+    for (const p of [globalAgents, globalOverride]) {
+      const stat = await fs.stat(p).catch(() => null);
+      if (!stat) continue;
+      items.push({
+        name: path.basename(p),
+        kind: "command" as const,
+        description: "Codex instruction file",
+        path: p,
+        size: stat.size,
+        mtime: stat.mtimeMs,
+      });
+    }
+    const memories = path.join(CODEX_HOME, "memories");
+    for (const name of ["memory_summary.md", "MEMORY.md"]) {
+      const p = path.join(memories, name);
+      const stat = await fs.stat(p).catch(() => null);
+      if (!stat) continue;
+      items.push({
+        name,
+        kind: "skill" as const,
+        description: "Codex memory file",
+        path: p,
+        size: stat.size,
+        mtime: stat.mtimeMs,
+      });
+    }
+    return items;
   },
   async listProjects() {
     return [];

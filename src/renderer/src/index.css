@@ -117,8 +117,8 @@ main.page-wide { max-width: none; }
 .nav-provider-label { font-size: 11px; color: var(--muted); }
 .provider-filter {
   --provider-all: #94a3b8;
-  --provider-claude: #f59e0b;
-  --provider-codex: #2dd4bf;
+  --provider-claude: #d97706;
+  --provider-codex: #14b8a6;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -157,14 +157,14 @@ main.page-wide { max-width: none; }
 
 .provider-filter button:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--provider-tone) 9%, transparent);
+  background: color-mix(in srgb, var(--provider-tone) 7%, transparent);
 }
 
 .provider-filter button.active {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--provider-tone) 24%, transparent), transparent 115%),
+    linear-gradient(90deg, color-mix(in srgb, var(--provider-tone) 14%, transparent), transparent 115%),
     var(--hover, var(--active-bg));
-  border-color: color-mix(in srgb, var(--provider-tone) 50%, transparent);
+  border-color: color-mix(in srgb, var(--provider-tone) 36%, transparent);
   color: var(--text);
   box-shadow: inset 3px 0 0 var(--provider-tone);
 }
@@ -184,21 +184,24 @@ main.page-wide { max-width: none; }
 }
 .provider-all {
   --provider-tone: #94a3b8;
-  background: rgba(148, 163, 184, 0.12);
-  color: #cbd5e1;
-  border-color: rgba(148, 163, 184, 0.35);
+  background: color-mix(in srgb, var(--provider-tone) 10%, var(--panel));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--provider-tone) 26%, var(--border));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--provider-tone) 60%, transparent);
 }
 .provider-claude {
-  --provider-tone: #f59e0b;
-  background: rgba(245, 158, 11, 0.14);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.42);
+  --provider-tone: #d97706;
+  background: color-mix(in srgb, var(--provider-tone) 9%, var(--panel));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--provider-tone) 28%, var(--border));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--provider-tone) 70%, transparent);
 }
 .provider-codex {
-  --provider-tone: #2dd4bf;
-  background: rgba(45, 212, 191, 0.13);
-  color: #5eead4;
-  border-color: rgba(45, 212, 191, 0.42);
+  --provider-tone: #14b8a6;
+  background: color-mix(in srgb, var(--provider-tone) 9%, var(--panel));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--provider-tone) 28%, var(--border));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--provider-tone) 70%, transparent);
 }
 .provider-summary-note { margin-top: -4px; }
 h2 { font-size: 18px; margin: 0 0 16px; }

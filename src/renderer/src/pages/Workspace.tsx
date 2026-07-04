@@ -13,8 +13,6 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
-  providerBadgeClass,
-  providerLabel,
   shortName,
   stripClaudeEntityId,
   type BoardStatus,
@@ -40,6 +38,16 @@ type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: Entity
 
 // 정렬 모드: 뷰 전역 취향이라 localStorage에 저장(테마와 동일 패턴), board.json엔 안 둔다.
 type SortMode = "recent" | "status" | "manual";
+
+export function workspaceProviderToneClass(p: WorkspaceProject): string {
+  const ids = p.memberIds?.length ? p.memberIds : [p.id];
+  const hasClaude = p.provider === "claude" || ids.some((id) => id.startsWith("claude:"));
+  const hasCodex = p.provider === "codex" || ids.some((id) => id.startsWith("codex:"));
+  if (hasClaude && hasCodex) return " ws-provider-mixed";
+  if (hasClaude) return " ws-provider-claude";
+  if (hasCodex) return " ws-provider-codex";
+  return "";
+}
 const SORT_KEY = "ws-sort-mode";
 const SORT_LABELS: Record<SortMode, string> = {
   recent: "최근 활동순",
@@ -364,7 +372,7 @@ function ProjectMasterCard({
   };
   return (
     <div
-      className={`ws-master-item${active ? " active" : ""}`}
+      className={`ws-master-item${workspaceProviderToneClass(p)}${active ? " active" : ""}`}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -377,7 +385,6 @@ function ProjectMasterCard({
     >
       <div className="ws-mi-head">
         <span className="ws-mi-name">{displayName(p)}</span>
-        {p.provider && <span className={`provider-badge ${providerBadgeClass(p.provider)}`}>{providerLabel(p.provider)}</span>}
         {p.board.status && <StatusTag s={p.board.status} />}
       </div>
       <div className="ws-mi-meta">
@@ -460,7 +467,7 @@ function ProjectDetail({
   };
 
   return (
-    <div className="ws-detail-inner">
+    <div className={`ws-detail-inner${workspaceProviderToneClass(p)}`}>
       <div className="ws-card-head">
         {editingName ? (
           <>
@@ -499,7 +506,6 @@ function ProjectDetail({
             )}
           </>
         )}
-        {p.provider && <span className={`provider-badge ${providerBadgeClass(p.provider)}`}>{providerLabel(p.provider)}</span>}
         {p.gitBranch && <span className="t-tag">⎇ {p.gitBranch}</span>}
         {p.recall?.lastModel && (
           <span className={`bdg ${modelBadgeClass(p.recall.lastModel)}`} title={p.recall.lastModel}>

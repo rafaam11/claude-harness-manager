@@ -348,8 +348,30 @@ pre.viewer {
   border-radius: 8px; padding: 11px 13px; cursor: pointer; color: var(--text);
   display: flex; flex-direction: column; gap: 5px;
 }
-.ws-master-item:hover { border-color: var(--accent); }
-.ws-master-item.active { border-color: var(--accent); background: var(--active-bg); }
+.ws-master-item::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ws-provider-tone, transparent) 70%, transparent);
+  opacity: 0.85;
+}
+.ws-provider-claude { --ws-provider-tone: #d97706; }
+.ws-provider-codex { --ws-provider-tone: #14b8a6; }
+.ws-provider-mixed { --ws-provider-tone: #94a3b8; }
+.ws-master-item:hover {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ws-provider-tone, transparent) 6%, transparent), transparent 55%), var(--card);
+}
+.ws-master-item.active {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ws-provider-tone, transparent) 8%, transparent), transparent 55%), var(--active-bg);
+}
+.ws-detail-inner.ws-provider-claude,
+.ws-detail-inner.ws-provider-codex,
+.ws-detail-inner.ws-provider-mixed {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ws-provider-tone) 55%, transparent), var(--shadow);
+}
 .ws-master-item.unassigned { flex-direction: row; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
 .ws-mi-head { display: flex; align-items: center; gap: 7px; padding-right: 18px; }
 .ws-mi-name { font-weight: 650; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

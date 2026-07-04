@@ -19,3 +19,4 @@ launcher/dist/
 __pycache__/
 *.pyc
 launcher/HarnessManagerLauncher.spec
+/.omx

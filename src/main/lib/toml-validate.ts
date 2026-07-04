@@ -1,4 +1,4 @@
-import { load } from "js-toml";
+import { parse } from "smol-toml";
 import type { McpServer } from "../services/mcp.js";
 
 export class TomlValidationError extends Error {
@@ -7,7 +7,7 @@ export class TomlValidationError extends Error {
 
 export function parseToml(content: string): Record<string, unknown> {
   try {
-    const parsed = load(content);
+    const parsed = parse(content);
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
   } catch (e) {
     throw new TomlValidationError(`invalid TOML: ${(e as Error).message}`);

@@ -55,3 +55,18 @@ Completed.
 ## Concerns
 
 - `js-toml` installs `chevrotain@12`, whose package metadata declares `node >=22`. This workspace currently runs on Node `v22.15.0`, and the task test, `typecheck`, and full `build` all pass here. I could not confirm the embedded Electron runtime node version because `npx electron -p "process.versions.node"` timed out in this environment.
+
+## Fix Critical Dependency Compatibility
+
+- Dependency swap: replaced `js-toml` with `smol-toml` to keep the TOML parser compatible with the app's Electron 34 / Node 20 target.
+- Source change: updated `src/main/lib/toml-validate.ts` from `load` in `js-toml` to `parse` in `smol-toml`, with exported functions and behavior kept unchanged.
+- Exact commands and results:
+  - `npm uninstall js-toml` -> PASS (`removed 10 packages, changed 1 package`)
+  - `npm install smol-toml` -> PASS (`added 1 package, changed 1 package`)
+  - `npm run test -- src/main/lib/toml-validate.test.ts` -> PASS (`1 passed, 3 tests passed`)
+  - `npm run typecheck` -> PASS
+  - `npm run build` -> PASS
+  - `npm ls js-toml chevrotain smol-toml` -> PASS (`smol-toml@1.7.0` only)
+  - `Select-String -Path package-lock.json -Pattern '"js-toml"|"chevrotain"|"smol-toml"'` -> PASS (`smol-toml` only)
+- Commit: `defb96b`
+- Concerns: none beyond the pre-existing audit warnings reported by `npm`; this fix removed the Electron-incompatible parser chain introduced by Task 5.

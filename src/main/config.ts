@@ -3,9 +3,10 @@ import path from "node:path";
 
 export const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 export const CLAUDE_JSON = path.join(os.homedir(), ".claude.json");
+export const APP_STATE_DIR = path.join(os.homedir(), ".harness-manager");
 
 // 모든 파일 연산이 허용되는 경로. path-guard가 이 목록으로 검사한다.
-export const ALLOWED_ROOTS = [CLAUDE_HOME, CLAUDE_JSON];
+export const ALLOWED_ROOTS = [CLAUDE_HOME, CLAUDE_JSON, APP_STATE_DIR];
 
 export const BACKUP_DIR = path.join(CLAUDE_HOME, "backups", "harness-manager");
 export const BACKUP_KEEP = 20;
@@ -48,8 +49,10 @@ export const TASKS_DIR = path.join(CLAUDE_HOME, "tasks");
 // 세션→계획 연결 hook. 다른 PC 설치용 프롬프트 생성(ConfigEditor)이 이 파일 원문을 읽는다.
 export const HOOKS_DIR = path.join(CLAUDE_HOME, "hooks");
 export const STAMP_PLAN_SESSION_HOOK_FILE = path.join(HOOKS_DIR, "stamp-plan-session.mjs");
-// 앱 소유 수동 레이어(상태/메모/연결 override). ~/.claude 하위라 allowlist 통과.
+// 레거시 board 경로. readBoard가 1회 마이그레이션 소스로만 읽고 새 쓰기는 BOARD_FILE_V2로 간다.
 export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json");
+export const APP_BACKUP_DIR = path.join(APP_STATE_DIR, "backups");
+export const BOARD_FILE_V2 = path.join(APP_STATE_DIR, "board.json");
 
 // --- News 탭 (라이브 뉴스 통합 피드) ---
 // 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).

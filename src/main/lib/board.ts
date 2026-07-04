@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { BOARD_FILE, BACKUP_DIR, BACKUP_KEEP } from "../config.js";
+import { APP_BACKUP_DIR, BACKUP_KEEP, BOARD_FILE, BOARD_FILE_V2 } from "../config.js";
 import { guardPath } from "./path-guard.js";
 import { withLock } from "./lock.js";
 
@@ -50,14 +50,16 @@ export interface SessionBoardEntry {
   memo?: string;
 }
 export interface BoardData {
-  version: 1;
+  schemaVersion: 2;
+  migratedFrom?: string;
+  migratedAt?: string;
   plans: Record<string, PlanBoardEntry>;
   projects: Record<string, ProjectBoardEntry>;
   sessions: Record<string, SessionBoardEntry>;
 }
 
 function emptyBoard(): BoardData {
-  return { version: 1, plans: {}, projects: {}, sessions: {} };
+  return { schemaVersion: 2, plans: {}, projects: {}, sessions: {} };
 }
 
 function asStatus(v: unknown): BoardStatus | undefined {
@@ -88,11 +90,19 @@ function sanitizeTracks(raw: unknown): ProjectTrack[] {
   return out;
 }
 
+function prefixLegacyKey(key: string): string {
+  return key.startsWith("claude:") || key.startsWith("codex:") ? key : `claude:${key}`;
+}
+
 /** 신뢰할 수 없는 입력(파일 내용/요청)을 board 스키마로 정제 — 화이트리스트 밖 값은 버린다. */
 function sanitize(parsed: unknown): BoardData {
   const board = emptyBoard();
   if (!parsed || typeof parsed !== "object") return board;
   const p = parsed as Record<string, unknown>;
+  if (p.schemaVersion === 2) {
+    if (typeof p.migratedFrom === "string" && p.migratedFrom) board.migratedFrom = p.migratedFrom;
+    if (typeof p.migratedAt === "string" && p.migratedAt) board.migratedAt = p.migratedAt;
+  }
 
   // plan/project 공용 정제. kind에 따라 plan 전용(projectOverride) / project 전용(nameOverride·tracks)을 분기.
   const toEntry = (raw: unknown, kind: "plan" | "project"): PlanBoardEntry & ProjectBoardEntry => {
@@ -140,44 +150,68 @@ function sanitize(parsed: unknown): BoardData {
   return board;
 }
 
-export async function readBoard(): Promise<BoardData> {
-  const p = guardPath(BOARD_FILE);
+export function migrateBoard(parsed: unknown): BoardData {
+  const sanitized = sanitize(parsed);
+  const raw = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  if (raw.schemaVersion === 2) return sanitized;
+
+  const migrated = emptyBoard();
+  for (const [k, v] of Object.entries(sanitized.projects)) migrated.projects[prefixLegacyKey(k)] = v;
+  for (const [k, v] of Object.entries(sanitized.plans)) migrated.plans[prefixLegacyKey(k)] = v;
+  for (const [k, v] of Object.entries(sanitized.sessions)) migrated.sessions[prefixLegacyKey(k)] = v;
+  migrated.migratedFrom = "legacy-claude-board";
+  migrated.migratedAt = new Date().toISOString();
+  return migrated;
+}
+
+async function readBoardFile(filePath: string): Promise<BoardData | null> {
+  const p = guardPath(filePath);
   let raw: string;
   try {
     raw = await fs.readFile(p, "utf8");
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return emptyBoard();
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw e;
   }
   try {
-    return sanitize(JSON.parse(raw));
+    return migrateBoard(JSON.parse(raw));
   } catch {
     // 손상본은 옆에 보관하고 기본값으로 생존(페이지가 죽지 않게)
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await fs.rename(p, guardPath(`${BOARD_FILE}.corrupt.${stamp}`)).catch(() => {});
-    return emptyBoard();
+    await fs.rename(p, guardPath(`${filePath}.corrupt.${stamp}`)).catch(() => {});
+    return null;
   }
 }
 
+export async function readBoard(): Promise<BoardData> {
+  const nextBoard = await readBoardFile(BOARD_FILE_V2);
+  if (nextBoard) return nextBoard;
+
+  const legacyBoard = await readBoardFile(BOARD_FILE);
+  if (legacyBoard) return legacyBoard;
+
+  return emptyBoard();
+}
+
 async function rotateBackups(prefix: string) {
-  const entries = await fs.readdir(BACKUP_DIR).catch(() => [] as string[]);
+  const entries = await fs.readdir(APP_BACKUP_DIR).catch(() => [] as string[]);
   const mine = entries.filter((e) => e.startsWith(prefix)).sort();
   while (mine.length > BACKUP_KEEP) {
     const oldest = mine.shift()!;
-    await fs.rm(path.join(BACKUP_DIR, oldest), { force: true });
+    await fs.rm(path.join(APP_BACKUP_DIR, oldest), { force: true });
   }
 }
 
 async function writeBoardAtomic(data: BoardData) {
-  const p = guardPath(BOARD_FILE);
+  const p = guardPath(BOARD_FILE_V2);
   await fs.mkdir(path.dirname(p), { recursive: true });
 
   // 현재본이 있으면 .bak 백업(로테이션) 후 덮어쓴다
   const current = await fs.readFile(p).catch(() => null);
   if (current) {
-    await fs.mkdir(BACKUP_DIR, { recursive: true });
+    await fs.mkdir(APP_BACKUP_DIR, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await fs.writeFile(path.join(BACKUP_DIR, `${path.basename(p)}.${stamp}.bak`), current);
+    await fs.writeFile(path.join(APP_BACKUP_DIR, `${path.basename(p)}.${stamp}.bak`), current);
     await rotateBackups(path.basename(p) + ".");
   }
 

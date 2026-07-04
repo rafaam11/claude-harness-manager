@@ -141,6 +141,6 @@
   - `npm run typecheck` - PASS
   - `npm run build` - PASS
 - Commit hash:
-  - `5420340` - `fix: validate provider config filters`
+  - `56530dc` - `fix: validate provider config filters`
 - Concerns:
   - No direct router-level automated test was added; coverage is on the pure provider-filter parser that the router now uses for 400 validation.

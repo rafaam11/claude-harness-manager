@@ -63,13 +63,13 @@ export default function Timeline() {
 
   // projectId → board.status(무상태 null 포함). 탭 상태 점 표시에 사용.
   const projStatusById = useMemo(
-    () => new Map(projects.map((p) => [p.id, p.board.status])),
+    () => new Map<string, BoardStatus | null>(projects.map((p) => [p.id, p.board.status])),
     [projects],
   );
 
   // projectId → lastActivity(탭 정렬 기준)
   const projLastActivityById = useMemo(
-    () => new Map(projects.map((p) => [p.id, p.lastActivity])),
+    () => new Map<string, number>(projects.map((p) => [p.id, p.lastActivity])),
     [projects],
   );
 

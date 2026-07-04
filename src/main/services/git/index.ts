@@ -1,6 +1,7 @@
 // Git facade. router는 projectId만 받고, 여기서 repoPath를 해석·검증한 뒤 서비스를 호출한다.
 // renderer는 실제 repo 경로를 들고 다니지 않는다(보안 + 단순화): 항상 projectId로만 요청한다.
 import { readBoard } from "../../lib/board.js";
+import { splitEntityId } from "../../providers/registry.js";
 import { guessOriginalPath } from "../projects.js";
 import { getProjectRecalls } from "../recall.js";
 import { resolveRepoTopology } from "../repo-group.js";
@@ -33,6 +34,18 @@ import type {
   RepoStatus,
 } from "@shared/types";
 
+function localProjectId(projectId: string): string {
+  const split = splitEntityId(projectId);
+  return split.provider === "claude" ? split.localId : projectId;
+}
+
+function projectIdCandidates(projectId: string): string[] {
+  const split = splitEntityId(projectId);
+  if (split.provider !== "claude") return [projectId];
+  const prefixed = `claude:${split.localId}`;
+  return prefixed === projectId ? [prefixed, split.localId] : [prefixed, projectId];
+}
+
 /**
  * projectId → 검증된 git toplevel 경로.
  *  1) board.json의 사용자 교정값(repoPath)
@@ -42,15 +55,19 @@ import type {
  */
 export async function resolveRepoPath(projectId: string): Promise<RepoResolution | null> {
   const board = await readBoard();
-  const fromBoard = await assertGitRepo(board.projects[projectId]?.repoPath);
+  const boardRepoPath = projectIdCandidates(projectId)
+    .map((id) => board.projects[id]?.repoPath)
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+  const fromBoard = await assertGitRepo(boardRepoPath);
   if (fromBoard) return { repoPath: fromBoard, source: "board" };
 
+  const localId = localProjectId(projectId);
   const recalls = await getProjectRecalls();
-  const proj = recalls.find((r) => r.id === projectId);
+  const proj = recalls.find((r) => r.id === localId);
   const fromRecall = await assertGitRepo(proj?.realPath);
   if (fromRecall) return { repoPath: fromRecall, source: "recall" };
 
-  const fromGuess = await assertGitRepo(guessOriginalPath(projectId));
+  const fromGuess = await assertGitRepo(guessOriginalPath(localId));
   if (fromGuess) return { repoPath: fromGuess, source: "guess" };
 
   return null;

@@ -1,5 +1,6 @@
 // Workspace / Timeline 페이지가 공유하는 타입과 이름 헬퍼.
 // 서버(services/recall.ts)의 응답 형태와 1:1 대응한다.
+import type { EntityId, ProviderId } from "@shared/provider-types";
 
 export type BoardStatus = "진행중" | "보류" | "완료" | "보관";
 export const STATUSES: BoardStatus[] = ["진행중", "보류", "완료", "보관"];
@@ -36,7 +37,7 @@ export interface ProjectTrack {
 
 // 이 repo에 접힌 linked 워크트리(대표 카드 아래 나열/Git 전환 대상). 서버 repo-group.ts와 1:1.
 export interface WorktreeMember {
-  projectId: string;
+  projectId: EntityId;
   worktreeRoot: string; // 워킹트리 toplevel 절대경로(Git 전환 대상)
   name: string;
   gitBranch: string | null;
@@ -44,10 +45,11 @@ export interface WorktreeMember {
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
   removed: boolean; // 디스크에서 사라진(pruned) 워크트리
+  provider?: ProviderId;
 }
 
 export interface WorkspaceProject {
-  id: string;
+  id: EntityId;
   realPath: string | null;
   gitBranch: string | null;
   lastActivity: number;
@@ -67,35 +69,42 @@ export interface WorkspaceProject {
   isWorktree: boolean; // 대표가 (메인이 아닌) 워크트리인가
   worktreeName: string | null;
   worktrees: WorktreeMember[];
-  memberIds: string[];
+  memberIds: EntityId[];
+  provider?: ProviderId;
 }
 export interface EnrichedPlan {
   filename: string;
   title: string;
   mtime: number;
   archived: boolean;
-  guessedProjectId: string | null;
-  projectOverride: string | null;
-  projectId: string | null;
+  guessedProjectId: EntityId | null;
+  projectOverride: EntityId | null;
+  projectId: EntityId | null;
   status: BoardStatus;
   memo: string;
+  provider?: ProviderId;
 }
 export interface TimelineEvent {
   ts: number;
   kind: "session" | "plan";
-  projectId: string | null;
+  projectId: EntityId | null;
   realPath: string | null;
   title: string;
   filename?: string;
-  sessionId?: string; // 세션 이벤트에만. 상태 드롭다운 저장 키.
+  sessionId?: EntityId; // 세션 이벤트에만. 상태 드롭다운 저장 키.
   status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
   // 행 클릭 펼침용 내용(서버 recall.ts와 1:1). 세션은 스니펫, 계획은 본문 lazy-fetch용 archived.
   lastPrompt?: string | null;
   lastAssistantSnippet?: string | null;
   archived?: boolean;
-  parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
+  parentSessionId?: EntityId; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
   worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 표시).
+  provider?: ProviderId;
+}
+
+export function stripClaudeEntityId(id: string): string {
+  return id.startsWith("claude:") ? id.slice("claude:".length) : id;
 }
 
 /** flatten된 id / 실제 경로에서 사람이 읽을 짧은 이름(경로 마지막 세그먼트) */
@@ -104,7 +113,7 @@ export function shortName(realPath: string | null, id: string): string {
     const parts = realPath.replace(/\\/g, "/").split("/").filter(Boolean);
     if (parts.length) return parts[parts.length - 1];
   }
-  return id.replace(/^[A-Za-z]--/, "").replace(/-/g, "/");
+  return stripClaudeEntityId(id).replace(/^[A-Za-z]--/, "").replace(/-/g, "/");
 }
 
 /** 사용자가 지정한 이름(nameOverride)이 있으면 우선, 없으면 기본 이름 */

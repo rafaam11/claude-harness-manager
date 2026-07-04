@@ -20,6 +20,7 @@ import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
+import { prefixEntityId, splitEntityId } from "../providers/registry.js";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -120,6 +121,35 @@ function cached<T>(ttl: number, fn: () => Promise<T>): () => Promise<T> {
     );
     return inflight;
   };
+}
+
+function toClaudeId(localId: string): string {
+  return prefixEntityId("claude", localId);
+}
+
+function fromMaybePrefixedClaudeId(id: string): string {
+  const split = splitEntityId(id);
+  return split.provider === "claude" ? split.localId : id;
+}
+
+function normalizeOutgoingClaudeId(id: string | null | undefined): string | null | undefined {
+  if (id == null) return id;
+  const split = splitEntityId(id);
+  return split.provider === "claude" ? toClaudeId(split.localId) : id;
+}
+
+function compatClaudeKeys(id: string): string[] {
+  const split = splitEntityId(id);
+  if (split.provider !== "claude") return [id];
+  const prefixed = toClaudeId(split.localId);
+  return prefixed === id ? [prefixed, split.localId] : [prefixed, id];
+}
+
+function getCompatEntry<T>(map: Record<string, T>, id: string): T | undefined {
+  for (const key of compatClaudeKeys(id)) {
+    if (key in map) return map[key];
+  }
+  return undefined;
 }
 
 // --- transcript 파싱 ---
@@ -492,12 +522,14 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
           null;
       }
     }
-    const b = board.plans[p.filename] ?? {};
+    const b = getCompatEntry(board.plans, p.filename) ?? {};
+    const guessedProjectEntityId = normalizeOutgoingClaudeId(guessedProjectId) ?? null;
+    const projectOverride = normalizeOutgoingClaudeId(b.projectOverride ?? null) ?? null;
     return {
       ...p,
-      guessedProjectId,
-      projectOverride: b.projectOverride ?? null,
-      projectId: b.projectOverride ?? guessedProjectId,
+      guessedProjectId: guessedProjectEntityId,
+      projectOverride,
+      projectId: projectOverride ?? guessedProjectEntityId,
       // 수동 지정 우선. 없으면 보관 계획은 "보관", 그 외는 "완료"로 추정
       // (대부분의 계획은 구현이 끝난 것이라, 진행중인 것만 수동으로 표시한다).
       status: b.status ?? (p.archived ? "보관" : "완료"),
@@ -519,27 +551,32 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
     sel: (e: NonNullable<(typeof board)["projects"][string]>) => T | null | undefined,
   ): T | null => {
     for (const id of ids) {
-      const e = board.projects[id];
-      if (!e) continue;
-      const v = sel(e);
-      if (v == null) continue;
-      if (typeof v === "string" && v === "") continue;
-      if (Array.isArray(v) && v.length === 0) continue;
-      return v as T;
+      for (const key of compatClaudeKeys(id)) {
+        const e = board.projects[key];
+        if (!e) continue;
+        const v = sel(e);
+        if (v == null) continue;
+        if (typeof v === "string" && v === "") continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        return v as T;
+      }
     }
     return null;
   };
 
   return groups.map((g) => {
     const ids = [g.canonicalId, ...g.memberIds.filter((id) => id !== g.canonicalId)];
-    const canon = board.projects[g.canonicalId];
+    const canonicalId = toClaudeId(g.canonicalId);
+    const memberIds = g.memberIds.map(toClaudeId);
+    const canon = getCompatEntry(board.projects, g.canonicalId);
     return {
       ...g.representative,
+      id: canonicalId,
       repoRoot: g.repoRoot,
       isWorktree: g.isWorktree,
       worktreeName: g.worktreeName,
-      worktrees: g.worktrees,
-      memberIds: g.memberIds,
+      worktrees: g.worktrees.map((w) => ({ ...w, projectId: toClaudeId(w.projectId) })),
+      memberIds,
       board: {
         status: readField(ids, (e) => e.status),
         memo: readField<string>(ids, (e) => e.memo) ?? "",
@@ -558,12 +595,13 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
  * 포함) 전체 디렉토리에서 모든 transcript를 열거해 실제 세션 히스토리를 통째로 보여준다.
  */
 export async function getProjectSessions(projectId: string): Promise<SessionRecall[]> {
+  const localProjectId = fromMaybePrefixedClaudeId(projectId);
   const recalls = await getProjectRecalls();
   const groups = await computeRepoGroups(recalls);
   const group = groups.find(
-    (g) => g.canonicalId === projectId || g.memberIds.includes(projectId),
+    (g) => g.canonicalId === localProjectId || g.memberIds.includes(localProjectId),
   );
-  const memberIds = group ? group.memberIds : [projectId];
+  const memberIds = group ? group.memberIds : [localProjectId];
 
   const lists = await Promise.all(
     memberIds.map(async (id) => {
@@ -629,8 +667,8 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
     const sid = recall.sessionId;
     // 자동추정 우선순위: 세션 직접 지정(override) → 프로젝트 상태 상속(자동) → "진행중"
     const status: BoardStatus =
-      (sid ? board.sessions[sid]?.status : undefined) ??
-      board.projects[projectId]?.status ??
+      (sid ? getCompatEntry(board.sessions, sid)?.status : undefined) ??
+      getCompatEntry(board.projects, projectId)?.status ??
       "진행중";
     events.push({
       ts: recall.transcriptMtime,
@@ -659,15 +697,16 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   for (const e of events) if (e.sessionId) renderedSessionIds.add(e.sessionId);
 
   for (const p of plans) {
+    const localPlanProjectId = p.projectId ? fromMaybePrefixedClaudeId(p.projectId) : null;
     // 1순위: 훅이 새겨넣은 확정 세션ID(그 SESS 행이 실제로 존재할 때만).
     // 2순위: 같은 프로젝트의 세션 중 계획 mtime과 가장 가까운 것을 부모로 추정.
-    const candidates = p.projectId ? sessionsByProject.get(p.projectId) ?? [] : [];
+    const candidates = localPlanProjectId ? sessionsByProject.get(localPlanProjectId) ?? [] : [];
     const parentSessionId = matchPlanToSession(p, candidates, renderedSessionIds);
     events.push({
       ts: p.mtime,
       kind: "plan",
-      projectId: p.projectId,
-      realPath: p.projectId ? idToRealPath.get(p.projectId) ?? null : null,
+      projectId: localPlanProjectId,
+      realPath: localPlanProjectId ? idToRealPath.get(localPlanProjectId) ?? null : null,
       title: p.title,
       filename: p.filename,
       status: p.status,
@@ -687,5 +726,12 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       worktreeName: idToWorktreeName.get(e.projectId) ?? null,
     };
   });
-  return remapped.sort((a, b) => b.ts - a.ts);
+  return remapped
+    .map((e) => ({
+      ...e,
+      projectId: (normalizeOutgoingClaudeId(e.projectId) ?? null) as string | null,
+      sessionId: normalizeOutgoingClaudeId(e.sessionId) as string | undefined,
+      parentSessionId: normalizeOutgoingClaudeId(e.parentSessionId) as string | undefined,
+    }))
+    .sort((a, b) => b.ts - a.ts);
 }

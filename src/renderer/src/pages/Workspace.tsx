@@ -3,6 +3,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { marked } from "marked";
 import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
 import GitPanel from "./git/GitPanel";
+import type { EntityId } from "@shared/provider-types";
 import {
   STATUSES,
   buildProjNameMap,
@@ -10,6 +11,7 @@ import {
   modelBadgeClass,
   modelDisplayName,
   shortName,
+  stripClaudeEntityId,
   type BoardStatus,
   type EnrichedPlan,
   type ProjectTrack,
@@ -29,7 +31,7 @@ type ProjectPatch = {
   hidden?: boolean;
   order?: number | null;
 };
-type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: string | null };
+type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: EntityId | null };
 
 // 정렬 모드: 뷰 전역 취향이라 localStorage에 저장(테마와 동일 패턴), board.json엔 안 둔다.
 type SortMode = "recent" | "status" | "manual";
@@ -736,6 +738,7 @@ interface FileInfo {
 const MEMORY_RE = /(^|[\\/])memory[\\/]/;
 
 function MemorySection({ projectId }: { projectId: string }) {
+  const localProjectId = stripClaudeEntityId(projectId);
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<FileInfo[] | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -753,7 +756,7 @@ function MemorySection({ projectId }: { projectId: string }) {
     if (files === null) {
       try {
         setFiles(
-          await api.get<FileInfo[]>(`/api/projects/${encodeURIComponent(projectId)}/files`),
+          await api.get<FileInfo[]>(`/api/projects/${encodeURIComponent(localProjectId)}/files`),
         );
       } catch (e) {
         setError((e as Error).message);
@@ -765,7 +768,7 @@ function MemorySection({ projectId }: { projectId: string }) {
   async function openFile(rel: string) {
     try {
       const d = await api.get<{ content: string; truncated: boolean }>(
-        `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(rel)}`,
+        `/api/projects/${encodeURIComponent(localProjectId)}/file?path=${encodeURIComponent(rel)}`,
       );
       setContent({ path: rel, text: d.content, truncated: d.truncated });
     } catch (e) {
@@ -926,7 +929,11 @@ function PlanRow({
             <select
               className="ws-select grow"
               value={p.projectOverride ?? ""}
-              onChange={(e) => onPatch(p.filename, { projectOverride: e.target.value || null })}
+              onChange={(e) =>
+                onPatch(p.filename, {
+                  projectOverride: e.target.value ? (e.target.value as EntityId) : null,
+                })
+              }
               title="연결된 프로젝트 (수동 지정)"
             >
               <option value="">자동: {guessedName}</option>

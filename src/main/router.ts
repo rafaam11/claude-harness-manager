@@ -73,6 +73,7 @@ interface Route {
 
 function resolveProviderFilter(filter: string | undefined, fallback: "claude" | "all" = "all") {
   if (filter === undefined) return fallback;
+  if (filter === "") return null;
   return parseProviderFilter(filter);
 }
 

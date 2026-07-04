@@ -225,4 +225,55 @@ describe("codex provider", () => {
       lastUserText: "타임라인을 고쳐줘",
     });
   });
+
+  it("aggregates duplicate rollout files into one user-facing session using history", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2a84-a3f8-73e3-a3ea-3cca10a8fcbd";
+    await writeText(
+      path.join(codexHome, "history.jsonl"),
+      [
+        JSON.stringify({ session_id: sessionId, ts: 1783169907, text: "이전 요청" }),
+        JSON.stringify({ session_id: sessionId, ts: 1783171120, text: "최신 요청" }),
+      ].join("\n"),
+    );
+    for (const [index, prompt] of ["첫 rollout", "둘째 rollout"].entries()) {
+      const sessionPath = path.join(
+        codexHome,
+        "sessions",
+        "2026",
+        "07",
+        "04",
+        `rollout-2026-07-04T10-00-0${index}-${sessionId}.jsonl`,
+      );
+      await writeText(
+        sessionPath,
+        [
+          JSON.stringify({
+            timestamp: `2026-07-04T01:0${index}:00.000Z`,
+            type: "session_meta",
+            payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+          }),
+          JSON.stringify({
+            timestamp: `2026-07-04T01:0${index}:01.000Z`,
+            type: "response_item",
+            payload: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: prompt }],
+            },
+          }),
+        ].join("\n"),
+      );
+    }
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      title: "최신 요청",
+      lastUserText: "최신 요청",
+    });
+  });
 });

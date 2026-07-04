@@ -215,5 +215,8 @@ export async function getProviderTimeline(
     const provider = getProviders("codex")[0];
     events.push(...(await provider.listSessions()).map(codexSessionToTimelineEvent));
   }
-  return events.sort((a, b) => b.ts - a.ts);
+  const sessionIds = new Set(events.filter((event) => event.kind === "session" && event.sessionId).map((event) => event.sessionId!));
+  return events
+    .filter((event) => event.kind !== "plan" || (event.parentSessionId && sessionIds.has(event.parentSessionId)))
+    .sort((a, b) => b.ts - a.ts);
 }

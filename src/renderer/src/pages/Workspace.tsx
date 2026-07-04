@@ -250,14 +250,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
 
   return (
     <div>
-      <h2>
-        Workspace{" "}
-        {providerFilter !== "claude" && (
-          <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : "provider-all"}`}>
-            {providerFilter === "all" ? "All" : providerLabel(providerFilter)}
-          </span>
-        )}
-      </h2>
+      <h2>Workspace</h2>
       {projects.length === 0 && unassigned.length === 0 ? (
         <div className="muted">프로젝트 기록이 없습니다.</div>
       ) : (
@@ -442,7 +435,6 @@ function ProjectDetail({
 }) {
   const r = p.recall;
   const base = shortName(p.realPath, p.id);
-  const isClaude = (p.provider ?? "claude") === "claude";
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
   // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
@@ -537,16 +529,14 @@ function ProjectDetail({
         >
           세션
         </button>
-        {isClaude && (
-          <button
-            className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
-            onClick={() => setDetailMode("git")}
-          >
-            Git
-          </button>
-        )}
+        <button
+          className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
+          onClick={() => setDetailMode("git")}
+        >
+          Git
+        </button>
       </div>
-      {isClaude && detailMode === "git" ? (
+      {detailMode === "git" ? (
         <>
           {p.worktrees.length > 0 && (
             <div className="ws-git-target">
@@ -577,7 +567,7 @@ function ProjectDetail({
       ) : detailMode === "session" ? (
         <>
           <SessionsSection projectId={p.id} />
-          {isClaude && <MemorySection projectId={p.id} />}
+          {(p.provider ?? "claude") === "claude" && <MemorySection projectId={p.id} />}
         </>
       ) : (
         <>

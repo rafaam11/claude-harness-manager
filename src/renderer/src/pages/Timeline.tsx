@@ -167,9 +167,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
       childrenBySession.set(e.parentSessionId, arr);
     }
   }
-  const topLevel = shown.filter(
-    (e) => !(e.kind === "plan" && e.parentSessionId && visibleSessionIds.has(e.parentSessionId)),
-  );
+  const topLevel = shown.filter((e) => isTopLevelTimelineEvent(e, visibleSessionIds));
 
   const groups: { day: string; items: TimelineEvent[] }[] = [];
   for (const e of topLevel) {
@@ -226,14 +224,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
 
   return (
     <div>
-      <h2>
-        Timeline{" "}
-        {providerFilter !== "claude" && (
-          <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : "provider-all"}`}>
-            {providerFilter === "all" ? "All" : providerLabel(providerFilter)}
-          </span>
-        )}
-      </h2>
+      <h2>Timeline</h2>
       {projectTabs.length > 0 && (
         <div className="tl-tabs">
           <button className={`tl-tab${activeTab === "all" ? " active" : ""}`} onClick={() => setActiveTab("all")}>
@@ -294,6 +285,12 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
       </div>
     </div>
   );
+}
+
+export function isTopLevelTimelineEvent(e: TimelineEvent, visibleSessionIds: Set<string>): boolean {
+  if (e.kind !== "plan") return true;
+  if (!e.parentSessionId) return false;
+  return !visibleSessionIds.has(e.parentSessionId);
 }
 
 function chipDotClass(status: BoardStatus | null): string {

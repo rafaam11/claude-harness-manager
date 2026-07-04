@@ -2,6 +2,7 @@
 // renderer는 실제 repo 경로를 들고 다니지 않는다(보안 + 단순화): 항상 projectId로만 요청한다.
 import { readBoard } from "../../lib/board.js";
 import { splitEntityId } from "../../providers/registry.js";
+import { codexProvider } from "../../providers/codex.js";
 import { guessOriginalPath } from "../projects.js";
 import { getProjectRecalls } from "../recall.js";
 import { resolveRepoTopology } from "../repo-group.js";
@@ -36,7 +37,7 @@ import type {
 
 function localProjectId(projectId: string): string {
   const split = splitEntityId(projectId);
-  return split.provider === "claude" ? split.localId : projectId;
+  return split.provider === "claude" || split.provider === "codex" ? split.localId : projectId;
 }
 
 function projectIdCandidates(projectId: string): string[] {
@@ -66,6 +67,14 @@ export async function resolveRepoPath(projectId: string): Promise<RepoResolution
   const proj = recalls.find((r) => r.id === localId);
   const fromRecall = await assertGitRepo(proj?.realPath);
   if (fromRecall) return { repoPath: fromRecall, source: "recall" };
+
+  const split = splitEntityId(projectId);
+  if (split.provider === "codex") {
+    const codexProjects = await codexProvider.listProjects();
+    const codexProject = codexProjects.find((p) => p.id === projectId);
+    const fromCodex = await assertGitRepo(codexProject?.realPath ?? undefined);
+    if (fromCodex) return { repoPath: fromCodex, source: "recall" };
+  }
 
   const fromGuess = await assertGitRepo(guessOriginalPath(localId));
   if (fromGuess) return { repoPath: fromGuess, source: "guess" };

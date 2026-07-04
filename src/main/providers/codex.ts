@@ -8,6 +8,7 @@ import type { ProviderAdapter } from "./types.js";
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
 export const CODEX_SESSIONS_DIR = path.join(CODEX_HOME, "sessions");
+export const CODEX_HISTORY = path.join(CODEX_HOME, "history.jsonl");
 const CODEX_SESSION_TAIL_BYTES = 512 * 1024;
 
 async function statOrNull(p: string) {
@@ -114,6 +115,40 @@ interface CodexSessionSummary {
   lastUserText: string | undefined;
   lastAssistantText: string | undefined;
   sourcePath: string;
+}
+
+interface CodexHistoryEntry {
+  sessionId: string;
+  text: string;
+  updatedAt: string;
+}
+
+function isNoiseHistoryText(text: string): boolean {
+  const t = text.trimStart();
+  return t.startsWith("⚠") || isInjectedCodexText(t);
+}
+
+async function readCodexHistory(): Promise<Map<string, CodexHistoryEntry>> {
+  const raw = await fs.readFile(CODEX_HISTORY, "utf8").catch(() => "");
+  const latest = new Map<string, CodexHistoryEntry>();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof o?.session_id !== "string" || typeof o?.text !== "string") continue;
+    const text = o.text.trim();
+    if (!text || isNoiseHistoryText(text)) continue;
+    const updatedAt = isoFromTimestamp(o.ts) ?? iso(Date.now());
+    const prev = latest.get(o.session_id);
+    if (!prev || Date.parse(updatedAt) >= Date.parse(prev.updatedAt)) {
+      latest.set(o.session_id, { sessionId: o.session_id, text, updatedAt });
+    }
+  }
+  return latest;
 }
 
 async function readHead(filePath: string, bytes = 64 * 1024): Promise<string> {
@@ -230,10 +265,32 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
 
 async function readCodexSessions(): Promise<CodexSessionSummary[]> {
   const files = await listSessionFiles();
-  const sessions = (await Promise.all(files.map((file) => readCodexSession(file)))).filter(
+  const rawSessions = (await Promise.all(files.map((file) => readCodexSession(file)))).filter(
     (s): s is CodexSessionSummary => Boolean(s),
   );
-  return sessions.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const history = await readCodexHistory();
+  const byId = new Map<string, CodexSessionSummary>();
+  for (const session of rawSessions) {
+    const prev = byId.get(session.id);
+    if (!prev || Date.parse(session.updatedAt) >= Date.parse(prev.updatedAt)) {
+      byId.set(session.id, session);
+    }
+  }
+  const sessions = [...byId.values()];
+  const historyHasEntries = history.size > 0;
+  return sessions
+    .filter((session) => !historyHasEntries || history.has(session.localId))
+    .map((session) => {
+      const h = history.get(session.localId);
+      if (!h) return session;
+      return {
+        ...session,
+        title: h.text,
+        lastUserText: h.text,
+        updatedAt: Date.parse(h.updatedAt) >= Date.parse(session.updatedAt) ? h.updatedAt : session.updatedAt,
+      };
+    })
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
 async function codexMemoryFiles(): Promise<string[]> {

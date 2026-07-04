@@ -5,6 +5,7 @@ const guessOriginalPath = vi.fn();
 const getProjectRecalls = vi.fn();
 const resolveRepoTopology = vi.fn();
 const assertGitRepo = vi.fn();
+const listCodexProjects = vi.fn();
 
 vi.mock("../../lib/board.js", () => ({
   readBoard,
@@ -20,6 +21,12 @@ vi.mock("../recall.js", () => ({
 
 vi.mock("../repo-group.js", () => ({
   resolveRepoTopology,
+}));
+
+vi.mock("../../providers/codex.js", () => ({
+  codexProvider: {
+    listProjects: listCodexProjects,
+  },
 }));
 
 vi.mock("./repo-guard.js", () => ({
@@ -81,6 +88,7 @@ beforeEach(() => {
   getProjectRecalls.mockReset();
   resolveRepoTopology.mockReset();
   assertGitRepo.mockReset();
+  listCodexProjects.mockReset();
 });
 
 afterEach(() => {
@@ -136,6 +144,35 @@ describe("git facade Claude id compatibility", () => {
 
     expect(resolved).toEqual({ repoPath: "C:/repos/from-recall", source: "recall" });
     expect(getProjectRecalls).toHaveBeenCalledTimes(1);
+    expect(guessOriginalPath).not.toHaveBeenCalled();
+  });
+
+  it("uses Codex project realPath so Codex projects expose the same Git tab behavior", async () => {
+    readBoard.mockResolvedValue({
+      schemaVersion: 2,
+      projects: {},
+      plans: {},
+      sessions: {},
+    });
+    getProjectRecalls.mockResolvedValue([]);
+    listCodexProjects.mockResolvedValue([
+      {
+        id: "codex:C--repo",
+        provider: "codex",
+        localId: "C--repo",
+        title: "repo",
+        realPath: "C:/repo",
+        latestActivityAt: "2026-07-04T00:00:00.000Z",
+      },
+    ]);
+    guessOriginalPath.mockReturnValue("C:/bad-guess");
+    assertGitRepo.mockImplementation(async (value?: string | null) => (value === "C:/repo" ? value : null));
+
+    const { resolveRepoPath } = await loadGitModule();
+    const resolved = await resolveRepoPath("codex:C--repo");
+
+    expect(resolved).toEqual({ repoPath: "C:/repo", source: "recall" });
+    expect(listCodexProjects).toHaveBeenCalledTimes(1);
     expect(guessOriginalPath).not.toHaveBeenCalled();
   });
 });

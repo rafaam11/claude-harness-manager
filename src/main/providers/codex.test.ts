@@ -73,7 +73,7 @@ describe("codex provider", () => {
         expect.objectContaining({
           id: "codex-profile:work.config.toml",
           format: "toml",
-          writable: true,
+          writable: false,
           label: "work.config.toml",
         }),
       ]),

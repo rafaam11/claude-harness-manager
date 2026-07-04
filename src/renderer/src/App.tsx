@@ -36,7 +36,7 @@ const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("claude");
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem("hm-theme") as Theme) || "dark",
@@ -89,7 +89,7 @@ export default function App() {
     <div className="layout">
       <nav>
         <div className="nav-head">
-          <h1>하네스 매니저</h1>
+          <h1>Harness Manager</h1>
           <button
             className="theme-toggle"
             onClick={toggleTheme}

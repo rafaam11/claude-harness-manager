@@ -139,3 +139,25 @@ describe("git facade Claude id compatibility", () => {
     expect(guessOriginalPath).not.toHaveBeenCalled();
   });
 });
+
+describe("git facade worktree authority", () => {
+  it("does not accept a worktreePath when the base project repo cannot be resolved", async () => {
+    readBoard.mockResolvedValue({
+      schemaVersion: 2,
+      projects: {},
+      plans: {},
+      sessions: {},
+    });
+    getProjectRecalls.mockResolvedValue([]);
+    guessOriginalPath.mockReturnValue("C:/missing/base");
+    assertGitRepo.mockImplementation(async (value?: string | null) =>
+      value === "C:/repos/other-worktree" ? value : null,
+    );
+
+    const { resolveRepo } = await loadGitModule();
+    const resolved = await resolveRepo("claude:D--missing", "C:/repos/other-worktree");
+
+    expect(resolved).toBeNull();
+    expect(resolveRepoTopology).not.toHaveBeenCalled();
+  });
+});

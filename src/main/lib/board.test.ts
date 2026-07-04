@@ -117,4 +117,44 @@ describe("readBoard", () => {
     expect(board.plans["claude:old-plan.md"]?.status).toBe("완료");
     expect(board.sessions["claude:old-session"]?.memo).toBe("legacy-session");
   });
+
+  it("does not quarantine or rename a corrupt legacy board when v2 is missing", async () => {
+    const { readBoard } = await loadBoardModule();
+    const legacyPath = path.join(homeDir, ".claude", "harness-manager", "board.json");
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+    await fs.writeFile(legacyPath, "{not-json", "utf8");
+
+    const board = await readBoard();
+
+    expect(board).toEqual({
+      schemaVersion: 2,
+      plans: {},
+      projects: {},
+      sessions: {},
+    });
+    expect(await fs.readFile(legacyPath, "utf8")).toBe("{not-json");
+    const legacyDir = await fs.readdir(path.dirname(legacyPath));
+    expect(legacyDir.some((name) => name.startsWith("board.json.corrupt."))).toBe(false);
+  });
+});
+
+describe("setPlanField", () => {
+  it("edits the migrated claude-prefixed plan key instead of creating a stale raw duplicate", async () => {
+    const { setPlanField } = await loadBoardModule();
+    const legacyPath = path.join(homeDir, ".claude", "harness-manager", "board.json");
+    await writeJson(legacyPath, {
+      version: 1,
+      plans: { "old-plan.md": { status: "완료" } },
+      projects: {},
+      sessions: {},
+    });
+
+    const board = await setPlanField("old-plan.md", { memo: "edited" });
+
+    expect(board.plans["claude:old-plan.md"]).toEqual({
+      status: "완료",
+      memo: "edited",
+    });
+    expect(board.plans["old-plan.md"]).toBeUndefined();
+  });
 });

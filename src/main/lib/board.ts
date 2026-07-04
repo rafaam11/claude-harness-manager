@@ -169,7 +169,11 @@ export function migrateBoard(parsed: unknown): BoardData {
   return migrated;
 }
 
-async function readBoardFile(filePath: string): Promise<ReadBoardFileResult> {
+async function readBoardFile(
+  filePath: string,
+  options: { quarantineCorrupt?: boolean } = {},
+): Promise<ReadBoardFileResult> {
+  const quarantineCorrupt = options.quarantineCorrupt !== false;
   const p = guardPath(filePath);
   let raw: string;
   try {
@@ -181,9 +185,12 @@ async function readBoardFile(filePath: string): Promise<ReadBoardFileResult> {
   try {
     return { kind: "ok", board: migrateBoard(JSON.parse(raw)) };
   } catch {
-    // 손상본은 옆에 보관하고 기본값으로 생존(페이지가 죽지 않게)
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await fs.rename(p, guardPath(`${filePath}.corrupt.${stamp}`)).catch(() => {});
+    if (quarantineCorrupt) {
+      // v2 손상본은 옆에 보관하고 기본값으로 생존(페이지가 죽지 않게).
+      // 레거시 migration source는 사용자의 원본이므로 read 경로에서 변경하지 않는다.
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      await fs.rename(p, guardPath(`${filePath}.corrupt.${stamp}`)).catch(() => {});
+    }
     return { kind: "corrupt" };
   }
 }
@@ -193,7 +200,7 @@ export async function readBoard(): Promise<BoardData> {
   if (nextBoard.kind === "ok") return nextBoard.board;
   if (nextBoard.kind === "corrupt") return emptyBoard();
 
-  const legacyBoard = await readBoardFile(BOARD_FILE);
+  const legacyBoard = await readBoardFile(BOARD_FILE, { quarantineCorrupt: false });
   if (legacyBoard.kind === "ok") return legacyBoard.board;
 
   return emptyBoard();
@@ -231,13 +238,35 @@ function pruneIfEmpty(map: Record<string, object>, key: string) {
   if (map[key] && Object.keys(map[key]).length === 0) delete map[key];
 }
 
+function unprefixedPlanKey(key: string): string | null {
+  if (key.startsWith("claude:")) return key.slice("claude:".length);
+  if (key.startsWith("codex:")) return key.slice("codex:".length);
+  return null;
+}
+
+function planWriteKeys(filename: string): {
+  target: string;
+  compatible: string[];
+} {
+  const raw = unprefixedPlanKey(filename);
+  if (raw !== null) {
+    const compatible = [raw, filename].filter((key, index, keys) => keys.indexOf(key) === index);
+    return { target: filename, compatible };
+  }
+
+  const claudeKey = `claude:${filename}`;
+  return { target: claudeKey, compatible: [filename, claudeKey] };
+}
+
 export async function setPlanField(
   filename: string,
   patch: { status?: string; memo?: string; projectOverride?: string | null },
 ): Promise<BoardData> {
   return withLock(async () => {
     const board = await readBoard();
-    const entry: PlanBoardEntry = { ...board.plans[filename] };
+    const { target, compatible } = planWriteKeys(filename);
+    const entry: PlanBoardEntry = {};
+    for (const key of compatible) Object.assign(entry, board.plans[key] ?? {});
     if (patch.status !== undefined) {
       const st = asStatus(patch.status);
       if (st) entry.status = st;
@@ -251,8 +280,11 @@ export async function setPlanField(
       if (patch.projectOverride) entry.projectOverride = patch.projectOverride;
       else delete entry.projectOverride;
     }
-    board.plans[filename] = entry;
-    pruneIfEmpty(board.plans, filename);
+    for (const key of compatible) {
+      if (key !== target) delete board.plans[key];
+    }
+    board.plans[target] = entry;
+    pruneIfEmpty(board.plans, target);
     await writeBoardAtomic(board);
     return board;
   });

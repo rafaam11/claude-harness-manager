@@ -79,10 +79,10 @@ export async function resolveRepoPath(projectId: string): Promise<RepoResolution
  * 부적격이면 null(호출부가 대표 repo로 폴백).
  */
 async function resolveWorktreePath(projectId: string, worktreePath: string): Promise<string | null> {
+  const base = await resolveRepoPath(projectId);
+  if (!base) return null; // 대표 repo가 없으면 worktreePath만으로 권한을 만들지 않는다.
   const wt = await assertGitRepo(worktreePath);
   if (!wt) return null;
-  const base = await resolveRepoPath(projectId);
-  if (!base) return wt; // 대표를 못 찾으면 assertGitRepo 통과한 wt를 신뢰
   const [a, b] = await Promise.all([
     resolveRepoTopology(wt),
     resolveRepoTopology(base.repoPath),

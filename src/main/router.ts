@@ -138,6 +138,9 @@ const routes: Route[] = [
     pattern: "/api/config/file/:id",
     handler: async ({ params, body }) => {
       const entry = await providerConfigEntry(params.id);
+      if (entry.provider === "codex" && entry.id !== "codex-config") {
+        throw new HttpError(403, "Codex profile config는 읽기 전용입니다");
+      }
       if (!entry.writable) throw new HttpError(403, "읽기 전용 파일");
       const { content, baseHash } = body as { content: string; baseHash: string };
       if (typeof content !== "string" || typeof baseHash !== "string") {

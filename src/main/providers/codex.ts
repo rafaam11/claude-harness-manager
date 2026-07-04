@@ -51,7 +51,7 @@ export const codexProvider: ProviderAdapter = {
         path: p,
         format: "toml" as const,
         scope: "user" as const,
-        writable: true,
+        writable: false,
       })),
     ];
   },

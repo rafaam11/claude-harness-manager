@@ -1,6 +1,8 @@
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { detectProcess } from "../lib/process-detect.js";
+import { readCodexMcpServersFromToml } from "../lib/toml-validate.js";
 import type { ProviderAdapter } from "./types.js";
 
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -24,7 +26,8 @@ export const codexProvider: ProviderAdapter = {
     ];
   },
   async readMcpServers() {
-    return [];
+    const raw = await fs.readFile(CODEX_CONFIG, "utf8").catch(() => "");
+    return raw ? readCodexMcpServersFromToml(raw) : [];
   },
   async listCatalog() {
     return [];

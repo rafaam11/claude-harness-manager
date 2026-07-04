@@ -54,7 +54,7 @@
 
 1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 **`Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
-3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다.
+3. 설치 후 바탕화면/시작 메뉴의 **Harness Manager** 로 실행한다.
 
 **Linux (AppImage)**
 

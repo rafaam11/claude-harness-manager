@@ -40,7 +40,7 @@
   },
   "build": {
     "appId": "com.digitrack.claudeharnessmanager",
-    "productName": "Claude Harness Manager",
+    "productName": "Harness Manager",
     "directories": {
       "output": "release"
     },
@@ -58,7 +58,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Claude Harness Manager"
+      "shortcutName": "Harness Manager"
     },
     "linux": {
       "target": [

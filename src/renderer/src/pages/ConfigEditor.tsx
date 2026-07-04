@@ -21,8 +21,7 @@ interface ConfigData {
   content: string;
   sha256: string;
   mtime: number;
-  writable: boolean;
-  path: string;
+  descriptor: NormalizedConfigFile;
 }
 
 interface BackupInfo {
@@ -177,6 +176,27 @@ function toLegacyConfigName(id: string): LegacyConfigName | null {
   return id in LEGACY_CONFIGS ? (id as LegacyConfigName) : null;
 }
 
+function TextConfigEditor({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string;
+  readOnly: boolean;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <textarea
+      className="input mono"
+      style={{ width: "100%", minHeight: 460, resize: "vertical" }}
+      value={value}
+      readOnly={readOnly}
+      onChange={(e) => onChange(e.target.value)}
+      spellCheck={false}
+    />
+  );
+}
+
 export default function ConfigEditor({ providerFilter }: Props) {
   const [files, setFiles] = useState<NormalizedConfigFile[]>([]);
   const [selectedId, setSelectedId] = useState<string>("settings");
@@ -196,23 +216,41 @@ export default function ConfigEditor({ providerFilter }: Props) {
     [files, selectedId],
   );
   const legacyName = selectedFile ? toLegacyConfigName(selectedFile.id) : null;
+  const isToml = selectedFile?.format === "toml";
+  const isJson = selectedFile?.format === "json";
 
-  const loadLegacy = useCallback((name: LegacyConfigName) => {
-    setMessage(null);
-    setExternalChange(false);
-    api
-      .get<ConfigData>(`/api/configs/${name}`)
-      .then((d) => {
-        setData(d);
-        setText(d.content);
-        editorRef.current?.update({ text: d.content });
-      })
-      .catch((e) => setMessage({ kind: "err", text: e.message }));
-    api
-      .get<BackupInfo[]>(`/api/configs/${name}/backups`)
-      .then(setBackups)
-      .catch(() => setBackups([]));
-  }, []);
+  const loadSelected = useCallback(
+    (fileId: string, loadBackupList: boolean) => {
+      setMessage(null);
+      setExternalChange(false);
+      api
+        .get<ConfigData>(`/api/config/file/${encodeURIComponent(fileId)}`)
+        .then((d) => {
+          setData(d);
+          setText(d.content);
+          if (d.descriptor.format === "json") {
+            editorRef.current?.update({ text: d.content });
+          } else {
+            editorRef.current = null;
+          }
+        })
+        .catch((e) => setMessage({ kind: "err", text: e.message }));
+      if (loadBackupList) {
+        const name = toLegacyConfigName(fileId);
+        if (!name) {
+          setBackups([]);
+          return;
+        }
+        api
+          .get<BackupInfo[]>(`/api/configs/${name}/backups`)
+          .then(setBackups)
+          .catch(() => setBackups([]));
+      } else {
+        setBackups([]);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setMessage(null);
@@ -230,28 +268,28 @@ export default function ConfigEditor({ providerFilter }: Props) {
   }, [providerQuery]);
 
   useEffect(() => {
-    if (!legacyName) {
+    if (!selectedFile) {
       setData(null);
       setText("");
       setBackups([]);
       setExternalChange(false);
       return;
     }
-    loadLegacy(legacyName);
-  }, [legacyName, loadLegacy]);
+    loadSelected(selectedFile.id, Boolean(legacyName));
+  }, [legacyName, loadSelected, selectedFile]);
 
   useEffect(() => {
-    if (!data || !legacyName) return;
+    if (!data || !selectedFile) return;
     const t = setInterval(() => {
       api
-        .get<ConfigData>(`/api/configs/${legacyName}`)
+        .get<ConfigData>(`/api/config/file/${encodeURIComponent(selectedFile.id)}`)
         .then((d) => {
           if (d.sha256 !== data.sha256) setExternalChange(true);
         })
         .catch(() => {});
     }, 5000);
     return () => clearInterval(t);
-  }, [legacyName, data]);
+  }, [data, selectedFile]);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -260,24 +298,29 @@ export default function ConfigEditor({ providerFilter }: Props) {
     return () => obs.disconnect();
   }, []);
 
-  const jsonValid = (() => {
-    try {
-      JSON.parse(text);
-      return true;
-    } catch {
-      return false;
-    }
-  })();
+  const jsonValid = !isJson
+    ? true
+    : (() => {
+        try {
+          JSON.parse(text);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
 
   const save = async () => {
-    if (!data || !legacyName) return;
+    if (!data || !selectedFile) return;
     try {
-      const res = await api.put<{ sha256: string; backup: string }>(`/api/configs/${legacyName}`, {
-        content: text,
-        baseHash: data.sha256,
-      });
+      const res = await api.put<{ sha256: string; backup: string }>(
+        `/api/config/file/${encodeURIComponent(selectedFile.id)}`,
+        {
+          content: text,
+          baseHash: data.sha256,
+        },
+      );
       setMessage({ kind: "ok", text: `저장 완료 (백업: ${res.backup})` });
-      loadLegacy(legacyName);
+      loadSelected(selectedFile.id, Boolean(legacyName));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setMessage({ kind: "err", text: "충돌(409): 파일이 외부에서 변경되었습니다. 다시 불러오세요." });
@@ -293,7 +336,7 @@ export default function ConfigEditor({ providerFilter }: Props) {
     try {
       await api.post(`/api/configs/${legacyName}/restore`, { backup });
       setMessage({ kind: "ok", text: "복원 완료" });
-      loadLegacy(legacyName);
+      loadSelected(legacyName, true);
     } catch (e) {
       setMessage({ kind: "err", text: (e as Error).message });
     }
@@ -334,90 +377,104 @@ export default function ConfigEditor({ providerFilter }: Props) {
       </p>
 
       {message && <div className={`banner ${message.kind}`}>{message.text}</div>}
-      {externalChange && legacyName && (
+      {externalChange && selectedFile && (
         <div className="banner warn">
-          파일이 외부에서 변경되었습니다. <button className="btn ghost" onClick={() => loadLegacy(legacyName)}>다시 불러오기</button>
+          파일이 외부에서 변경되었습니다.{" "}
+          <button className="btn ghost" onClick={() => loadSelected(selectedFile.id, Boolean(legacyName))}>
+            다시 불러오기
+          </button>
         </div>
       )}
 
       {!selectedFile && <div className="muted">표시할 설정 파일이 없습니다.</div>}
 
-      {selectedFile && !legacyName && (
-        <div className="ws-detail-inner cfg-placeholder">
-          <div className="cat-detail-title">
-            <span className={`provider-badge ${providerBadgeClass(selectedFile.provider)}`}>{providerLabel(selectedFile.provider)}</span>
-            <span className="cat-detail-name">{selectedFile.label}</span>
-          </div>
-          <p className="muted mono">{selectedFile.path}</p>
-          <div className="banner warn">
-            이 provider 설정 편집 UI는 Task 11 범위입니다. 현재는 파일 목록만 노출하며, Claude 기존 설정 편집기 동작은 그대로 유지합니다.
-          </div>
-        </div>
-      )}
-
-      {data && selectedFile && legacyName && (
+      {data && selectedFile && (
         <div>
-          {!data.writable && (
+          {!data.descriptor.writable && (
             <div className="banner warn">
-              이 파일은 읽기 전용입니다. CC가 상시 재작성하므로 수정은 전 세션 종료 후
-              archive\2026-06-11\cleanup-claude-json.ps1 같은 수동 절차를 사용하세요.
+              이 파일은 읽기 전용입니다.
             </div>
           )}
           <p className="muted mono">
-            {data.path} — {fmtDate(data.mtime)}
+            {data.descriptor.path} — {fmtDate(data.mtime)}
           </p>
-          <JsonTreeEditor
-            initialText={text}
-            readOnly={!data.writable}
-            isDark={isDark}
-            onChangeText={setText}
-            apiRef={editorRef}
-          />
+          {isToml && (
+            <div className="notice">TOML 파일은 텍스트 편집 후 저장 시 구문 검증을 수행합니다.</div>
+          )}
+          {selectedFile.format === "json" ? (
+            <JsonTreeEditor
+              initialText={text}
+              readOnly={!data.descriptor.writable}
+              isDark={isDark}
+              onChangeText={setText}
+              apiRef={editorRef}
+            />
+          ) : (
+            <TextConfigEditor
+              value={text}
+              readOnly={!data.descriptor.writable}
+              onChange={setText}
+            />
+          )}
           <p>
-            <button className="btn" onClick={save} disabled={!data.writable || !dirty || !jsonValid}>
+            <button
+              className="btn"
+              onClick={save}
+              disabled={!data.descriptor.writable || !dirty || !jsonValid}
+            >
               저장
             </button>
-            <button className="btn ghost" onClick={prettify} disabled={!data.writable || !jsonValid}>
-              정렬
-            </button>
+            {isJson && (
+              <button
+                className="btn ghost"
+                onClick={prettify}
+                disabled={!data.descriptor.writable || !jsonValid}
+              >
+                정렬
+              </button>
+            )}
             {!jsonValid && <span className="tag warn">JSON 파싱 오류 — 저장 불가</span>}
             {dirty && jsonValid && <span className="tag muted">수정됨</span>}
           </p>
 
-          <h3>백업 ({backups.length})</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>이름</th>
-                <th className="num">크기</th>
-                <th>시각</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {backups.map((b) => (
-                <tr key={b.name}>
-                  <td className="mono">{b.name}</td>
-                  <td className="num">{fmtSize(b.size)}</td>
-                  <td>{fmtDate(b.mtime)}</td>
-                  <td>
-                    {data.writable && (
-                      <button className="btn ghost" onClick={() => restore(b.name)}>
-                        복원
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {backups.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="muted">
-                    백업 없음
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {legacyName && (
+            <>
+              <h3>백업 ({backups.length})</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>이름</th>
+                    <th className="num">크기</th>
+                    <th>시각</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((b) => (
+                    <tr key={b.name}>
+                      <td className="mono">{b.name}</td>
+                      <td className="num">{fmtSize(b.size)}</td>
+                      <td>{fmtDate(b.mtime)}</td>
+                      <td>
+                        {data.descriptor.writable && (
+                          <button className="btn ghost" onClick={() => restore(b.name)}>
+                            복원
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {backups.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        백업 없음
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
       )}
 

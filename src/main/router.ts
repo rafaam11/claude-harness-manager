@@ -1,5 +1,6 @@
 import path from "node:path";
-import { CONFIG_FILES } from "./config.js";
+import { APP_BACKUP_DIR, CONFIG_FILES } from "./config.js";
+import { validateConfigContent } from "./lib/config-write.js";
 import { readConfig, safeWrite, listBackups, restoreBackup } from "./lib/safe-write.js";
 import { assertCleanupCategory } from "./lib/path-scope.js";
 import { detectClaude } from "./lib/cc-detect.js";
@@ -87,6 +88,15 @@ function configEntry(name: string) {
   return entry;
 }
 
+async function providerConfigEntry(id: string) {
+  for (const provider of getProviders("all")) {
+    const files = await provider.listConfigFiles();
+    const found = files.find((f) => f.id === id);
+    if (found) return found;
+  }
+  throw new HttpError(404, `unknown config file: ${id}`);
+}
+
 // 라우트 테이블. 기존 server/src/routes/index.ts 의 핸들러 본문을 그대로 이식했다.
 const routes: Route[] = [
   { method: "GET", pattern: "/api/cc-status", handler: async () => detectClaude() },
@@ -112,6 +122,31 @@ const routes: Route[] = [
       const provider = parseProviderFilter(query.provider);
       if (!provider) throw new HttpError(400, "invalid provider filter");
       return (await Promise.all(getProviders(provider).map((p) => p.listConfigFiles()))).flat();
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/config/file/:id",
+    handler: async ({ params }) => {
+      const entry = await providerConfigEntry(params.id);
+      const data = await readConfig(entry.path);
+      return { ...data, descriptor: entry };
+    },
+  },
+  {
+    method: "PUT",
+    pattern: "/api/config/file/:id",
+    handler: async ({ params, body }) => {
+      const entry = await providerConfigEntry(params.id);
+      if (!entry.writable) throw new HttpError(403, "읽기 전용 파일");
+      const { content, baseHash } = body as { content: string; baseHash: string };
+      if (typeof content !== "string" || typeof baseHash !== "string") {
+        throw new HttpError(400, "content/baseHash 필요");
+      }
+      return safeWrite(entry.id, entry.path, content, baseHash, {
+        backupDir: APP_BACKUP_DIR,
+        validate: (_name, text) => validateConfigContent(entry, text),
+      });
     },
   },
 

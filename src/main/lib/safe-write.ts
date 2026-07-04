@@ -15,6 +15,13 @@ export function sha256(content: string | Buffer): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+export type SafeWriteValidator = (name: string, content: string) => void;
+
+export interface SafeWriteOptions {
+  validate?: SafeWriteValidator;
+  backupDir?: string;
+}
+
 export async function readConfig(filePath: string) {
   const p = guardPath(filePath);
   const buf = await fs.readFile(p);
@@ -22,12 +29,12 @@ export async function readConfig(filePath: string) {
   return { content: buf.toString("utf8"), mtime: stat.mtimeMs, sha256: sha256(buf) };
 }
 
-async function rotateBackups(prefix: string) {
-  const entries = await fs.readdir(BACKUP_DIR).catch(() => [] as string[]);
+async function rotateBackups(backupDir: string, prefix: string) {
+  const entries = await fs.readdir(backupDir).catch(() => [] as string[]);
   const mine = entries.filter((e) => e.startsWith(prefix)).sort();
   while (mine.length > BACKUP_KEEP) {
     const oldest = mine.shift()!;
-    await fs.rm(path.join(BACKUP_DIR, oldest), { force: true });
+    await fs.rm(path.join(backupDir, oldest), { force: true });
   }
 }
 
@@ -40,9 +47,12 @@ export async function safeWrite(
   filePath: string,
   content: string,
   baseHash: string,
+  options: SafeWriteOptions = {},
 ): Promise<{ sha256: string; backup: string }> {
   return withLock(async () => {
     const p = guardPath(filePath);
+    const validate = options.validate ?? validateConfig;
+    const backupDir = guardPath(options.backupDir ?? BACKUP_DIR);
 
     const current = await fs.readFile(p);
     const currentHash = sha256(current);
@@ -52,14 +62,14 @@ export async function safeWrite(
       );
     }
 
-    validateConfig(name, content);
+    validate(name, content);
 
-    await fs.mkdir(BACKUP_DIR, { recursive: true });
+    await fs.mkdir(backupDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupName = `${path.basename(p)}.${stamp}.bak`;
-    const backupPath = path.join(BACKUP_DIR, backupName);
+    const backupPath = path.join(backupDir, backupName);
     await fs.writeFile(backupPath, current);
-    await rotateBackups(path.basename(p) + ".");
+    await rotateBackups(backupDir, path.basename(p) + ".");
 
     const tempPath = p + ".chm-tmp";
     await fs.writeFile(tempPath, content, "utf8");

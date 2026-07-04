@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { detectProcess } from "../lib/process-detect.js";
 import type { ProviderAdapter } from "./types.js";
 
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -38,6 +39,8 @@ export const codexProvider: ProviderAdapter = {
     return [];
   },
   async detectRunning() {
-    return false;
+    return detectProcess(
+      process.platform === "win32" ? ["Codex.exe", "codex.exe"] : ["Codex", "codex"],
+    );
   },
 };

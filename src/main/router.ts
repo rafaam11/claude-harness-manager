@@ -31,6 +31,7 @@ import {
   type ProjectTrack,
 } from "./lib/board.js";
 import * as git from "./services/git/index.js";
+import { getProviders } from "./providers/registry.js";
 import type {
   ApiMethod,
   ApiRequest,
@@ -39,6 +40,7 @@ import type {
   GitOpKind,
   GraphActionRequest,
   NewsItem,
+  ProviderFilter,
   SecretStatus,
   SetDeepLKeyRequest,
   StatusEntryKind,
@@ -80,6 +82,29 @@ function configEntry(name: string) {
 // 라우트 테이블. 기존 server/src/routes/index.ts 의 핸들러 본문을 그대로 이식했다.
 const routes: Route[] = [
   { method: "GET", pattern: "/api/cc-status", handler: async () => detectClaude() },
+  {
+    method: "GET",
+    pattern: "/api/provider/status",
+    handler: async () => {
+      const providers = getProviders("all");
+      return Promise.all(
+        providers.map(async (p) => ({
+          id: p.id,
+          label: p.label,
+          running: await p.detectRunning(),
+          roots: [p.roots.home, ...p.roots.configFiles],
+        })),
+      );
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/config/files",
+    handler: async ({ query }) => {
+      const provider = (query.provider ?? "all") as ProviderFilter;
+      return (await Promise.all(getProviders(provider).map((p) => p.listConfigFiles()))).flat();
+    },
+  },
 
   // --- news (라이브 뉴스 통합 피드) ---
   // GET은 캐시 조회(멱등), refresh는 네트워크 fetch+디스크 쓰기라 POST. 둘 다 throw 안 하고

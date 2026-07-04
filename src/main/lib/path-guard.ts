@@ -1,5 +1,15 @@
 import path from "node:path";
 import { ALLOWED_ROOTS } from "../config.js";
+import { getProviders } from "../providers/registry.js";
+
+function allowedRoots(): string[] {
+  const providerRoots = getProviders("all").flatMap((p) => [
+    p.roots.home,
+    ...p.roots.configFiles,
+    ...(p.roots.appData ? [p.roots.appData] : []),
+  ]);
+  return [...ALLOWED_ROOTS, ...providerRoots];
+}
 
 export class PathViolationError extends Error {
   statusCode = 403;
@@ -11,7 +21,7 @@ export class PathViolationError extends Error {
  */
 export function guardPath(candidate: string): string {
   const resolved = path.resolve(candidate);
-  const ok = ALLOWED_ROOTS.some((root) => {
+  const ok = allowedRoots().some((root) => {
     const r = path.resolve(root);
     if (resolved === r) return true;
     return resolved.startsWith(r + path.sep);

@@ -16,7 +16,8 @@
 
 ## Commits
 
-- `646ee84` `fix: narrow filesystem scope guards`
+- `f816316` `fix: narrow filesystem scope guards`
+- This report file was finalized in a follow-up commit after the hash above.
 
 ## Commands Run
 

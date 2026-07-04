@@ -8,8 +8,6 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
-  providerBadgeClass,
-  providerLabel,
   shortName,
   type BoardStatus,
   type TimelineEvent,
@@ -181,10 +179,10 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     const key = eventKey(e);
     const isOpen = expanded.has(key);
     const showDay = isChild && parentDay !== undefined && fmtDay(e.ts) !== parentDay;
+    const providerAccent = e.provider ? ` tl-provider-${e.provider}` : "";
     return (
-      <div className={`timeline-row${isChild ? " timeline-row-child" : ""}`} key={key}>
+      <div className={`timeline-row${isChild ? " timeline-row-child" : ""}${providerAccent}`} key={key}>
         <div className="timeline-item" onClick={() => toggleExpand(key)}>
-          {e.provider && <span className={`provider-badge ${providerBadgeClass(e.provider)}`}>{providerLabel(e.provider)}</span>}
           {e.kind === "plan" && <span className="bdg bdg-plan">PLAN</span>}
           {e.kind === "session" && e.lastModel && (
             <span className={`bdg ${modelBadgeClass(e.lastModel)}`} title={e.lastModel}>

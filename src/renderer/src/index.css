@@ -531,22 +531,50 @@ pre.viewer {
 .tl-filter-archive-item button:hover { text-decoration: underline; }
 .timeline-day { font-weight: 700; color: var(--accent); margin: 16px 0 6px; font-size: 13px; }
 .timeline-gap { color: var(--muted); font-size: 11px; text-align: center; margin: 10px 0; opacity: 0.7; }
-.timeline-row { border-bottom: 1px solid var(--border); }
+.timeline-row {
+  --tl-provider-tone: transparent;
+  border-bottom: 1px solid var(--border);
+}
 /* 세션 아래 시간 근접으로 추정된 계획: 들여쓰기 + 좌측 라인으로 "이 세션에 속함"을 암시 */
 .timeline-row-child { margin-left: 24px; padding-left: 10px; border-left: 2px solid var(--border); }
 .timeline-row-child .timeline-title { color: var(--muted); }
-.timeline-item { display: flex; align-items: center; gap: 9px; padding: 5px 0; cursor: pointer; }
-.timeline-item:hover { background: var(--active-bg); }
+.timeline-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 0 5px 11px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tl-provider-tone) 72%, transparent);
+  opacity: 0.85;
+}
+.tl-provider-claude { --tl-provider-tone: #d97706; }
+.tl-provider-codex { --tl-provider-tone: #14b8a6; }
+.timeline-item:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--tl-provider-tone) 7%, transparent), transparent 42%),
+    var(--active-bg);
+}
 .timeline-time { font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .timeline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-proj { font-size: 11px; flex-shrink: 0; }
 .timeline-item .ws-select { flex-shrink: 0; }
 .timeline-caret { font-size: 10px; flex-shrink: 0; }
 /* 행 펼침 패널: 세션 스니펫 / 계획 본문 */
-.timeline-expand { padding: 2px 0 12px 28px; }
+.timeline-expand { padding: 2px 0 12px 39px; }
 .timeline-expand p { margin: 4px 0; font-size: 12px; color: var(--muted); line-height: 1.55; }
 .timeline-expand .tl-prompt { white-space: pre-wrap; word-break: break-word; }
-.timeline-expand.ws-planbody { margin-left: 28px; padding-left: 0; }
+.timeline-expand.ws-planbody { margin-left: 39px; padding-left: 0; }
 .bdg-plan { background: #10b981; }
 /* 세션 사용 모델 배지(계열별 색 — bdg-plan 녹색과 안 겹치게) */
 .bdg-model-opus { background: #8b5cf6; }

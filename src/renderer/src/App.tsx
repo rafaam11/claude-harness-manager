@@ -10,6 +10,7 @@ import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
 import type { ProviderFilter, ProviderStatus } from "@shared/provider-types";
 import { providerLabel } from "./pages/workspace-shared";
+import { PROVIDER_FILTER_OPTIONS, providerToneClass } from "./provider-ui";
 
 const PAGES = {
   timeline: { label: "타임라인" },
@@ -20,12 +21,6 @@ const PAGES = {
   news: { label: "뉴스" },
   glossary: { label: "용어집" },
 } as const;
-
-const PROVIDER_FILTERS: { value: ProviderFilter; label: string }[] = [
-  { value: "all", label: "전체" },
-  { value: "claude", label: "Claude Code" },
-  { value: "codex", label: "Codex" },
-];
 
 type PageKey = keyof typeof PAGES;
 type Theme = "dark" | "light";
@@ -121,11 +116,13 @@ export default function App() {
         <div className="nav-provider">
           <div className="nav-provider-label">Provider</div>
           <div className="provider-filter" role="tablist" aria-label="Provider filter">
-            {PROVIDER_FILTERS.map(({ value, label }) => (
+            {PROVIDER_FILTER_OPTIONS.map(({ value, label, fullLabel }) => (
               <button
                 key={value}
-                className={providerFilter === value ? "active" : ""}
+                className={`${providerToneClass(value)}${providerFilter === value ? " active" : ""}`}
                 onClick={() => setProviderFilter(value)}
+                aria-label={fullLabel}
+                title={fullLabel}
                 type="button"
               >
                 {label}

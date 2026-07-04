@@ -104,7 +104,7 @@ export interface TimelineEvent {
 }
 
 export function providerLabel(provider: ProviderId): string {
-  return provider === "claude" ? "Claude Code" : "Codex";
+  return provider === "claude" ? "Claude" : "Codex";
 }
 
 export function providerBadgeClass(provider: ProviderId): string {

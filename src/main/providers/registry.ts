@@ -8,6 +8,12 @@ const providers: Record<ProviderId, ProviderAdapter> = {
   codex: codexProvider,
 };
 
+export function parseProviderFilter(filter: string | undefined): ProviderFilter | null {
+  if (!filter) return "all";
+  if (filter === "all" || filter === "claude" || filter === "codex") return filter;
+  return null;
+}
+
 export function getProvider(id: ProviderId): ProviderAdapter {
   return providers[id];
 }

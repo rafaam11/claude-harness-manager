@@ -31,7 +31,7 @@ import {
   type ProjectTrack,
 } from "./lib/board.js";
 import * as git from "./services/git/index.js";
-import { getProviders } from "./providers/registry.js";
+import { getProviders, parseProviderFilter } from "./providers/registry.js";
 import type {
   ApiMethod,
   ApiRequest,
@@ -40,7 +40,6 @@ import type {
   GitOpKind,
   GraphActionRequest,
   NewsItem,
-  ProviderFilter,
   SecretStatus,
   SetDeepLKeyRequest,
   StatusEntryKind,
@@ -101,7 +100,8 @@ const routes: Route[] = [
     method: "GET",
     pattern: "/api/config/files",
     handler: async ({ query }) => {
-      const provider = (query.provider ?? "all") as ProviderFilter;
+      const provider = parseProviderFilter(query.provider);
+      if (!provider) throw new HttpError(400, "invalid provider filter");
       return (await Promise.all(getProviders(provider).map((p) => p.listConfigFiles()))).flat();
     },
   },

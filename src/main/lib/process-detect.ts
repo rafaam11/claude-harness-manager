@@ -5,7 +5,9 @@ const execFileAsync = promisify(execFile);
 
 export async function detectProcess(names: string[]): Promise<boolean> {
   if (process.platform === "win32") {
-    const { stdout } = await execFileAsync("tasklist", []).catch(() => ({ stdout: "" }));
+    const { stdout } = await execFileAsync("tasklist", [], { windowsHide: true }).catch(() => ({
+      stdout: "",
+    }));
     const lower = stdout.toLowerCase();
     return names.some((name) => lower.includes(name.toLowerCase()));
   }

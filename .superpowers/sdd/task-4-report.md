@@ -104,3 +104,43 @@
 ## Concerns
 
 - No additional task-specific automated tests were added because the task brief constrained ownership to the listed production files; verification relied on the existing test suite plus `typecheck` and `build`.
+
+## Fix Review Findings
+
+- Findings fixed:
+  - Restored `windowsHide: true` for the Windows `tasklist` call in `src/main/lib/process-detect.ts`.
+  - Added runtime provider-filter validation so invalid `/api/config/files?provider=...` values can be rejected as client input instead of reaching `getProviders()` unchecked.
+  - Added focused automated coverage for provider-filter parsing and invalid-value rejection behavior in a pure helper.
+- Files changed:
+  - `src/main/lib/process-detect.ts`
+  - `src/main/providers/registry.ts`
+  - `src/main/providers/registry.test.ts`
+  - `src/main/router.ts`
+  - `.superpowers/sdd/task-4-report.md`
+- Exact commands run/results:
+  - `Get-Content -Raw .superpowers\sdd\task-4-brief.md` - PASS
+  - `Get-Content -Raw .superpowers\sdd\task-4-report.md` - PASS
+  - `Get-Content -Raw C:\Users\uiop3\.codex\plugins\cache\claude-plugins-official\superpowers\6.1.1\skills\using-superpowers\SKILL.md` - PASS
+  - `Get-Content -Raw C:\Users\uiop3\.codex\plugins\cache\claude-plugins-official\superpowers\6.1.1\skills\test-driven-development\SKILL.md` - PASS
+  - `Get-Content -Raw C:\Users\uiop3\.codex\plugins\cache\claude-plugins-official\superpowers\6.1.1\skills\verification-before-completion\SKILL.md` - PASS
+  - `Get-Content -Raw C:\Users\uiop3\.codex\plugins\cache\claude-plugins-official\superpowers\6.1.1\skills\systematic-debugging\SKILL.md` - PASS
+  - `git status --short` - PASS
+  - `rg -n "config/files|provider/status|ProviderFilter|getProviders|process-detect|cc-status" src test` - PASS with `test` path missing warning; source hits confirmed target files
+  - `Get-Content -Raw src\main\router.ts` - PASS
+  - `Get-Content -Raw src\main\providers\registry.ts` - PASS
+  - `Get-Content -Raw src\main\lib\process-detect.ts` - PASS
+  - `Get-Content -Raw src\main\providers\registry.test.ts` - PASS
+  - `Get-Content -Raw package.json` - PASS
+  - `rg -n "routeRequest\(|matchPattern\(|new HttpError\(|/api/config/files" src\main --glob "*.test.ts"` - PASS with no matches
+  - `Get-ChildItem -Recurse -Filter *.test.ts | ForEach-Object { $_.FullName }` - PASS
+  - `Get-Content -Raw src\main\lib\cc-detect.ts` - PASS
+  - `Get-Content -Raw src\shared\provider-types.ts` - PASS
+  - `npm run test` - FAIL first, expected red step: `parseProviderFilter is not a function`
+  - `npm run test` - PASS, `2` files and `8` tests passed
+  - `git diff -- src\main\lib\process-detect.ts src\main\providers\registry.ts src\main\providers\registry.test.ts src\main\router.ts` - PASS
+  - `npm run typecheck` - PASS
+  - `npm run build` - PASS
+- Commit hash:
+  - `5420340` - `fix: validate provider config filters`
+- Concerns:
+  - No direct router-level automated test was added; coverage is on the pure provider-filter parser that the router now uses for 400 validation.

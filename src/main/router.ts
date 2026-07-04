@@ -11,13 +11,13 @@ import { getPlugins } from "./services/plugins.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
 import {
-  getWorkspaceProjects,
-  getEnrichedPlans,
   getTimeline,
   getPromptCorpus,
-  getProjectSessions,
 } from "./services/recall.js";
 import {
+  getProviderEnrichedPlans,
+  getProviderProjectSessions,
+  getProviderWorkspaceProjects,
   getNormalizedTimeline,
   getNormalizedWorkspaceProjects,
 } from "./services/provider-workspace.js";
@@ -347,7 +347,15 @@ const routes: Route[] = [
   },
 
   // --- workspace (작업 회상 대시보드) ---
-  { method: "GET", pattern: "/api/workspace/projects", handler: async () => getWorkspaceProjects() },
+  {
+    method: "GET",
+    pattern: "/api/workspace/projects",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider, "claude");
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getProviderWorkspaceProjects(provider);
+    },
+  },
   {
     method: "GET",
     pattern: "/api/workspace/normalized/projects",
@@ -360,12 +368,16 @@ const routes: Route[] = [
   {
     method: "GET",
     pattern: "/api/workspace/projects/:id/sessions",
-    handler: async ({ params }) => getProjectSessions(params.id),
+    handler: async ({ params }) => getProviderProjectSessions(params.id),
   },
   {
     method: "GET",
     pattern: "/api/workspace/plans",
-    handler: async ({ query }) => getEnrichedPlans(query.archived === "1"),
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider, "claude");
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getProviderEnrichedPlans(query.archived === "1", provider);
+    },
   },
   {
     method: "GET",

@@ -5,8 +5,6 @@ import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/clie
 import GitPanel from "./git/GitPanel";
 import type {
   EntityId,
-  NormalizedProject,
-  NormalizedTimelineEvent,
   ProviderFilter,
 } from "@shared/provider-types";
 import {
@@ -71,6 +69,17 @@ function sortProjects(projects: WorkspaceProject[], mode: SortMode): WorkspacePr
   return arr;
 }
 
+export function resolveWorkspaceSelection(
+  selectedId: string | null,
+  projects: WorkspaceProject[],
+  unassignedCount: number,
+): string | null {
+  if (selectedId && projects.some((project) => project.id === selectedId)) return selectedId;
+  const first = projects.find((p) => !p.board.hidden) ?? projects[0];
+  if (first) return first.id;
+  return unassignedCount > 0 ? UNASSIGNED : null;
+}
+
 function StatusTag({ s }: { s: BoardStatus }) {
   return <span className={`tag st-${STATUSES.indexOf(s)}`}>{s}</span>;
 }
@@ -80,244 +89,11 @@ interface Props {
   providerFilter: ProviderFilter;
 }
 
-const PROVIDER_UNASSIGNED = "__provider_unassigned__";
-
-export function resolveProviderWorkspaceSelection(
-  selectedId: string | null,
-  projects: NormalizedProject[] | null,
-  eventGroups: Map<string, NormalizedTimelineEvent[]>,
-): string | null {
-  if (!projects) return selectedId;
-  if (selectedId && projects.some((project) => project.id === selectedId)) return selectedId;
-  if (projects.length > 0) return projects[0].id;
-  if ((eventGroups.get(PROVIDER_UNASSIGNED) ?? []).length > 0) return PROVIDER_UNASSIGNED;
-  return null;
-}
-
 export default function Workspace({ providerFilter }: Props) {
-  if (providerFilter === "claude") return <ClaudeWorkspace />;
-  return <ProviderWorkspace providerFilter={providerFilter} />;
+  return <ClaudeWorkspace providerFilter={providerFilter} />;
 }
 
-function ProviderWorkspace({ providerFilter }: { providerFilter: Exclude<ProviderFilter, "claude"> }) {
-  const [projects, setProjects] = useState<NormalizedProject[] | null>(null);
-  const [events, setEvents] = useState<NormalizedTimelineEvent[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
-
-  useEffect(() => {
-    let alive = true;
-    setProjects(null);
-    setEvents(null);
-    setError("");
-    api
-      .get<NormalizedProject[]>(`/api/workspace/normalized/projects?${providerQuery}`)
-      .then((data) => alive && setProjects(data))
-      .catch((e) => alive && setError(e.message));
-    api
-      .get<NormalizedTimelineEvent[]>(`/api/workspace/normalized/timeline?${providerQuery}`)
-      .then((data) => alive && setEvents(data))
-      .catch((e) => alive && setError(e.message));
-    return () => {
-      alive = false;
-    };
-  }, [providerQuery]);
-
-  const eventGroups = useMemo(() => {
-    const m = new Map<string, NormalizedTimelineEvent[]>();
-    for (const event of events ?? []) {
-      const key = event.projectId ?? PROVIDER_UNASSIGNED;
-      const arr = m.get(key);
-      if (arr) arr.push(event);
-      else m.set(key, [event]);
-    }
-    return m;
-  }, [events]);
-
-  useEffect(() => {
-    const nextSelected = resolveProviderWorkspaceSelection(selectedId, projects, eventGroups);
-    if (nextSelected !== selectedId) setSelectedId(nextSelected);
-  }, [projects, selectedId, eventGroups]);
-
-  if (error) return <div className="banner err">{error}</div>;
-  if (!projects || !events) return <div className="muted">불러오는 중…</div>;
-
-  const selectedProject =
-    selectedId && selectedId !== PROVIDER_UNASSIGNED
-      ? projects.find((project) => project.id === selectedId) ?? null
-      : null;
-  const unassignedEvents = eventGroups.get(PROVIDER_UNASSIGNED) ?? [];
-
-  return (
-    <div>
-      <h2>
-        Workspace{" "}
-        <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : ""}`}>
-          {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
-        </span>
-      </h2>
-      <div className="banner warn provider-summary-note">
-        통합 provider 워크스페이스는 Task 9 normalized summary를 사용합니다. Claude 보드 편집, Git
-        모드, 메모리/파일 브라우저는 Claude 필터에서 기존대로 유지됩니다.
-      </div>
-      {projects.length === 0 && unassignedEvents.length === 0 ? (
-        <div className="muted">프로젝트 기록이 없습니다.</div>
-      ) : (
-        <div className="ws-split">
-          <div className="ws-master">
-            {projects.map((project) => {
-              const projectEvents = eventGroups.get(project.id) ?? [];
-              return (
-                <div
-                  key={project.id}
-                  className={`ws-master-item${selectedId === project.id ? " active" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedId(project.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedId(project.id);
-                    }
-                  }}
-                >
-                  <div className="ws-mi-head">
-                    <span className="ws-mi-name">{project.title}</span>
-                    <span className={`provider-badge ${providerBadgeClass(project.provider)}`}>
-                      {providerLabel(project.provider)}
-                    </span>
-                  </div>
-                  <div className="ws-mi-meta">
-                    <span>
-                      {project.latestActivityAt ? fmtRelative(Date.parse(project.latestActivityAt)) : "활동 없음"}
-                    </span>
-                    <span>📋 {projectEvents.length}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {unassignedEvents.length > 0 && (
-              <button
-                className={`ws-master-item unassigned${selectedId === PROVIDER_UNASSIGNED ? " active" : ""}`}
-                onClick={() => setSelectedId(PROVIDER_UNASSIGNED)}
-              >
-                📋 연결 없는 항목 <span className="cat-count">{unassignedEvents.length}</span>
-              </button>
-            )}
-          </div>
-          <div className="ws-detail">
-            <div className="ws-detail-inner">
-              {selectedProject ? (
-                <ProviderWorkspaceDetail
-                  project={selectedProject}
-                  events={eventGroups.get(selectedProject.id) ?? []}
-                />
-              ) : selectedId === PROVIDER_UNASSIGNED ? (
-                <ProviderWorkspaceUnassigned events={unassignedEvents} />
-              ) : (
-                <div className="muted">왼쪽에서 프로젝트를 선택하세요.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProviderWorkspaceDetail({
-  project,
-  events,
-}: {
-  project: NormalizedProject;
-  events: NormalizedTimelineEvent[];
-}) {
-  return (
-    <div>
-      <div className="ws-card-head">
-        <span className="ws-title">{project.title}</span>
-        <span className={`provider-badge ${providerBadgeClass(project.provider)}`}>
-          {providerLabel(project.provider)}
-        </span>
-        <span className="ws-when">
-          {project.latestActivityAt ? fmtRelative(Date.parse(project.latestActivityAt)) : "활동 없음"}
-        </span>
-      </div>
-      <div className="ws-path mono">{project.realPath ?? project.id}</div>
-      <div className="ws-plans-head no-top">
-        최근 항목 <span className="cat-count">{events.length}</span>
-      </div>
-      {events.length === 0 ? (
-        <div className="muted">연결된 활동이 없습니다.</div>
-      ) : (
-        <div className="timeline">
-          {events.map((event) => (
-            <div className="timeline-row" key={event.id}>
-              <div className="timeline-item timeline-item-static">
-                <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
-                <span className="timeline-time muted">
-                  {fmtDay(Date.parse(event.updatedAt))} {fmtTime(Date.parse(event.updatedAt))}
-                </span>
-                <span className="timeline-title">{event.title}</span>
-              </div>
-              {(event.lastUserText || event.lastAssistantText || event.sourcePath) && (
-                <div className="timeline-expand">
-                  {event.sourcePath && <div className="mono muted">{event.sourcePath}</div>}
-                  {event.lastUserText && (
-                    <p className="tl-prompt">
-                      <span className="ws-line-k">마지막 입력</span> {event.lastUserText}
-                    </p>
-                  )}
-                  {event.lastAssistantText && (
-                    <div
-                      className="md-body ws-snippet-md"
-                      dangerouslySetInnerHTML={{
-                        __html: marked.parse(event.lastAssistantText, { breaks: true }) as string,
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProviderWorkspaceUnassigned({ events }: { events: NormalizedTimelineEvent[] }) {
-  return (
-    <div>
-      <div className="ws-plans-head no-top">
-        연결 없는 항목 <span className="cat-count">{events.length}</span>
-      </div>
-      {events.length === 0 ? (
-        <div className="muted">연결 없는 항목이 없습니다.</div>
-      ) : (
-        <div className="timeline">
-          {events.map((event) => (
-            <div className="timeline-row" key={event.id}>
-              <div className="timeline-item timeline-item-static">
-                <span className={`provider-badge ${providerBadgeClass(event.provider)}`}>
-                  {providerLabel(event.provider)}
-                </span>
-                <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
-                <span className="timeline-time muted">
-                  {fmtDay(Date.parse(event.updatedAt))} {fmtTime(Date.parse(event.updatedAt))}
-                </span>
-                <span className="timeline-title">{event.title}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ClaudeWorkspace() {
+function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter }) {
   const [projects, setProjects] = useState<WorkspaceProject[] | null>(null);
   const [plans, setPlans] = useState<EnrichedPlan[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -326,6 +102,7 @@ function ClaudeWorkspace() {
     () => (localStorage.getItem(SORT_KEY) as SortMode | null) ?? "recent",
   );
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
   const changeSort = (m: SortMode) => {
     setSortMode(m);
@@ -334,19 +111,23 @@ function ClaudeWorkspace() {
 
   const loadProjects = () =>
     api
-      .get<WorkspaceProject[]>("/api/workspace/projects")
+      .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
       .then(setProjects)
       .catch((e) => setError(e.message));
   // 보관 계획도 항상 흐리게 함께 보여주므로 archived=1로 한 번에 가져온다.
   const loadPlans = () =>
     api
-      .get<EnrichedPlan[]>("/api/workspace/plans?archived=1")
+      .get<EnrichedPlan[]>(`/api/workspace/plans?archived=1&${providerQuery}`)
       .then(setPlans)
       .catch((e) => setError(e.message));
   useEffect(() => {
+    setProjects(null);
+    setPlans(null);
+    setSelectedId(null);
+    setError("");
     loadProjects();
     loadPlans();
-  }, []);
+  }, [providerQuery]);
 
   // 정렬 모드(최근 활동순/상태순/수동)별 정렬. 회상 대시보드 기본은 최근 활동순.
   const sorted = useMemo(
@@ -367,14 +148,13 @@ function ClaudeWorkspace() {
   }, [plans]);
 
   const projName = useMemo(() => buildProjNameMap(sorted), [sorted]);
+  const unassigned = plansByProject.get(UNASSIGNED) ?? [];
 
-  // 기본 선택: 정렬 후 첫(숨김 제외) 프로젝트
+  // 기본/필터 변경 선택: 현재 선택이 사라지면 첫(숨김 제외) 프로젝트로 보정.
   useEffect(() => {
-    if (selectedId === null && sorted.length) {
-      const first = sorted.find((p) => !p.board.hidden) ?? sorted[0];
-      setSelectedId(first.id);
-    }
-  }, [sorted, selectedId]);
+    const next = resolveWorkspaceSelection(selectedId, sorted, unassigned.length);
+    if (next !== selectedId) setSelectedId(next);
+  }, [sorted, selectedId, unassigned.length]);
 
   async function patchProject(id: string, body: ProjectPatch) {
     // 낙관적 업데이트. nameOverride는 해제용 null을 쓰므로 board(string)에는 ""로 정규화.
@@ -448,7 +228,6 @@ function ClaudeWorkspace() {
   if (error) return <div className="banner err">{error}</div>;
   if (!projects || !plans) return <div className="muted">불러오는 중…</div>;
 
-  const unassigned = plansByProject.get(UNASSIGNED) ?? [];
   const selectedProject =
     selectedId && selectedId !== UNASSIGNED ? sorted.find((p) => p.id === selectedId) ?? null : null;
   const visible = sorted.filter((p) => !p.board.hidden);
@@ -471,7 +250,14 @@ function ClaudeWorkspace() {
 
   return (
     <div>
-      <h2>Workspace</h2>
+      <h2>
+        Workspace{" "}
+        {providerFilter !== "claude" && (
+          <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : "provider-all"}`}>
+            {providerFilter === "all" ? "All" : providerLabel(providerFilter)}
+          </span>
+        )}
+      </h2>
       {projects.length === 0 && unassigned.length === 0 ? (
         <div className="muted">프로젝트 기록이 없습니다.</div>
       ) : (
@@ -596,6 +382,7 @@ function ProjectMasterCard({
     >
       <div className="ws-mi-head">
         <span className="ws-mi-name">{displayName(p)}</span>
+        {p.provider && <span className={`provider-badge ${providerBadgeClass(p.provider)}`}>{providerLabel(p.provider)}</span>}
         {p.board.status && <StatusTag s={p.board.status} />}
       </div>
       <div className="ws-mi-meta">
@@ -655,6 +442,7 @@ function ProjectDetail({
 }) {
   const r = p.recall;
   const base = shortName(p.realPath, p.id);
+  const isClaude = (p.provider ?? "claude") === "claude";
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
   // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
@@ -715,6 +503,7 @@ function ProjectDetail({
             )}
           </>
         )}
+        {p.provider && <span className={`provider-badge ${providerBadgeClass(p.provider)}`}>{providerLabel(p.provider)}</span>}
         {p.gitBranch && <span className="t-tag">⎇ {p.gitBranch}</span>}
         {p.recall?.lastModel && (
           <span className={`bdg ${modelBadgeClass(p.recall.lastModel)}`} title={p.recall.lastModel}>
@@ -748,14 +537,16 @@ function ProjectDetail({
         >
           세션
         </button>
-        <button
-          className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
-          onClick={() => setDetailMode("git")}
-        >
-          Git
-        </button>
+        {isClaude && (
+          <button
+            className={`ws-mode-tab${detailMode === "git" ? " active" : ""}`}
+            onClick={() => setDetailMode("git")}
+          >
+            Git
+          </button>
+        )}
       </div>
-      {detailMode === "git" ? (
+      {isClaude && detailMode === "git" ? (
         <>
           {p.worktrees.length > 0 && (
             <div className="ws-git-target">
@@ -786,7 +577,7 @@ function ProjectDetail({
       ) : detailMode === "session" ? (
         <>
           <SessionsSection projectId={p.id} />
-          <MemorySection projectId={p.id} />
+          {isClaude && <MemorySection projectId={p.id} />}
         </>
       ) : (
         <>

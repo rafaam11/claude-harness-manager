@@ -1,29 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { resolveProviderWorkspaceSelection } from "./Workspace";
-import type { NormalizedProject, NormalizedTimelineEvent } from "@shared/provider-types";
+import { resolveWorkspaceSelection } from "./Workspace";
+import type { WorkspaceProject } from "./workspace-shared";
 
 describe("provider workspace selection", () => {
   it("revalidates a stale selectedId against the current project list", () => {
-    const projects: NormalizedProject[] = [
-      {
-        id: "claude:alpha",
-        provider: "claude",
-        localId: "alpha",
-        title: "Alpha",
-        realPath: null,
-        latestActivityAt: null,
-      },
-      {
-        id: "codex:beta",
-        provider: "codex",
-        localId: "beta",
-        title: "Beta",
-        realPath: null,
-        latestActivityAt: null,
-      },
+    const base = {
+      realPath: null,
+      gitBranch: null,
+      lastActivity: 0,
+      staleDays: 0,
+      recall: null,
+      todos: null,
+      board: { status: null, memo: "", nameOverride: "", tracks: [], hidden: false, order: null },
+      repoRoot: null,
+      isWorktree: false,
+      worktreeName: null,
+      worktrees: [],
+      memberIds: [],
+    } satisfies Omit<WorkspaceProject, "id" | "provider">;
+    const projects: WorkspaceProject[] = [
+      { ...base, id: "claude:alpha", provider: "claude" },
+      { ...base, id: "codex:beta", provider: "codex" },
     ];
-    const eventGroups = new Map<string, NormalizedTimelineEvent[]>();
 
-    expect(resolveProviderWorkspaceSelection("codex:stale", projects, eventGroups)).toBe("claude:alpha");
+    expect(resolveWorkspaceSelection("codex:stale", projects, 0)).toBe("claude:alpha");
   });
 });

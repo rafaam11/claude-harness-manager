@@ -106,4 +106,75 @@ describe("codex provider", () => {
       ]),
     );
   });
+
+  it("lists Codex rollout sessions grouped by cwd instead of only memory files", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionPath = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "07",
+      "04",
+      "rollout-2026-07-04T09-26-03-019f2a84-a3f8-73e3-a3ea-3cca10a8fcbd.jsonl",
+    );
+    await writeText(
+      sessionPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-07-04T00:26:08.136Z",
+          type: "session_meta",
+          payload: {
+            session_id: "019f2a84-a3f8-73e3-a3ea-3cca10a8fcbd",
+            cwd: "C:\\Users\\uiop3\\Desktop\\3_Hobby_ws\\harness-manager",
+            model: "gpt-5.5",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-04T00:27:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Provider UI를 고쳐줘" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-04T00:28:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "수정했습니다." }],
+          },
+        }),
+      ].join("\n"),
+    );
+    await fs.utimes(sessionPath, new Date("2026-07-04T00:28:00.000Z"), new Date("2026-07-04T00:28:00.000Z"));
+
+    const { codexProvider } = await loadCodexProvider();
+    const projects = await codexProvider.listProjects();
+    const sessions = await codexProvider.listSessions();
+
+    expect(projects).toEqual([
+      expect.objectContaining({
+        id: "codex:C--Users-uiop3-Desktop-3_Hobby_ws-harness-manager",
+        localId: "C--Users-uiop3-Desktop-3_Hobby_ws-harness-manager",
+        title: "harness-manager",
+        realPath: "C:\\Users\\uiop3\\Desktop\\3_Hobby_ws\\harness-manager",
+        latestActivityAt: "2026-07-04T00:28:00.000Z",
+      }),
+    ]);
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        id: "codex:019f2a84-a3f8-73e3-a3ea-3cca10a8fcbd",
+        projectId: "codex:C--Users-uiop3-Desktop-3_Hobby_ws-harness-manager",
+        title: "Provider UI를 고쳐줘",
+        cwd: "C:\\Users\\uiop3\\Desktop\\3_Hobby_ws\\harness-manager",
+        model: "gpt-5.5",
+        lastUserText: "Provider UI를 고쳐줘",
+        lastAssistantText: "수정했습니다.",
+        updatedAt: "2026-07-04T00:28:00.000Z",
+      }),
+    ]);
+  });
 });

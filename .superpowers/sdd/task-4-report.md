@@ -15,7 +15,7 @@
 
 ## Commits
 
-- `1cdf81f` - `feat: expose provider status and config files`
+- `dc702e6` - `feat: expose provider status and config files`
 
 ## Exact Commands Run
 
@@ -86,6 +86,10 @@
 33. `git status --short`
     - PASS
 34. `git commit --amend --no-edit`
+    - PASS
+35. `git add -f .superpowers/sdd/task-4-report.md`
+    - PASS
+36. `git commit --amend --no-edit`
     - PASS
 
 ## Self-Review Notes

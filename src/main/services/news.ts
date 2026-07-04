@@ -51,7 +51,7 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
     return await fetch(url, {
       ...init,
       signal: ctrl.signal,
-      headers: { "User-Agent": "claude-harness-manager", ...(init?.headers ?? {}) },
+      headers: { "User-Agent": "harness-manager", ...(init?.headers ?? {}) },
     });
   } finally {
     clearTimeout(t);

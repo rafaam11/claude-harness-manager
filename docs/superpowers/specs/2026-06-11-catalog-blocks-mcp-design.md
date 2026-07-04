@@ -5,7 +5,7 @@
 
 ## Context
 
-claude-harness-manager 웹 대시보드는 현재 `.claude` 폴더 정보를 테이블로 "나열"하는 수준이다.
+harness-manager 웹 대시보드는 현재 `.claude` 폴더 정보를 테이블로 "나열"하는 수준이다.
 특히 `Catalog`/`Overview`는 순수 읽기 테이블이고, MCP 서버는 백엔드에서 전혀 다루지 않는다.
 사용자는 이를 더 기능적이고 보기 좋은 UI로 확장하길 원한다.
 

@@ -52,13 +52,13 @@
 
 **Windows**
 
-1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 **`Claude-Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
+1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 **`Claude-Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
 3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다.
 
 **Linux (AppImage)**
 
-1. [Releases](https://github.com/rafaam11/claude-harness-manager/releases)에서 아키텍처에 맞는 AppImage를 내려받는다 — x64는 **`...-x64.AppImage`**, aarch64(Jetson·라즈베리파이4+ 등)는 **`...-arm64.AppImage`**.
+1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 아키텍처에 맞는 AppImage를 내려받는다 — x64는 **`...-x64.AppImage`**, aarch64(Jetson·라즈베리파이4+ 등)는 **`...-arm64.AppImage`**.
 2. 실행 권한을 부여한다: `chmod +x Claude-Harness-Manager-*.AppImage`.
 3. 더블클릭하거나 터미널에서 실행한다.
 
@@ -159,8 +159,8 @@ renderer는 실제 경로를 모른 채 요청(또는 projectId)만 보내고, m
 단일 Electron 프로젝트(electron-vite). 모든 명령은 루트에서 실행한다.
 
 ```bash
-git clone https://github.com/rafaam11/claude-harness-manager.git
-cd claude-harness-manager
+git clone https://github.com/rafaam11/harness-manager.git
+cd harness-manager
 npm install
 npm run dev        # electron-vite dev (main/preload/renderer HMR + Electron 창)
 ```

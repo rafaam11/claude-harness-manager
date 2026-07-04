@@ -6,7 +6,7 @@ import { exportFavoritesMarkdown } from "./services/news-export.js";
 import { IpcChannels, type ApiRequest, type ApiResult } from "@shared/types";
 
 // 자동 업데이트 실패 시 fallback: 버튼이 이 페이지를 OS 브라우저로 연다(최신 setup.exe 수동 설치용).
-const RELEASES_URL = "https://github.com/rafaam11/claude-harness-manager/releases/latest";
+const RELEASES_URL = "https://github.com/rafaam11/harness-manager/releases/latest";
 
 /**
  * 모든 renderer API 호출의 단일 진입점. 기존 Fastify HTTP 라우팅을 대체한다.

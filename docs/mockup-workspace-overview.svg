@@ -42,7 +42,7 @@
   <text x="440" y="116" font-size="13" fill="#9aa3b2">Git</text>
   <line x1="386" y1="126" x2="924" y2="126" stroke="#313742"/>
 
-  <text x="386" y="146" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">D:\3_Hobby_ws\claude-harness-manager</text>
+  <text x="386" y="146" font-size="10.5" fill="#9aa3b2" font-family="Consolas, monospace">D:\3_Hobby_ws\harness-manager</text>
 
   <!-- recall box -->
   <rect x="386" y="158" width="538" height="84" rx="8" fill="#171b22" stroke="#313742"/>

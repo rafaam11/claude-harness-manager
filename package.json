@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
@@ -36,7 +37,8 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
     "typescript": "^5.7.3",
-    "vite": "^6.0.11"
+    "vite": "^6.0.11",
+    "vitest": "^3.2.6"
   },
   "build": {
     "appId": "com.digitrack.claudeharnessmanager",

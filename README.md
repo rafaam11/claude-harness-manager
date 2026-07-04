@@ -52,14 +52,14 @@
 
 **Windows**
 
-1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 **`Claude-Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
+1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 **`Harness-Manager-Setup-x.y.z.exe`** 를 내려받아 실행한다.
 2. 서명되지 않은 빌드라 Windows SmartScreen 경고가 뜰 수 있다 — **추가 정보 → 실행**으로 진행한다.
 3. 설치 후 바탕화면/시작 메뉴의 **Claude Harness Manager** 로 실행한다.
 
 **Linux (AppImage)**
 
 1. [Releases](https://github.com/rafaam11/harness-manager/releases)에서 아키텍처에 맞는 AppImage를 내려받는다 — x64는 **`...-x64.AppImage`**, aarch64(Jetson·라즈베리파이4+ 등)는 **`...-arm64.AppImage`**.
-2. 실행 권한을 부여한다: `chmod +x Claude-Harness-Manager-*.AppImage`.
+2. 실행 권한을 부여한다: `chmod +x Harness-Manager-*.AppImage`.
 3. 더블클릭하거나 터미널에서 실행한다.
 
 **Node.js 설치는 필요 없다**(Electron에 런타임이 내장됨).

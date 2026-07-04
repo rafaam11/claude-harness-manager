@@ -1,13 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createJSONEditor, type Content } from "vanilla-jsoneditor";
 import "vanilla-jsoneditor/themes/jse-theme-dark.css";
 import { api, fmtSize, fmtDate, ApiError } from "../api/client";
+import type { NormalizedConfigFile, ProviderFilter } from "@shared/provider-types";
+import { providerBadgeClass, providerLabel } from "./workspace-shared";
 
-const CONFIGS = [
-  { name: "settings", label: "settings.json" },
-  { name: "settings-local", label: "settings.local.json" },
-  { name: "claude-json", label: ".claude.json (읽기 전용)" },
-] as const;
+const LEGACY_CONFIGS = {
+  settings: { label: "settings.json" },
+  "settings-local": { label: "settings.local.json" },
+  "claude-json": { label: ".claude.json (읽기 전용)" },
+} as const;
+
+type LegacyConfigName = keyof typeof LEGACY_CONFIGS;
+
+interface Props {
+  providerFilter: ProviderFilter;
+}
 
 interface ConfigData {
   content: string;
@@ -17,7 +25,11 @@ interface ConfigData {
   path: string;
 }
 
-interface BackupInfo { name: string; size: number; mtime: number }
+interface BackupInfo {
+  name: string;
+  size: number;
+  mtime: number;
+}
 
 type EditorInstance = ReturnType<typeof createJSONEditor>;
 
@@ -27,11 +39,6 @@ function contentToText(c: Content): string {
   return "";
 }
 
-/**
- * vanilla-jsoneditor(tree/text 토글) React 래퍼.
- * uncontrolled — 마운트 시 initialText로 1회 초기화하고, 이후 외부 변경은
- * apiRef.current.update()로 명령적으로 반영한다(편집 상태 보존). 편집 → onChangeText 단방향.
- */
 function JsonTreeEditor({
   initialText,
   readOnly,
@@ -76,7 +83,6 @@ function JsonTreeEditor({
   return <div ref={container} className={`jse-wrap${isDark ? " jse-theme-dark" : ""}`} />;
 }
 
-/** settings.json의 PostToolUse 훅 항목. OS별로 shell만 다르다(command는 $HOME 기반이라 동일). */
 function hookEntry(shell: "powershell" | "bash") {
   return {
     matcher: "Write|Edit|MultiEdit",
@@ -90,10 +96,6 @@ function hookEntry(shell: "powershell" | "bash") {
   };
 }
 
-/**
- * 이 PC에 설치된 세션→계획 연결 hook(stamp-plan-session.mjs)을 다른 PC의 Claude Code에
- * 붙여넣어 설치시킬 수 있는 프롬프트를 만들어 복사한다. 이 PC에 훅이 없으면(404) 조용히 숨긴다.
- */
 function HookInstallPanel() {
   const [content, setContent] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -171,8 +173,13 @@ function HookInstallPanel() {
   );
 }
 
-export default function ConfigEditor() {
-  const [name, setName] = useState<string>("settings");
+function toLegacyConfigName(id: string): LegacyConfigName | null {
+  return id in LEGACY_CONFIGS ? (id as LegacyConfigName) : null;
+}
+
+export default function ConfigEditor({ providerFilter }: Props) {
+  const [files, setFiles] = useState<NormalizedConfigFile[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("settings");
   const [data, setData] = useState<ConfigData | null>(null);
   const [text, setText] = useState("");
   const [backups, setBackups] = useState<BackupInfo[]>([]);
@@ -182,32 +189,70 @@ export default function ConfigEditor() {
     () => document.documentElement.getAttribute("data-theme") !== "light",
   );
   const editorRef = useRef<EditorInstance | null>(null);
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
-  const load = useCallback((n: string) => {
+  const selectedFile = useMemo(
+    () => files.find((file) => file.id === selectedId) ?? null,
+    [files, selectedId],
+  );
+  const legacyName = selectedFile ? toLegacyConfigName(selectedFile.id) : null;
+
+  const loadLegacy = useCallback((name: LegacyConfigName) => {
     setMessage(null);
     setExternalChange(false);
-    api.get<ConfigData>(`/api/configs/${n}`).then((d) => {
-      setData(d);
-      setText(d.content);
-      editorRef.current?.update({ text: d.content });
-    }).catch((e) => setMessage({ kind: "err", text: e.message }));
-    api.get<BackupInfo[]>(`/api/configs/${n}/backups`).then(setBackups).catch(() => setBackups([]));
+    api
+      .get<ConfigData>(`/api/configs/${name}`)
+      .then((d) => {
+        setData(d);
+        setText(d.content);
+        editorRef.current?.update({ text: d.content });
+      })
+      .catch((e) => setMessage({ kind: "err", text: e.message }));
+    api
+      .get<BackupInfo[]>(`/api/configs/${name}/backups`)
+      .then(setBackups)
+      .catch(() => setBackups([]));
   }, []);
 
-  useEffect(() => { load(name); }, [name, load]);
-
-  // 외부 변경 감지: 5초마다 서버의 sha256과 비교
   useEffect(() => {
-    if (!data) return;
+    setMessage(null);
+    api
+      .get<NormalizedConfigFile[]>(`/api/config/files?${providerQuery}`)
+      .then((nextFiles) => {
+        setFiles(nextFiles);
+        setSelectedId((prev) => {
+          if (nextFiles.some((file) => file.id === prev)) return prev;
+          const preferred = nextFiles.find((file) => toLegacyConfigName(file.id));
+          return preferred?.id ?? nextFiles[0]?.id ?? "";
+        });
+      })
+      .catch((e) => setMessage({ kind: "err", text: e.message }));
+  }, [providerQuery]);
+
+  useEffect(() => {
+    if (!legacyName) {
+      setData(null);
+      setText("");
+      setBackups([]);
+      setExternalChange(false);
+      return;
+    }
+    loadLegacy(legacyName);
+  }, [legacyName, loadLegacy]);
+
+  useEffect(() => {
+    if (!data || !legacyName) return;
     const t = setInterval(() => {
-      api.get<ConfigData>(`/api/configs/${name}`).then((d) => {
-        if (d.sha256 !== data.sha256) setExternalChange(true);
-      }).catch(() => {});
+      api
+        .get<ConfigData>(`/api/configs/${legacyName}`)
+        .then((d) => {
+          if (d.sha256 !== data.sha256) setExternalChange(true);
+        })
+        .catch(() => {});
     }, 5000);
     return () => clearInterval(t);
-  }, [name, data]);
+  }, [legacyName, data]);
 
-  // 앱 테마(data-theme) 변경을 따라 에디터 테마 전환
   useEffect(() => {
     const el = document.documentElement;
     const obs = new MutationObserver(() => setIsDark(el.getAttribute("data-theme") !== "light"));
@@ -216,18 +261,23 @@ export default function ConfigEditor() {
   }, []);
 
   const jsonValid = (() => {
-    try { JSON.parse(text); return true; } catch { return false; }
+    try {
+      JSON.parse(text);
+      return true;
+    } catch {
+      return false;
+    }
   })();
 
   const save = async () => {
-    if (!data) return;
+    if (!data || !legacyName) return;
     try {
-      const res = await api.put<{ sha256: string; backup: string }>(`/api/configs/${name}`, {
+      const res = await api.put<{ sha256: string; backup: string }>(`/api/configs/${legacyName}`, {
         content: text,
         baseHash: data.sha256,
       });
       setMessage({ kind: "ok", text: `저장 완료 (백업: ${res.backup})` });
-      load(name);
+      loadLegacy(legacyName);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         setMessage({ kind: "err", text: "충돌(409): 파일이 외부에서 변경되었습니다. 다시 불러오세요." });
@@ -239,11 +289,11 @@ export default function ConfigEditor() {
   };
 
   const restore = async (backup: string) => {
-    if (!confirm(`${backup} 으로 복원할까요? (현재본도 백업됩니다)`)) return;
+    if (!legacyName || !confirm(`${backup} 으로 복원할까요? (현재본도 백업됩니다)`)) return;
     try {
-      await api.post(`/api/configs/${name}/restore`, { backup });
+      await api.post(`/api/configs/${legacyName}/restore`, { backup });
       setMessage({ kind: "ok", text: "복원 완료" });
-      load(name);
+      loadLegacy(legacyName);
     } catch (e) {
       setMessage({ kind: "err", text: (e as Error).message });
     }
@@ -263,36 +313,59 @@ export default function ConfigEditor() {
 
   return (
     <div>
-      <h2>Config Editor</h2>
+      <h2>
+        Config Editor{" "}
+        <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : ""}`}>
+          {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
+        </span>
+      </h2>
       <p>
-        {CONFIGS.map((c) => (
+        {files.map((file) => (
           <button
-            key={c.name}
-            className={`btn ghost${name === c.name ? " active" : ""}`}
-            style={name === c.name ? { borderColor: "var(--accent)" } : undefined}
-            onClick={() => setName(c.name)}
+            key={file.id}
+            className={`btn ghost${selectedId === file.id ? " active" : ""}`}
+            style={selectedId === file.id ? { borderColor: "var(--accent)" } : undefined}
+            onClick={() => setSelectedId(file.id)}
+            title={file.path}
           >
-            {c.label}
+            {file.label}
           </button>
         ))}
       </p>
 
       {message && <div className={`banner ${message.kind}`}>{message.text}</div>}
-      {externalChange && (
+      {externalChange && legacyName && (
         <div className="banner warn">
-          파일이 외부에서 변경되었습니다. <button className="btn ghost" onClick={() => load(name)}>다시 불러오기</button>
-        </div>
-      )}
-      {data && !data.writable && (
-        <div className="banner warn">
-          이 파일은 읽기 전용입니다. CC가 상시 재작성하므로 수정은 전 세션 종료 후
-          archive\2026-06-11\cleanup-claude-json.ps1 같은 수동 절차를 사용하세요.
+          파일이 외부에서 변경되었습니다. <button className="btn ghost" onClick={() => loadLegacy(legacyName)}>다시 불러오기</button>
         </div>
       )}
 
-      {data && (
+      {!selectedFile && <div className="muted">표시할 설정 파일이 없습니다.</div>}
+
+      {selectedFile && !legacyName && (
+        <div className="ws-detail-inner cfg-placeholder">
+          <div className="cat-detail-title">
+            <span className={`provider-badge ${providerBadgeClass(selectedFile.provider)}`}>{providerLabel(selectedFile.provider)}</span>
+            <span className="cat-detail-name">{selectedFile.label}</span>
+          </div>
+          <p className="muted mono">{selectedFile.path}</p>
+          <div className="banner warn">
+            이 provider 설정 편집 UI는 Task 11 범위입니다. 현재는 파일 목록만 노출하며, Claude 기존 설정 편집기 동작은 그대로 유지합니다.
+          </div>
+        </div>
+      )}
+
+      {data && selectedFile && legacyName && (
         <div>
-          <p className="muted mono">{data.path} — {fmtDate(data.mtime)}</p>
+          {!data.writable && (
+            <div className="banner warn">
+              이 파일은 읽기 전용입니다. CC가 상시 재작성하므로 수정은 전 세션 종료 후
+              archive\2026-06-11\cleanup-claude-json.ps1 같은 수동 절차를 사용하세요.
+            </div>
+          )}
+          <p className="muted mono">
+            {data.path} — {fmtDate(data.mtime)}
+          </p>
           <JsonTreeEditor
             initialText={text}
             readOnly={!data.writable}
@@ -313,7 +386,14 @@ export default function ConfigEditor() {
 
           <h3>백업 ({backups.length})</h3>
           <table>
-            <thead><tr><th>이름</th><th className="num">크기</th><th>시각</th><th></th></tr></thead>
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th className="num">크기</th>
+                <th>시각</th>
+                <th></th>
+              </tr>
+            </thead>
             <tbody>
               {backups.map((b) => (
                 <tr key={b.name}>
@@ -322,18 +402,26 @@ export default function ConfigEditor() {
                   <td>{fmtDate(b.mtime)}</td>
                   <td>
                     {data.writable && (
-                      <button className="btn ghost" onClick={() => restore(b.name)}>복원</button>
+                      <button className="btn ghost" onClick={() => restore(b.name)}>
+                        복원
+                      </button>
                     )}
                   </td>
                 </tr>
               ))}
-              {backups.length === 0 && <tr><td colSpan={4} className="muted">백업 없음</td></tr>}
+              {backups.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    백업 없음
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       )}
 
-      <HookInstallPanel />
+      {providerFilter !== "codex" && <HookInstallPanel />}
     </div>
   );
 }

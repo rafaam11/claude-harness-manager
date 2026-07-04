@@ -1,37 +1,218 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDay, fmtTime } from "../api/client";
+import type {
+  NormalizedProject,
+  NormalizedTimelineEvent,
+  ProviderFilter,
+} from "@shared/provider-types";
 import {
   STATUSES,
   buildProjNameMap,
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  providerBadgeClass,
+  providerLabel,
   shortName,
   type BoardStatus,
   type TimelineEvent,
   type WorkspaceProject,
 } from "./workspace-shared";
 
-const NONE_KEY = "__none__"; // projectId가 null인 이벤트(프로젝트 없음)의 탭 키
+const NONE_KEY = "__none__";
+const NORMALIZED_NONE_KEY = "__normalized-none__";
 
-// 상태 → 좌측 점 색상 클래스(Workspace StatusTag의 st-0~3 색상 재사용)
-function chipDotClass(status: BoardStatus | null): string {
-  return status ? `st-${STATUSES.indexOf(status)}` : "st-none";
+interface Props {
+  providerFilter: ProviderFilter;
 }
 
-// 날짜별 세션/계획 이벤트 타임라인. "N일 공백" 구분선으로 주말 갭을 가시화한다.
-// 행을 클릭하면 펼쳐서 내용(세션 스니펫 / 계획 본문)을 보여준다.
-export default function Timeline() {
+export default function Timeline({ providerFilter }: Props) {
+  if (providerFilter === "claude") return <ClaudeTimeline />;
+  return <ProviderTimeline providerFilter={providerFilter} />;
+}
+
+function ProviderTimeline({ providerFilter }: { providerFilter: Exclude<ProviderFilter, "claude"> }) {
+  const [events, setEvents] = useState<NormalizedTimelineEvent[] | null>(null);
+  const [projects, setProjects] = useState<NormalizedProject[]>([]);
+  const [activeTab, setActiveTab] = useState<string>("all");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
+
+  useEffect(() => {
+    let alive = true;
+    setError("");
+    setEvents(null);
+    setExpanded(new Set());
+    api
+      .get<NormalizedTimelineEvent[]>(`/api/workspace/normalized/timeline?${providerQuery}`)
+      .then((data) => alive && setEvents(data))
+      .catch((e) => alive && setError(e.message));
+    api
+      .get<NormalizedProject[]>(`/api/workspace/normalized/projects?${providerQuery}`)
+      .then((data) => alive && setProjects(data))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [providerQuery]);
+
+  const projectMap = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
+  const projectTabs = useMemo(() => {
+    if (!events) return [];
+    const counts = new Map<string, { title: string; count: number }>();
+    for (const event of events) {
+      const key = event.projectId ?? NORMALIZED_NONE_KEY;
+      const title = event.projectId
+        ? projectMap.get(event.projectId)?.title ?? event.projectId
+        : "연결 없는 항목";
+      const current = counts.get(key);
+      if (current) current.count += 1;
+      else counts.set(key, { title, count: 1 });
+    }
+    return [...counts.entries()].map(([key, value]) => ({ key, ...value }));
+  }, [events, projectMap]);
+
+  useEffect(() => {
+    if (activeTab === "all") return;
+    if (!projectTabs.some((tab) => tab.key === activeTab)) setActiveTab("all");
+  }, [projectTabs, activeTab]);
+
+  const shown = useMemo(() => {
+    if (!events) return [];
+    if (activeTab === "all") return events;
+    return events.filter((event) => (event.projectId ?? NORMALIZED_NONE_KEY) === activeTab);
+  }, [events, activeTab]);
+
+  const groups = useMemo(() => {
+    const next: { day: string; items: NormalizedTimelineEvent[] }[] = [];
+    for (const event of shown) {
+      const ts = Date.parse(event.updatedAt);
+      const day = fmtDay(ts);
+      const last = next[next.length - 1];
+      if (last && last.day === day) last.items.push(event);
+      else next.push({ day, items: [event] });
+    }
+    return next;
+  }, [shown]);
+
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  if (error) return <div className="banner err">{error}</div>;
+  if (!events) return <div className="muted">불러오는 중…</div>;
+
+  const totalShownCount = projectTabs.reduce((sum, tab) => sum + tab.count, 0);
+
+  return (
+    <div>
+      <h2>
+        Timeline{" "}
+        <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : ""}`}>
+          {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
+        </span>
+      </h2>
+      <div className="banner warn provider-summary-note">
+        통합 provider 타임라인은 Task 9 normalized summary를 사용합니다. Claude 전용 상태 편집/풍부한 계획 연동은 Claude 필터에서 그대로 유지됩니다.
+      </div>
+      {projectTabs.length > 0 && (
+        <div className="tl-tabs">
+          <button
+            className={`tl-tab${activeTab === "all" ? " active" : ""}`}
+            onClick={() => setActiveTab("all")}
+          >
+            전체 <span className="tl-tab-count">{totalShownCount}</span>
+          </button>
+          {projectTabs.map((tab) => (
+            <button
+              key={tab.key}
+              className={`tl-tab${activeTab === tab.key ? " active" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <span>{tab.title}</span>
+              <span className="tl-tab-count">{tab.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="timeline">
+        {groups.length === 0 && <div className="muted tl-empty">표시할 활동이 없습니다.</div>}
+        {groups.map((group, index) => {
+          const prev = groups[index - 1];
+          const gapDays = prev
+            ? Math.round((new Date(prev.day).getTime() - new Date(group.day).getTime()) / 86400000)
+            : 0;
+          return (
+            <div key={group.day}>
+              {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
+              <div className="timeline-day">{group.day}</div>
+              {group.items.map((event) => {
+                const key = event.id;
+                const open = expanded.has(key);
+                const projectTitle = event.projectId ? projectMap.get(event.projectId)?.title ?? event.projectId : "연결 없음";
+                return (
+                  <div className="timeline-row" key={key}>
+                    <div className="timeline-item" onClick={() => toggleExpand(key)}>
+                      <span className={`provider-badge ${providerBadgeClass(event.provider)}`}>{providerLabel(event.provider)}</span>
+                      <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
+                      <span className="timeline-time muted">{fmtTime(Date.parse(event.updatedAt))}</span>
+                      <span className="timeline-title">{event.title}</span>
+                      {activeTab === "all" && <span className="timeline-proj muted">{projectTitle}</span>}
+                      <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
+                    </div>
+                    {open && <NormalizedTimelineExpand event={event} />}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function NormalizedTimelineExpand({ event }: { event: NormalizedTimelineEvent }) {
+  if (!event.lastUserText && !event.lastAssistantText && !event.sourcePath) {
+    return <div className="timeline-expand muted">표시할 내용이 없습니다.</div>;
+  }
+  return (
+    <div className="timeline-expand">
+      {event.sourcePath && <div className="mono muted">{event.sourcePath}</div>}
+      {event.lastUserText && (
+        <p className="tl-prompt">
+          <span className="ws-line-k">마지막 입력</span> {event.lastUserText}
+        </p>
+      )}
+      {event.lastAssistantText && (
+        <div>
+          <span className="ws-line-k">마지막 응답</span>
+          <div
+            className="md-body ws-snippet-md"
+            dangerouslySetInnerHTML={{
+              __html: marked.parse(event.lastAssistantText, { breaks: true }) as string,
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaudeTimeline() {
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
-  const [activeTab, setActiveTab] = useState<string>("all"); // "all" | NONE_KEY | projectId
-  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 펼친 이벤트(eventKey)
-  const [archiveOpen, setArchiveOpen] = useState(false); // 보관 프로젝트 관리(복원) 팝오버 열림 상태
+  const [activeTab, setActiveTab] = useState<string>("all");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [error, setError] = useState("");
   const archiveRef = useRef<HTMLDivElement>(null);
 
-  // 보관 관리 팝오버 바깥 클릭 시 닫기
   useEffect(() => {
     if (!archiveOpen) return;
     const onClick = (ev: MouseEvent) => {
@@ -55,26 +236,20 @@ export default function Timeline() {
       .catch(() => {});
   }, []);
 
-  // projectId → 표시 이름(nameOverride 반영). 같은 프로젝트면 session/plan 이벤트가 동일 이름을 쓴다.
   const projName = useMemo(() => buildProjNameMap(projects), [projects]);
-
   const label = (e: TimelineEvent) =>
     e.projectId ? projName.get(e.projectId) ?? shortName(e.realPath, e.projectId) : "";
 
-  // projectId → board.status(무상태 null 포함). 탭 상태 점 표시에 사용.
   const projStatusById = useMemo(
     () => new Map<string, BoardStatus | null>(projects.map((p) => [p.id, p.board.status])),
     [projects],
   );
 
-  // projectId → lastActivity(탭 정렬 기준)
   const projLastActivityById = useMemo(
     () => new Map<string, number>(projects.map((p) => [p.id, p.lastActivity])),
     [projects],
   );
 
-  // 이벤트에 실제 등장한 프로젝트만 탭 후보로(전체 목록이 아니라). 아카이브(보관) 프로젝트는 후보에서 완전히 제외.
-  // 최근 활동 내림차순 정렬("프로젝트 없음"은 항상 마지막).
   const projectTabs = useMemo(() => {
     if (!events) return [];
     const counts = new Map<string, { name: string; count: number; status: BoardStatus | null }>();
@@ -98,17 +273,12 @@ export default function Timeline() {
       });
   }, [events, projName, projStatusById, projLastActivityById]);
 
-  // 활성 탭이 더 이상 유효하지 않으면(예: 보고 있던 프로젝트의 이벤트가 사라짐) "전체"로 리셋.
   useEffect(() => {
     if (activeTab === "all") return;
     if (!projectTabs.some((t) => t.key === activeTab)) setActiveTab("all");
   }, [projectTabs, activeTab]);
 
-  // 관리 목록에 보여줄 아카이브(보관) 프로젝트. 이벤트 유무와 무관하게 프로젝트 전체 기준.
-  const archivedProjects = useMemo(
-    () => projects.filter((p) => p.board.status === "보관"),
-    [projects],
-  );
+  const archivedProjects = useMemo(() => projects.filter((p) => p.board.status === "보관"), [projects]);
 
   const toggleExpand = (key: string) =>
     setExpanded((prev) => {
@@ -119,11 +289,8 @@ export default function Timeline() {
 
   const totalShownCount = projectTabs.reduce((sum, t) => sum + t.count, 0);
 
-  // 낙관적 업데이트 → 실패 시 서버값으로 재동기화(ProjectsView/PlansView patch 패턴).
   async function patchStatus(e: TimelineEvent, status: BoardStatus) {
-    setEvents((prev) =>
-      prev ? prev.map((x) => (sameEvent(x, e) ? { ...x, status } : x)) : prev,
-    );
+    setEvents((prev) => (prev ? prev.map((x) => (sameEvent(x, e) ? { ...x, status } : x)) : prev));
     const url =
       e.kind === "plan"
         ? `/api/workspace/board/plan/${encodeURIComponent(e.filename!)}`
@@ -136,8 +303,6 @@ export default function Timeline() {
     }
   }
 
-  // 프로젝트 아카이브/복원: Workspace의 board.status("보관")를 그대로 재사용(Workspace와 연동).
-  // 아카이브된 프로젝트는 탭 후보/타임라인에서 완전히 제외되고, 하단 관리 목록에서만 복원 가능.
   async function setProjectStatus(projectId: string, status: BoardStatus) {
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, board: { ...p.board, status } } : p)),
@@ -158,15 +323,12 @@ export default function Timeline() {
   if (!events) return <div className="muted">불러오는 중…</div>;
   if (events.length === 0) return <div className="muted">활동 기록이 없습니다.</div>;
 
-  // 활성 탭 기준으로 이벤트 필터링(보관 프로젝트는 탭 무관 항상 제외).
   const shown = events.filter((e) => {
     if (e.projectId && projStatusById.get(e.projectId) === "보관") return false;
     if (activeTab === "all") return true;
     return (e.projectId ?? NONE_KEY) === activeTab;
   });
 
-  // 시간 근접으로 추정된 계획을 부모 세션의 자식으로 묶는다(들여쓰기 표시용).
-  // 부모가 필터로 화면에 없으면 자식도 최상위 flat 행으로 남는다.
   const visibleSessionIds = new Set(
     shown.filter((e) => e.kind === "session" && e.sessionId).map((e) => e.sessionId!),
   );
@@ -182,8 +344,6 @@ export default function Timeline() {
     (e) => !(e.kind === "plan" && e.parentSessionId && visibleSessionIds.has(e.parentSessionId)),
   );
 
-  // 날짜별 그룹(빈 그룹은 자연 소거, "N일 공백"도 그에 맞게 재계산). 자식 계획은 부모 세션의
-  // 슬롯 아래 붙으므로 별도 날짜로 그룹화되지 않는다(자정을 걸쳐도 의도적으로 부모 쪽에 붙임).
   const groups: { day: string; items: TimelineEvent[] }[] = [];
   for (const e of topLevel) {
     const day = fmtDay(e.ts);
@@ -192,8 +352,6 @@ export default function Timeline() {
     else groups.push({ day, items: [e] });
   }
 
-  // 세션/자식 계획 행 렌더링. isChild면 들여쓰기하고, 부모와 날짜가 다를 때만 날짜를 함께 보여준다.
-  // 프로젝트명은 "전체" 탭에서만 보여준다(특정 프로젝트 탭에서는 탭 자체가 이미 알려주므로 중복).
   const renderRow = (e: TimelineEvent, isChild: boolean, parentDay?: string) => {
     const key = eventKey(e);
     const isOpen = expanded.has(key);
@@ -240,21 +398,16 @@ export default function Timeline() {
 
   return (
     <div>
-      <h2>Timeline</h2>
+      <h2>
+        Timeline <span className={`provider-badge ${providerBadgeClass("claude")}`}>{providerLabel("claude")}</span>
+      </h2>
       {projectTabs.length > 0 && (
         <div className="tl-tabs">
-          <button
-            className={`tl-tab${activeTab === "all" ? " active" : ""}`}
-            onClick={() => setActiveTab("all")}
-          >
+          <button className={`tl-tab${activeTab === "all" ? " active" : ""}`} onClick={() => setActiveTab("all")}>
             전체 <span className="tl-tab-count">{totalShownCount}</span>
           </button>
           {projectTabs.map((t) => (
-            <button
-              key={t.key}
-              className={`tl-tab${activeTab === t.key ? " active" : ""}`}
-              onClick={() => setActiveTab(t.key)}
-            >
+            <button key={t.key} className={`tl-tab${activeTab === t.key ? " active" : ""}`} onClick={() => setActiveTab(t.key)}>
               {t.status && <span className={`tl-tab-dot ${chipDotClass(t.status)}`} title={t.status} />}
               <span>{t.name}</span>
               <span className="tl-tab-count">{t.count}</span>
@@ -262,10 +415,7 @@ export default function Timeline() {
           ))}
           {archivedProjects.length > 0 && (
             <div className="tl-archive-mgr-wrap" ref={archiveRef}>
-              <button
-                className={`tl-archive-mgr-btn${archiveOpen ? " open" : ""}`}
-                onClick={() => setArchiveOpen((v) => !v)}
-              >
+              <button className={`tl-archive-mgr-btn${archiveOpen ? " open" : ""}`} onClick={() => setArchiveOpen((v) => !v)}>
                 보관 {archivedProjects.length}개 관리
                 <span className="tl-filter-caret">{archiveOpen ? "▾" : "▸"}</span>
               </button>
@@ -290,17 +440,14 @@ export default function Timeline() {
         {groups.map((g, i) => {
           const prev = groups[i - 1];
           const gapDays = prev
-            ? Math.round(
-                (new Date(prev.day).getTime() - new Date(g.day).getTime()) / 86400000,
-              )
+            ? Math.round((new Date(prev.day).getTime() - new Date(g.day).getTime()) / 86400000)
             : 0;
           return (
             <div key={g.day}>
               {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
               <div className="timeline-day">{g.day}</div>
               {g.items.map((e) => {
-                const children =
-                  e.kind === "session" && e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
+                const children = e.kind === "session" && e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
                 return (
                   <Fragment key={eventKey(e)}>
                     {renderRow(e, false)}
@@ -316,7 +463,10 @@ export default function Timeline() {
   );
 }
 
-/** 펼침 패널: 세션은 스니펫(이미 받은 값), 계획은 본문을 lazy-fetch. */
+function chipDotClass(status: BoardStatus | null): string {
+  return status ? `st-${STATUSES.indexOf(status)}` : "st-none";
+}
+
 function TimelineExpand({ e }: { e: TimelineEvent }) {
   if (e.kind === "plan" && e.filename) {
     return <PlanBody filename={e.filename} archived={!!e.archived} />;
@@ -352,9 +502,7 @@ function PlanBody({ filename, archived }: { filename: string; archived: boolean 
     let alive = true;
     api
       .get<{ raw: string }>(
-        `/api/workspace/plan/content?filename=${encodeURIComponent(filename)}&archived=${
-          archived ? 1 : 0
-        }`,
+        `/api/workspace/plan/content?filename=${encodeURIComponent(filename)}&archived=${archived ? 1 : 0}`,
       )
       .then((c) => alive && setBody(c.raw))
       .catch(() => alive && setBody("(본문을 불러오지 못했습니다)"));
@@ -370,10 +518,10 @@ function PlanBody({ filename, archived }: { filename: string; archived: boolean 
   );
 }
 
-/** plan은 filename, session은 sessionId로 식별(낙관적 업데이트/React key 안정화). */
 function eventKey(e: TimelineEvent): string {
   return e.filename ?? e.sessionId ?? `${e.kind}-${e.ts}`;
 }
+
 function sameEvent(a: TimelineEvent, b: TimelineEvent): boolean {
   return eventKey(a) === eventKey(b);
 }

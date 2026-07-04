@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import { api, fmtSize, fmtDate } from "../api/client";
+import type { ProviderFilter } from "@shared/provider-types";
+import { providerLabel } from "./workspace-shared";
 
 interface CatalogItem {
   name: string;
@@ -64,7 +66,11 @@ const GROUP_LABEL: Record<Exclude<KindFilter, "all">, string> = {
 
 const mcpKey = (m: McpServer) => `mcp:${m.scope}:${m.projectPath ?? ""}:${m.name}`;
 
-export default function Catalog() {
+interface Props {
+  providerFilter: ProviderFilter;
+}
+
+export default function Catalog({ providerFilter }: Props) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [mcps, setMcps] = useState<McpServer[]>([]);
@@ -75,15 +81,19 @@ export default function Catalog() {
   const [kind, setKind] = useState<KindFilter>(
     () => (localStorage.getItem("hm-cat-kind") as KindFilter | null) ?? "all",
   );
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
   useEffect(() => {
-    api.get<CatalogItem[]>("/api/catalog").then(setItems).catch((e) => setError(e.message));
+    setSelectedKey(null);
+    setContent({});
+    setError("");
+    api.get<CatalogItem[]>(`/api/catalog?${providerQuery}`).then(setItems).catch((e) => setError(e.message));
     api
       .get<{ plugins: PluginInfo[] }>("/api/plugins")
       .then((d) => setPlugins(d.plugins))
       .catch((e) => setError(e.message));
-    api.get<McpServer[]>("/api/mcp").then(setMcps).catch((e) => setError(e.message));
-  }, []);
+    api.get<McpServer[]>(`/api/mcp?${providerQuery}`).then(setMcps).catch((e) => setError(e.message));
+  }, [providerQuery]);
 
   const changeQuery = (v: string) => {
     setQuery(v);
@@ -166,7 +176,7 @@ export default function Catalog() {
 
   return (
     <div className="cat-page">
-      <h2>Catalog</h2>
+      <h2>Catalog <span className={`provider-badge ${providerFilter !== "all" ? `provider-${providerFilter}` : ""}`}>{providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}</span></h2>
       {error && <div className="banner err">{error}</div>}
 
       <div className="cat-split">

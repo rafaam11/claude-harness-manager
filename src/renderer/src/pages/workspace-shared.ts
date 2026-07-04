@@ -103,6 +103,14 @@ export interface TimelineEvent {
   provider?: ProviderId;
 }
 
+export function providerLabel(provider: ProviderId): string {
+  return provider === "claude" ? "Claude Code" : "Codex";
+}
+
+export function providerBadgeClass(provider: ProviderId): string {
+  return `provider-${provider}`;
+}
+
 export function stripClaudeEntityId(id: string): string {
   return id.startsWith("claude:") ? id.slice("claude:".length) : id;
 }

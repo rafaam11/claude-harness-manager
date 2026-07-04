@@ -3,13 +3,20 @@ import { Eye, EyeOff } from "lucide-react";
 import { marked } from "marked";
 import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
 import GitPanel from "./git/GitPanel";
-import type { EntityId } from "@shared/provider-types";
+import type {
+  EntityId,
+  NormalizedProject,
+  NormalizedTimelineEvent,
+  ProviderFilter,
+} from "@shared/provider-types";
 import {
   STATUSES,
   buildProjNameMap,
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  providerBadgeClass,
+  providerLabel,
   shortName,
   stripClaudeEntityId,
   type BoardStatus,
@@ -69,7 +76,240 @@ function StatusTag({ s }: { s: BoardStatus }) {
 }
 
 // ============================ 루트: 좌우 2단 마스터-디테일 ============================
-export default function Workspace() {
+interface Props {
+  providerFilter: ProviderFilter;
+}
+
+const PROVIDER_UNASSIGNED = "__provider_unassigned__";
+
+export default function Workspace({ providerFilter }: Props) {
+  if (providerFilter === "claude") return <ClaudeWorkspace />;
+  return <ProviderWorkspace providerFilter={providerFilter} />;
+}
+
+function ProviderWorkspace({ providerFilter }: { providerFilter: Exclude<ProviderFilter, "claude"> }) {
+  const [projects, setProjects] = useState<NormalizedProject[] | null>(null);
+  const [events, setEvents] = useState<NormalizedTimelineEvent[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
+
+  useEffect(() => {
+    let alive = true;
+    setProjects(null);
+    setEvents(null);
+    setError("");
+    api
+      .get<NormalizedProject[]>(`/api/workspace/normalized/projects?${providerQuery}`)
+      .then((data) => alive && setProjects(data))
+      .catch((e) => alive && setError(e.message));
+    api
+      .get<NormalizedTimelineEvent[]>(`/api/workspace/normalized/timeline?${providerQuery}`)
+      .then((data) => alive && setEvents(data))
+      .catch((e) => alive && setError(e.message));
+    return () => {
+      alive = false;
+    };
+  }, [providerQuery]);
+
+  const eventGroups = useMemo(() => {
+    const m = new Map<string, NormalizedTimelineEvent[]>();
+    for (const event of events ?? []) {
+      const key = event.projectId ?? PROVIDER_UNASSIGNED;
+      const arr = m.get(key);
+      if (arr) arr.push(event);
+      else m.set(key, [event]);
+    }
+    return m;
+  }, [events]);
+
+  useEffect(() => {
+    if (selectedId !== null) return;
+    if (projects && projects.length > 0) {
+      setSelectedId(projects[0].id);
+      return;
+    }
+    if ((eventGroups.get(PROVIDER_UNASSIGNED) ?? []).length > 0) setSelectedId(PROVIDER_UNASSIGNED);
+  }, [projects, selectedId, eventGroups]);
+
+  if (error) return <div className="banner err">{error}</div>;
+  if (!projects || !events) return <div className="muted">불러오는 중…</div>;
+
+  const selectedProject =
+    selectedId && selectedId !== PROVIDER_UNASSIGNED
+      ? projects.find((project) => project.id === selectedId) ?? null
+      : null;
+  const unassignedEvents = eventGroups.get(PROVIDER_UNASSIGNED) ?? [];
+
+  return (
+    <div>
+      <h2>
+        Workspace{" "}
+        <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : ""}`}>
+          {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
+        </span>
+      </h2>
+      <div className="banner warn provider-summary-note">
+        통합 provider 워크스페이스는 Task 9 normalized summary를 사용합니다. Claude 보드 편집, Git
+        모드, 메모리/파일 브라우저는 Claude 필터에서 기존대로 유지됩니다.
+      </div>
+      {projects.length === 0 && unassignedEvents.length === 0 ? (
+        <div className="muted">프로젝트 기록이 없습니다.</div>
+      ) : (
+        <div className="ws-split">
+          <div className="ws-master">
+            {projects.map((project) => {
+              const projectEvents = eventGroups.get(project.id) ?? [];
+              return (
+                <div
+                  key={project.id}
+                  className={`ws-master-item${selectedId === project.id ? " active" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedId(project.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedId(project.id);
+                    }
+                  }}
+                >
+                  <div className="ws-mi-head">
+                    <span className="ws-mi-name">{project.title}</span>
+                    <span className={`provider-badge ${providerBadgeClass(project.provider)}`}>
+                      {providerLabel(project.provider)}
+                    </span>
+                  </div>
+                  <div className="ws-mi-meta">
+                    <span>
+                      {project.latestActivityAt ? fmtRelative(Date.parse(project.latestActivityAt)) : "활동 없음"}
+                    </span>
+                    <span>📋 {projectEvents.length}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {unassignedEvents.length > 0 && (
+              <button
+                className={`ws-master-item unassigned${selectedId === PROVIDER_UNASSIGNED ? " active" : ""}`}
+                onClick={() => setSelectedId(PROVIDER_UNASSIGNED)}
+              >
+                📋 연결 없는 항목 <span className="cat-count">{unassignedEvents.length}</span>
+              </button>
+            )}
+          </div>
+          <div className="ws-detail">
+            <div className="ws-detail-inner">
+              {selectedProject ? (
+                <ProviderWorkspaceDetail
+                  project={selectedProject}
+                  events={eventGroups.get(selectedProject.id) ?? []}
+                />
+              ) : selectedId === PROVIDER_UNASSIGNED ? (
+                <ProviderWorkspaceUnassigned events={unassignedEvents} />
+              ) : (
+                <div className="muted">왼쪽에서 프로젝트를 선택하세요.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProviderWorkspaceDetail({
+  project,
+  events,
+}: {
+  project: NormalizedProject;
+  events: NormalizedTimelineEvent[];
+}) {
+  return (
+    <div>
+      <div className="ws-card-head">
+        <span className="ws-title">{project.title}</span>
+        <span className={`provider-badge ${providerBadgeClass(project.provider)}`}>
+          {providerLabel(project.provider)}
+        </span>
+        <span className="ws-when">
+          {project.latestActivityAt ? fmtRelative(Date.parse(project.latestActivityAt)) : "활동 없음"}
+        </span>
+      </div>
+      <div className="ws-path mono">{project.realPath ?? project.id}</div>
+      <div className="ws-plans-head no-top">
+        최근 항목 <span className="cat-count">{events.length}</span>
+      </div>
+      {events.length === 0 ? (
+        <div className="muted">연결된 활동이 없습니다.</div>
+      ) : (
+        <div className="timeline">
+          {events.map((event) => (
+            <div className="timeline-row" key={event.id}>
+              <div className="timeline-item timeline-item-static">
+                <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
+                <span className="timeline-time muted">
+                  {fmtDay(Date.parse(event.updatedAt))} {fmtTime(Date.parse(event.updatedAt))}
+                </span>
+                <span className="timeline-title">{event.title}</span>
+              </div>
+              {(event.lastUserText || event.lastAssistantText || event.sourcePath) && (
+                <div className="timeline-expand">
+                  {event.sourcePath && <div className="mono muted">{event.sourcePath}</div>}
+                  {event.lastUserText && (
+                    <p className="tl-prompt">
+                      <span className="ws-line-k">마지막 입력</span> {event.lastUserText}
+                    </p>
+                  )}
+                  {event.lastAssistantText && (
+                    <div
+                      className="md-body ws-snippet-md"
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parse(event.lastAssistantText, { breaks: true }) as string,
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProviderWorkspaceUnassigned({ events }: { events: NormalizedTimelineEvent[] }) {
+  return (
+    <div>
+      <div className="ws-plans-head no-top">
+        연결 없는 항목 <span className="cat-count">{events.length}</span>
+      </div>
+      {events.length === 0 ? (
+        <div className="muted">연결 없는 항목이 없습니다.</div>
+      ) : (
+        <div className="timeline">
+          {events.map((event) => (
+            <div className="timeline-row" key={event.id}>
+              <div className="timeline-item timeline-item-static">
+                <span className={`provider-badge ${providerBadgeClass(event.provider)}`}>
+                  {providerLabel(event.provider)}
+                </span>
+                <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
+                <span className="timeline-time muted">
+                  {fmtDay(Date.parse(event.updatedAt))} {fmtTime(Date.parse(event.updatedAt))}
+                </span>
+                <span className="timeline-title">{event.title}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaudeWorkspace() {
   const [projects, setProjects] = useState<WorkspaceProject[] | null>(null);
   const [plans, setPlans] = useState<EnrichedPlan[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);

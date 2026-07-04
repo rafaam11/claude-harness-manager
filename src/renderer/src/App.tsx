@@ -8,29 +8,36 @@ import ConfigEditor from "./pages/ConfigEditor";
 import News from "./pages/News";
 import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
+import type { ProviderFilter, ProviderStatus } from "@shared/provider-types";
+import { providerLabel } from "./pages/workspace-shared";
 
 const PAGES = {
-  timeline: { label: "타임라인", el: <Timeline /> },
-  workspace: { label: "워크스페이스", el: <Workspace /> },
-  catalog: { label: "카탈로그", el: <Catalog /> },
-  cleanup: { label: "정리", el: <Cleanup /> },
-  configs: { label: "설정 편집기", el: <ConfigEditor /> },
-  news: { label: "뉴스", el: <News /> },
-  glossary: { label: "용어집", el: <Glossary /> },
+  timeline: { label: "타임라인" },
+  workspace: { label: "워크스페이스" },
+  catalog: { label: "카탈로그" },
+  cleanup: { label: "정리" },
+  configs: { label: "설정 편집기" },
+  news: { label: "뉴스" },
+  glossary: { label: "용어집" },
 } as const;
+
+const PROVIDER_FILTERS: { value: ProviderFilter; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "claude", label: "Claude Code" },
+  { value: "codex", label: "Codex" },
+];
 
 type PageKey = keyof typeof PAGES;
 type Theme = "dark" | "light";
 
-// nav 렌더 그룹. PAGES는 평면 유지(PageKey 추론·PAGES[page].el 보존), 순서/그룹 구분만 여기서.
 const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs"];
 const SECONDARY_PAGES: PageKey[] = ["news", "glossary"];
-// 좌우 2단(마스터-디테일)이라 전체 너비를 쓰는 페이지.
 const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
-  const [ccRunning, setCcRunning] = useState(false);
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem("hm-theme") as Theme) || "dark",
   );
@@ -41,17 +48,42 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    const check = () =>
-      api
-        .get<{ running: boolean }>("/api/cc-status")
-        .then((s) => setCcRunning(s.running))
-        .catch(() => {});
-    check();
-    const t = setInterval(check, 10000);
-    return () => clearInterval(t);
+    let alive = true;
+    const load = async () => {
+      const statuses = await api.get<ProviderStatus[]>("/api/provider/status");
+      if (alive) setProviderStatuses(statuses);
+    };
+    load().catch(() => {});
+    const id = window.setInterval(() => load().catch(() => {}), 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
   }, []);
 
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
+  const runningProviders = providerStatuses.filter((status) => status.running);
+
+  const renderPage = () => {
+    switch (page) {
+      case "timeline":
+        return <Timeline providerFilter={providerFilter} />;
+      case "workspace":
+        return <Workspace providerFilter={providerFilter} />;
+      case "catalog":
+        return <Catalog providerFilter={providerFilter} />;
+      case "cleanup":
+        return <Cleanup />;
+      case "configs":
+        return <ConfigEditor providerFilter={providerFilter} />;
+      case "news":
+        return <News />;
+      case "glossary":
+        return <Glossary />;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="layout">
@@ -86,16 +118,32 @@ export default function App() {
             {PAGES[k].label}
           </button>
         ))}
+        <div className="nav-provider">
+          <div className="nav-provider-label">Provider</div>
+          <div className="provider-filter" role="tablist" aria-label="Provider filter">
+            {PROVIDER_FILTERS.map(({ value, label }) => (
+              <button
+                key={value}
+                className={providerFilter === value ? "active" : ""}
+                onClick={() => setProviderFilter(value)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="nav-spacer" />
         <UpdateBadge />
       </nav>
       <main className={WIDE_PAGES.includes(page) ? "page-wide" : undefined}>
-        {ccRunning && (
+        {runningProviders.length > 0 && (
           <div className="banner warn">
-            Claude Code 세션이 실행 중입니다 — 설정 저장·정리 실행 시 충돌에 주의하세요.
+            실행 중인 provider: {runningProviders.map((status) => providerLabel(status.id)).join(", ")} —
+            설정 저장·정리 실행 시 충돌에 주의하세요.
           </div>
         )}
-        {PAGES[page].el}
+        {renderPage()}
       </main>
     </div>
   );

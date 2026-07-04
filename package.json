@@ -1,7 +1,7 @@
 {
   "name": "harness-manager",
-  "version": "1.2.1",
-  "description": "Claude Code 전역 환경(~/.claude)을 관리하는 로컬 전용 데스크톱 앱",
+  "version": "2.0.0",
+  "description": "Claude Code와 Codex 로컬 환경을 관리하는 로컬 전용 데스크톱 앱",
   "main": "out/main/index.js",
   "private": true,
   "author": "uiop3847",
@@ -70,7 +70,7 @@
       "icon": "build/icon.png",
       "category": "Development",
       "artifactName": "Harness-Manager-${version}-${arch}.${ext}",
-      "synopsis": "Claude Code 전역 환경 관리 데스크톱 앱"
+      "synopsis": "Claude Code와 Codex 로컬 환경 관리 데스크톱 앱"
     },
     "publish": {
       "provider": "github",

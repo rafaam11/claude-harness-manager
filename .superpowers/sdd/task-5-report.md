@@ -68,5 +68,5 @@ Completed.
   - `npm run build` -> PASS
   - `npm ls js-toml chevrotain smol-toml` -> PASS (`smol-toml@1.7.0` only)
   - `Select-String -Path package-lock.json -Pattern '"js-toml"|"chevrotain"|"smol-toml"'` -> PASS (`smol-toml` only)
-- Commit: `defb96b`
+- Commit: `357dd42`
 - Concerns: none beyond the pre-existing audit warnings reported by `npm`; this fix removed the Electron-incompatible parser chain introduced by Task 5.

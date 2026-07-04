@@ -16,7 +16,7 @@ Completed.
 
 ## Commits
 
-- `3b76dfb` — `feat: add provider registry skeleton`
+- `c153e4b` — `feat: add provider registry skeleton`
 
 ## Exact Commands Run
 

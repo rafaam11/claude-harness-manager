@@ -17,6 +17,7 @@ import {
 import {
   getProviderEnrichedPlans,
   getProviderProjectSessions,
+  getProviderTimeline,
   getProviderWorkspaceProjects,
   getNormalizedTimeline,
   getNormalizedWorkspaceProjects,
@@ -390,7 +391,11 @@ const routes: Route[] = [
   {
     method: "GET",
     pattern: "/api/workspace/timeline",
-    handler: async ({ query }) => getTimeline(query.archived === "1"),
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider, "claude");
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getProviderTimeline(query.archived === "1", provider);
+    },
   },
   {
     method: "GET",

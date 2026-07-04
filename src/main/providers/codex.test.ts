@@ -177,4 +177,52 @@ describe("codex provider", () => {
       }),
     ]);
   });
+
+  it("keeps only the actual Codex user prompt when a message includes injected context", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionPath = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "07",
+      "04",
+      "rollout-2026-07-04T10-00-00-019f2aaa-1111-7222-8333-444455556666.jsonl",
+    );
+    await writeText(
+      sessionPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-07-04T01:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            session_id: "019f2aaa-1111-7222-8333-444455556666",
+            cwd: "C:\\repo",
+            model: "gpt-5.5",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-04T01:01:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "# AGENTS.md instructions for C:\\repo\n<INSTRUCTIONS>...</INSTRUCTIONS>" },
+              { type: "input_text", text: "<environment_context>\n...</environment_context>" },
+              { type: "input_text", text: "타임라인을 고쳐줘" },
+            ],
+          },
+        }),
+      ].join("\n"),
+    );
+    await fs.utimes(sessionPath, new Date("2026-07-04T01:01:00.000Z"), new Date("2026-07-04T01:01:00.000Z"));
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      title: "타임라인을 고쳐줘",
+      lastUserText: "타임라인을 고쳐줘",
+    });
+  });
 });

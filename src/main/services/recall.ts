@@ -21,6 +21,7 @@ import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
+import type { ProviderId } from "@shared/provider-types";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -73,6 +74,7 @@ export interface TimelineEvent {
   parentSessionId?: string; // 계획 이벤트에만. 시간 근접으로 추정한 부모 세션(있을 때만).
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
   worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 어느 워크트리인지 표시).
+  provider?: ProviderId;
 }
 
 export interface WorkspaceProject extends ProjectRecall {

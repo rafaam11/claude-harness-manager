@@ -30,7 +30,7 @@ describe("provider workspace normalization", () => {
     expect(projects.map((p) => p.id)).toEqual(["claude:D--repo", "codex:local"]);
   });
 
-  it("turns sessions and plans into timeline events", () => {
+  it("turns Codex sessions into session timeline events, not memory events", () => {
     const events = toTimelineEvents(
       [
         {
@@ -47,7 +47,7 @@ describe("provider workspace normalization", () => {
     expect(events[0]).toMatchObject({
       id: "codex:memory-summary",
       provider: "codex",
-      kind: "memory",
+      kind: "session",
       projectId: "codex:local",
     });
   });

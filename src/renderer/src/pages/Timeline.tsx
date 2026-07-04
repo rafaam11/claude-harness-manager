@@ -1,11 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import { api, fmtDay, fmtTime } from "../api/client";
-import type {
-  NormalizedProject,
-  NormalizedTimelineEvent,
-  ProviderFilter,
-} from "@shared/provider-types";
+import type { ProviderFilter } from "@shared/provider-types";
 import {
   STATUSES,
   buildProjNameMap,
@@ -21,190 +17,15 @@ import {
 } from "./workspace-shared";
 
 const NONE_KEY = "__none__";
-const NORMALIZED_NONE_KEY = "__normalized-none__";
-
 interface Props {
   providerFilter: ProviderFilter;
 }
 
 export default function Timeline({ providerFilter }: Props) {
-  if (providerFilter === "claude") return <ClaudeTimeline />;
-  return <ProviderTimeline providerFilter={providerFilter} />;
+  return <ClaudeTimeline providerFilter={providerFilter} />;
 }
 
-function ProviderTimeline({ providerFilter }: { providerFilter: Exclude<ProviderFilter, "claude"> }) {
-  const [events, setEvents] = useState<NormalizedTimelineEvent[] | null>(null);
-  const [projects, setProjects] = useState<NormalizedProject[]>([]);
-  const [activeTab, setActiveTab] = useState<string>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
-
-  useEffect(() => {
-    let alive = true;
-    setError("");
-    setEvents(null);
-    setExpanded(new Set());
-    api
-      .get<NormalizedTimelineEvent[]>(`/api/workspace/normalized/timeline?${providerQuery}`)
-      .then((data) => alive && setEvents(data))
-      .catch((e) => alive && setError(e.message));
-    api
-      .get<NormalizedProject[]>(`/api/workspace/normalized/projects?${providerQuery}`)
-      .then((data) => alive && setProjects(data))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [providerQuery]);
-
-  const projectMap = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
-  const projectTabs = useMemo(() => {
-    if (!events) return [];
-    const counts = new Map<string, { title: string; count: number }>();
-    for (const event of events) {
-      const key = event.projectId ?? NORMALIZED_NONE_KEY;
-      const title = event.projectId
-        ? projectMap.get(event.projectId)?.title ?? event.projectId
-        : "연결 없는 항목";
-      const current = counts.get(key);
-      if (current) current.count += 1;
-      else counts.set(key, { title, count: 1 });
-    }
-    return [...counts.entries()].map(([key, value]) => ({ key, ...value }));
-  }, [events, projectMap]);
-
-  useEffect(() => {
-    if (activeTab === "all") return;
-    if (!projectTabs.some((tab) => tab.key === activeTab)) setActiveTab("all");
-  }, [projectTabs, activeTab]);
-
-  const shown = useMemo(() => {
-    if (!events) return [];
-    if (activeTab === "all") return events;
-    return events.filter((event) => (event.projectId ?? NORMALIZED_NONE_KEY) === activeTab);
-  }, [events, activeTab]);
-
-  const groups = useMemo(() => {
-    const next: { day: string; items: NormalizedTimelineEvent[] }[] = [];
-    for (const event of shown) {
-      const ts = Date.parse(event.updatedAt);
-      const day = fmtDay(ts);
-      const last = next[next.length - 1];
-      if (last && last.day === day) last.items.push(event);
-      else next.push({ day, items: [event] });
-    }
-    return next;
-  }, [shown]);
-
-  const toggleExpand = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-
-  if (error) return <div className="banner err">{error}</div>;
-  if (!events) return <div className="muted">불러오는 중…</div>;
-
-  const totalShownCount = projectTabs.reduce((sum, tab) => sum + tab.count, 0);
-
-  return (
-    <div>
-      <h2>
-        Timeline{" "}
-        <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : ""}`}>
-          {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
-        </span>
-      </h2>
-      <div className="banner warn provider-summary-note">
-        통합 provider 타임라인은 Task 9 normalized summary를 사용합니다. Claude 전용 상태 편집/풍부한 계획 연동은 Claude 필터에서 그대로 유지됩니다.
-      </div>
-      {projectTabs.length > 0 && (
-        <div className="tl-tabs">
-          <button
-            className={`tl-tab${activeTab === "all" ? " active" : ""}`}
-            onClick={() => setActiveTab("all")}
-          >
-            전체 <span className="tl-tab-count">{totalShownCount}</span>
-          </button>
-          {projectTabs.map((tab) => (
-            <button
-              key={tab.key}
-              className={`tl-tab${activeTab === tab.key ? " active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              <span>{tab.title}</span>
-              <span className="tl-tab-count">{tab.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="timeline">
-        {groups.length === 0 && <div className="muted tl-empty">표시할 활동이 없습니다.</div>}
-        {groups.map((group, index) => {
-          const prev = groups[index - 1];
-          const gapDays = prev
-            ? Math.round((new Date(prev.day).getTime() - new Date(group.day).getTime()) / 86400000)
-            : 0;
-          return (
-            <div key={group.day}>
-              {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
-              <div className="timeline-day">{group.day}</div>
-              {group.items.map((event) => {
-                const key = event.id;
-                const open = expanded.has(key);
-                const projectTitle = event.projectId ? projectMap.get(event.projectId)?.title ?? event.projectId : "연결 없음";
-                return (
-                  <div className="timeline-row" key={key}>
-                    <div className="timeline-item" onClick={() => toggleExpand(key)}>
-                      <span className={`provider-badge ${providerBadgeClass(event.provider)}`}>{providerLabel(event.provider)}</span>
-                      <span className={`bdg bdg-${event.kind}`}>{event.kind.toUpperCase()}</span>
-                      <span className="timeline-time muted">{fmtTime(Date.parse(event.updatedAt))}</span>
-                      <span className="timeline-title">{event.title}</span>
-                      {activeTab === "all" && <span className="timeline-proj muted">{projectTitle}</span>}
-                      <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
-                    </div>
-                    {open && <NormalizedTimelineExpand event={event} />}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function NormalizedTimelineExpand({ event }: { event: NormalizedTimelineEvent }) {
-  if (!event.lastUserText && !event.lastAssistantText && !event.sourcePath) {
-    return <div className="timeline-expand muted">표시할 내용이 없습니다.</div>;
-  }
-  return (
-    <div className="timeline-expand">
-      {event.sourcePath && <div className="mono muted">{event.sourcePath}</div>}
-      {event.lastUserText && (
-        <p className="tl-prompt">
-          <span className="ws-line-k">마지막 입력</span> {event.lastUserText}
-        </p>
-      )}
-      {event.lastAssistantText && (
-        <div>
-          <span className="ws-line-k">마지막 응답</span>
-          <div
-            className="md-body ws-snippet-md"
-            dangerouslySetInnerHTML={{
-              __html: marked.parse(event.lastAssistantText, { breaks: true }) as string,
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ClaudeTimeline() {
+function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) {
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [activeTab, setActiveTab] = useState<string>("all");
@@ -212,6 +33,7 @@ function ClaudeTimeline() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [error, setError] = useState("");
   const archiveRef = useRef<HTMLDivElement>(null);
+  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
   useEffect(() => {
     if (!archiveOpen) return;
@@ -224,17 +46,22 @@ function ClaudeTimeline() {
 
   const reload = () =>
     api
-      .get<TimelineEvent[]>("/api/workspace/timeline")
+      .get<TimelineEvent[]>(`/api/workspace/timeline?${providerQuery}`)
       .then(setEvents)
       .catch((e) => setError(e.message));
 
   useEffect(() => {
+    setEvents(null);
+    setProjects([]);
+    setActiveTab("all");
+    setExpanded(new Set());
+    setError("");
     reload();
     api
-      .get<WorkspaceProject[]>("/api/workspace/projects")
+      .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
       .then(setProjects)
       .catch(() => {});
-  }, []);
+  }, [providerQuery]);
 
   const projName = useMemo(() => buildProjNameMap(projects), [projects]);
   const label = (e: TimelineEvent) =>
@@ -313,7 +140,7 @@ function ClaudeTimeline() {
     } catch (err) {
       setError((err as Error).message);
       api
-        .get<WorkspaceProject[]>("/api/workspace/projects")
+        .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
         .then(setProjects)
         .catch(() => {});
     }
@@ -359,6 +186,7 @@ function ClaudeTimeline() {
     return (
       <div className={`timeline-row${isChild ? " timeline-row-child" : ""}`} key={key}>
         <div className="timeline-item" onClick={() => toggleExpand(key)}>
+          {e.provider && <span className={`provider-badge ${providerBadgeClass(e.provider)}`}>{providerLabel(e.provider)}</span>}
           {e.kind === "plan" && <span className="bdg bdg-plan">PLAN</span>}
           {e.kind === "session" && e.lastModel && (
             <span className={`bdg ${modelBadgeClass(e.lastModel)}`} title={e.lastModel}>
@@ -399,7 +227,12 @@ function ClaudeTimeline() {
   return (
     <div>
       <h2>
-        Timeline <span className={`provider-badge ${providerBadgeClass("claude")}`}>{providerLabel("claude")}</span>
+        Timeline{" "}
+        {providerFilter !== "claude" && (
+          <span className={`provider-badge ${providerFilter !== "all" ? providerBadgeClass(providerFilter) : "provider-all"}`}>
+            {providerFilter === "all" ? "All" : providerLabel(providerFilter)}
+          </span>
+        )}
       </h2>
       {projectTabs.length > 0 && (
         <div className="tl-tabs">

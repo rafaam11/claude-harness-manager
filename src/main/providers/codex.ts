@@ -66,6 +66,43 @@ function textFromContent(content: unknown): string | null {
   return chunks.length ? chunks.join("\n") : null;
 }
 
+function isInjectedCodexText(text: string): boolean {
+  const t = text.trimStart();
+  return (
+    t.startsWith("# AGENTS.md instructions") ||
+    t.startsWith("<INSTRUCTIONS>") ||
+    t.startsWith("<environment_context>") ||
+    t.startsWith("<permissions instructions>") ||
+    t.startsWith("<collaboration_mode>") ||
+    t.startsWith("<apps_instructions>") ||
+    t.startsWith("<skills_instructions>") ||
+    t.startsWith("========= MEMORY_SUMMARY") ||
+    t.startsWith("You are Codex,")
+  );
+}
+
+function userTextFromContent(content: unknown): string | null {
+  if (typeof content === "string") {
+    const text = content.trim();
+    return text && !isInjectedCodexText(text) ? text : null;
+  }
+  if (!Array.isArray(content)) return null;
+  const candidates: string[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (
+      record.type === "input_text" &&
+      typeof record.text === "string" &&
+      record.text.trim() &&
+      !isInjectedCodexText(record.text)
+    ) {
+      candidates.push(record.text.trim());
+    }
+  }
+  return candidates.at(-1) ?? null;
+}
+
 interface CodexSessionSummary {
   id: `codex:${string}`;
   localId: string;
@@ -156,7 +193,7 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
   const payload = o.payload;
   if (payload?.type !== "message") return;
   if (payload.role === "user") {
-    const text = textFromContent(payload.content);
+    const text = userTextFromContent(payload.content);
     if (text && !text.startsWith("<")) {
       acc.lastUserText = text;
       acc.title = text;

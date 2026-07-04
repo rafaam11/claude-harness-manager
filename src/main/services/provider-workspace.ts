@@ -11,9 +11,11 @@ import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js"
 import {
   getEnrichedPlans,
   getProjectSessions,
+  getTimeline,
   getWorkspaceProjects,
   type EnrichedPlan,
   type SessionRecall,
+  type TimelineEvent,
   type WorkspaceProject,
 } from "./recall.js";
 
@@ -34,7 +36,7 @@ export function toTimelineEvents(
     events.push({
       id: s.id,
       provider: s.provider,
-      kind: s.provider === "codex" ? "memory" : "session",
+      kind: "session",
       projectId: s.projectId ?? null,
       title: s.title ?? s.lastUserText ?? "(제목 없음)",
       updatedAt: s.updatedAt,
@@ -183,4 +185,35 @@ export async function getProviderEnrichedPlans(
 ): Promise<EnrichedPlan[]> {
   if (filter === "codex") return [];
   return (await getEnrichedPlans(archived)).map((plan) => ({ ...plan, provider: "claude" as const }));
+}
+
+function codexSessionToTimelineEvent(session: NormalizedSession): TimelineEvent {
+  return {
+    ts: Date.parse(session.updatedAt),
+    kind: "session",
+    projectId: session.projectId ?? null,
+    realPath: session.cwd ?? null,
+    title: session.title ?? session.lastUserText ?? "(제목 없음)",
+    sessionId: session.id,
+    status: "진행중",
+    lastPrompt: session.lastUserText ?? null,
+    lastAssistantSnippet: session.lastAssistantText ?? null,
+    lastModel: session.model ?? null,
+    provider: "codex",
+  };
+}
+
+export async function getProviderTimeline(
+  archived: boolean,
+  filter: ProviderFilter = "claude",
+): Promise<TimelineEvent[]> {
+  const events: TimelineEvent[] = [];
+  if (filter === "all" || filter === "claude") {
+    events.push(...(await getTimeline(archived)).map((event) => ({ ...event, provider: "claude" as const })));
+  }
+  if (filter === "all" || filter === "codex") {
+    const provider = getProviders("codex")[0];
+    events.push(...(await provider.listSessions()).map(codexSessionToTimelineEvent));
+  }
+  return events.sort((a, b) => b.ts - a.ts);
 }

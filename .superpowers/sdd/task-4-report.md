@@ -16,6 +16,7 @@
 ## Commits
 
 - `dc702e6` - `feat: expose provider status and config files`
+- `2df70fc` - `docs: finalize task 4 report`
 
 ## Exact Commands Run
 

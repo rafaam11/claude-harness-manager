@@ -74,3 +74,9 @@ Completed.
 
 - `src/main/providers/codex.ts` currently returns stubbed empty arrays and `detectRunning(): false`; that matches the task brief but is only a skeleton, not a live Codex integration.
 - Git showed a line-ending warning on `src/shared/types.ts` (`LF will be replaced by CRLF` on future Git touch). I did not normalize unrelated repository line-ending policy in this task.
+
+## Fix Verification
+
+- `npm run build`
+  - PASS
+  - Result: `npm run typecheck && electron-vite build` completed successfully for main, preload, and renderer bundles.

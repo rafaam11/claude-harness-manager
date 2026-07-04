@@ -16,6 +16,10 @@ import {
   getPromptCorpus,
   getProjectSessions,
 } from "./services/recall.js";
+import {
+  getNormalizedTimeline,
+  getNormalizedWorkspaceProjects,
+} from "./services/provider-workspace.js";
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
 import { getNews, refreshNews, getNewsImage, getNewsBody } from "./services/news.js";
@@ -308,6 +312,15 @@ const routes: Route[] = [
   { method: "GET", pattern: "/api/workspace/projects", handler: async () => getWorkspaceProjects() },
   {
     method: "GET",
+    pattern: "/api/workspace/normalized/projects",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider);
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getNormalizedWorkspaceProjects(provider);
+    },
+  },
+  {
+    method: "GET",
     pattern: "/api/workspace/projects/:id/sessions",
     handler: async ({ params }) => getProjectSessions(params.id),
   },
@@ -328,6 +341,15 @@ const routes: Route[] = [
     method: "GET",
     pattern: "/api/workspace/timeline",
     handler: async ({ query }) => getTimeline(query.archived === "1"),
+  },
+  {
+    method: "GET",
+    pattern: "/api/workspace/normalized/timeline",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider);
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getNormalizedTimeline(provider);
+    },
   },
   {
     method: "POST",

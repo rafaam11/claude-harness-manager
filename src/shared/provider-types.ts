@@ -51,3 +51,17 @@ export interface NormalizedPlan {
   archived: boolean;
   projectId: EntityId | null;
 }
+
+export type NormalizedTimelineKind = "session" | "plan" | "memory" | "config" | "git";
+
+export interface NormalizedTimelineEvent {
+  id: EntityId;
+  provider: ProviderId;
+  kind: NormalizedTimelineKind;
+  projectId: EntityId | null;
+  title: string;
+  updatedAt: string;
+  sourcePath?: string;
+  lastUserText?: string;
+  lastAssistantText?: string;
+}

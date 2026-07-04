@@ -8,6 +8,19 @@ import type { ProviderAdapter } from "./types.js";
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
 
+async function statOrNull(p: string) {
+  return fs.stat(p).catch(() => null);
+}
+
+function iso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+async function codexMemoryFiles(): Promise<string[]> {
+  const memories = path.join(CODEX_HOME, "memories");
+  return [path.join(memories, "memory_summary.md"), path.join(memories, "MEMORY.md")];
+}
+
 async function listProfileConfigs(): Promise<string[]> {
   const entries = await fs.readdir(CODEX_HOME).catch(() => [] as string[]);
   return entries
@@ -79,10 +92,37 @@ export const codexProvider: ProviderAdapter = {
     return items;
   },
   async listProjects() {
-    return [];
+    const files = [CODEX_CONFIG, ...(await codexMemoryFiles())];
+    const mtimes = (
+      await Promise.all(files.map(async (p) => (await statOrNull(p))?.mtimeMs ?? 0))
+    ).filter((n) => n > 0);
+    return [
+      {
+        id: "codex:local",
+        provider: "codex" as const,
+        localId: "local",
+        title: "Codex Local Context",
+        realPath: null,
+        latestActivityAt: mtimes.length ? iso(Math.max(...mtimes)) : null,
+      },
+    ];
   },
   async listSessions() {
-    return [];
+    const files = await codexMemoryFiles();
+    const out = [];
+    for (const file of files) {
+      const stat = await statOrNull(file);
+      if (!stat) continue;
+      out.push({
+        id: `codex:${path.basename(file, path.extname(file))}` as const,
+        provider: "codex" as const,
+        projectId: "codex:local" as const,
+        title: path.basename(file),
+        updatedAt: iso(stat.mtimeMs),
+        sourcePath: file,
+      });
+    }
+    return out;
   },
   async listPlans() {
     return [];

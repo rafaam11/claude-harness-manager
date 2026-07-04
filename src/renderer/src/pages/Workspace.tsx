@@ -82,6 +82,18 @@ interface Props {
 
 const PROVIDER_UNASSIGNED = "__provider_unassigned__";
 
+export function resolveProviderWorkspaceSelection(
+  selectedId: string | null,
+  projects: NormalizedProject[] | null,
+  eventGroups: Map<string, NormalizedTimelineEvent[]>,
+): string | null {
+  if (!projects) return selectedId;
+  if (selectedId && projects.some((project) => project.id === selectedId)) return selectedId;
+  if (projects.length > 0) return projects[0].id;
+  if ((eventGroups.get(PROVIDER_UNASSIGNED) ?? []).length > 0) return PROVIDER_UNASSIGNED;
+  return null;
+}
+
 export default function Workspace({ providerFilter }: Props) {
   if (providerFilter === "claude") return <ClaudeWorkspace />;
   return <ProviderWorkspace providerFilter={providerFilter} />;
@@ -124,12 +136,8 @@ function ProviderWorkspace({ providerFilter }: { providerFilter: Exclude<Provide
   }, [events]);
 
   useEffect(() => {
-    if (selectedId !== null) return;
-    if (projects && projects.length > 0) {
-      setSelectedId(projects[0].id);
-      return;
-    }
-    if ((eventGroups.get(PROVIDER_UNASSIGNED) ?? []).length > 0) setSelectedId(PROVIDER_UNASSIGNED);
+    const nextSelected = resolveProviderWorkspaceSelection(selectedId, projects, eventGroups);
+    if (nextSelected !== selectedId) setSelectedId(nextSelected);
   }, [projects, selectedId, eventGroups]);
 
   if (error) return <div className="banner err">{error}</div>;

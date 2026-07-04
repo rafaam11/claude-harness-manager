@@ -3,6 +3,11 @@ import path from "node:path";
 import { ARCHIVE_ROOT, CLAUDE_HOME } from "../config.js";
 import { guardPath } from "./path-guard.js";
 import { withLock } from "./lock.js";
+import {
+  assertCleanupCategory,
+  assertInsideRoot,
+  type CleanupArchiveCategory,
+} from "./path-scope.js";
 
 export interface ManifestEntry {
   original: string;
@@ -60,8 +65,9 @@ export async function archiveItems(
   category: string,
 ): Promise<ManifestEntry[]> {
   return withLock(async () => {
-    const base = archiveDir();
-    const destDir = path.join(base, category);
+    const safeCategory: CleanupArchiveCategory = assertCleanupCategory(category);
+    const base = guardPath(archiveDir());
+    const destDir = assertInsideRoot(path.join(base, safeCategory), base, "archive category");
     await fs.mkdir(destDir, { recursive: true });
 
     const manifestPath = path.join(base, "manifest.json");

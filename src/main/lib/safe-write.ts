@@ -5,6 +5,7 @@ import { BACKUP_DIR, BACKUP_KEEP } from "../config.js";
 import { guardPath } from "./path-guard.js";
 import { validateConfig } from "./json-validate.js";
 import { withLock } from "./lock.js";
+import { assertInsideRoot, assertSafePathSegment } from "./path-scope.js";
 
 export class ConflictError extends Error {
   statusCode = 409;
@@ -69,8 +70,9 @@ export async function safeWrite(
 }
 
 export async function listBackups(fileBase: string) {
+  const safeBase = assertSafePathSegment(fileBase, "backup base");
   const entries = await fs.readdir(BACKUP_DIR).catch(() => [] as string[]);
-  const mine = entries.filter((e) => e.startsWith(fileBase + ".")).sort().reverse();
+  const mine = entries.filter((e) => e.startsWith(safeBase + ".")).sort().reverse();
   const out = [];
   for (const e of mine) {
     const stat = await fs.stat(path.join(BACKUP_DIR, e));
@@ -82,7 +84,9 @@ export async function listBackups(fileBase: string) {
 export async function restoreBackup(name: string, filePath: string, backupName: string) {
   return withLock(async () => {
     const p = guardPath(filePath);
-    const backupPath = guardPath(path.join(BACKUP_DIR, backupName));
+    const safeBackupName = assertSafePathSegment(backupName, "backup name");
+    const backupRoot = guardPath(BACKUP_DIR);
+    const backupPath = assertInsideRoot(path.join(backupRoot, safeBackupName), backupRoot, "backup");
     const content = await fs.readFile(backupPath, "utf8");
     validateConfig(name, content);
 

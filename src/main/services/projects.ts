@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { CLAUDE_HOME, STALE_DAYS } from "../config.js";
 import { guardPath } from "../lib/path-guard.js";
+import { assertInsideRoot, assertSafePathSegment, assertSafeRelativePath } from "../lib/path-scope.js";
 
 export interface ProjectInfo {
   id: string; // flatten된 디렉토리명
@@ -78,7 +79,9 @@ export async function getProjects(): Promise<ProjectInfo[]> {
 }
 
 export async function listProjectFiles(id: string) {
-  const dir = guardPath(path.join(CLAUDE_HOME, "projects", id));
+  const safeId = assertSafePathSegment(id, "project id");
+  const projectsRoot = guardPath(path.join(CLAUDE_HOME, "projects"));
+  const dir = assertInsideRoot(path.join(projectsRoot, safeId), projectsRoot, "project root");
   const files: { path: string; size: number; mtime: number }[] = [];
   async function walk(d: string) {
     for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
@@ -95,7 +98,11 @@ export async function listProjectFiles(id: string) {
 }
 
 export async function readProjectFile(id: string, relPath: string) {
-  const p = guardPath(path.join(CLAUDE_HOME, "projects", id, relPath));
+  const safeId = assertSafePathSegment(id, "project id");
+  const safeRel = assertSafeRelativePath(relPath, "project file");
+  const projectsRoot = guardPath(path.join(CLAUDE_HOME, "projects"));
+  const projectRoot = assertInsideRoot(path.join(projectsRoot, safeId), projectsRoot, "project root");
+  const p = assertInsideRoot(path.join(projectRoot, safeRel), projectRoot, "project file");
   const stat = await fs.stat(p);
   if (stat.size > 2 * 1024 * 1024) {
     // 대형 트랜스크립트는 앞부분만

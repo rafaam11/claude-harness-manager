@@ -1,6 +1,7 @@
 import path from "node:path";
 import { CONFIG_FILES } from "./config.js";
 import { readConfig, safeWrite, listBackups, restoreBackup } from "./lib/safe-write.js";
+import { assertCleanupCategory } from "./lib/path-scope.js";
 import { detectClaude } from "./lib/cc-detect.js";
 import { archiveItems, restoreItem, listManifests } from "./lib/archive.js";
 import { getCatalog, readCatalogContent } from "./services/catalog.js";
@@ -348,6 +349,7 @@ const routes: Route[] = [
       if (!Array.isArray(items) || items.length === 0) {
         throw new HttpError(400, "items 필요");
       }
+      for (const item of items) assertCleanupCategory(item.category);
       if (items.some((i) => i.category === "warn-only")) {
         throw new HttpError(400, "warn-only 항목은 이동할 수 없습니다");
       }

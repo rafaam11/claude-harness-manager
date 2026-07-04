@@ -62,16 +62,43 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   }, [providerQuery]);
 
   const projName = useMemo(() => buildProjNameMap(projects), [projects]);
-  const label = (e: TimelineEvent) =>
-    e.projectId ? projName.get(e.projectId) ?? shortName(e.realPath, e.projectId) : "";
+  const projectByMemberId = useMemo(() => {
+    const m = new Map<string, WorkspaceProject>();
+    for (const p of projects) {
+      m.set(p.id, p);
+      for (const memberId of p.memberIds ?? []) m.set(memberId, p);
+    }
+    return m;
+  }, [projects]);
+  const projectKey = (e: TimelineEvent) =>
+    e.projectId ? projectByMemberId.get(e.projectId)?.id ?? e.projectId : NONE_KEY;
+  const label = (e: TimelineEvent) => {
+    if (!e.projectId) return "";
+    const grouped = projectByMemberId.get(e.projectId);
+    return grouped ? displayName(grouped) : projName.get(e.projectId) ?? shortName(e.realPath, e.projectId);
+  };
 
   const projStatusById = useMemo(
-    () => new Map<string, BoardStatus | null>(projects.map((p) => [p.id, p.board.status])),
+    () => {
+      const m = new Map<string, BoardStatus | null>();
+      for (const p of projects) {
+        m.set(p.id, p.board.status);
+        for (const memberId of p.memberIds ?? []) m.set(memberId, p.board.status);
+      }
+      return m;
+    },
     [projects],
   );
 
   const projLastActivityById = useMemo(
-    () => new Map<string, number>(projects.map((p) => [p.id, p.lastActivity])),
+    () => {
+      const m = new Map<string, number>();
+      for (const p of projects) {
+        m.set(p.id, p.lastActivity);
+        for (const memberId of p.memberIds ?? []) m.set(memberId, p.lastActivity);
+      }
+      return m;
+    },
     [projects],
   );
 
@@ -81,7 +108,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     for (const e of events) {
       const status = e.projectId ? projStatusById.get(e.projectId) ?? null : null;
       if (status === "보관") continue;
-      const key = e.projectId ?? NONE_KEY;
+      const key = projectKey(e);
       const name = e.projectId ? label(e) || e.projectId : "프로젝트 없음";
       const cur = counts.get(key);
       if (cur) cur.count++;
@@ -151,7 +178,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   const shown = events.filter((e) => {
     if (e.projectId && projStatusById.get(e.projectId) === "보관") return false;
     if (activeTab === "all") return true;
-    return (e.projectId ?? NONE_KEY) === activeTab;
+    return projectKey(e) === activeTab;
   });
 
   const visibleSessionIds = new Set(

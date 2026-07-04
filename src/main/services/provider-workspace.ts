@@ -19,12 +19,53 @@ import {
   type WorkspaceProject,
 } from "./recall.js";
 
+type ProviderWorkspaceProject = WorkspaceProject & { provider?: ProviderId };
+
 export function sortNormalizedProjects(projects: NormalizedProject[]): NormalizedProject[] {
   return [...projects].sort((a, b) => {
     const at = a.latestActivityAt ? Date.parse(a.latestActivityAt) : 0;
     const bt = b.latestActivityAt ? Date.parse(b.latestActivityAt) : 0;
     return bt - at;
   });
+}
+
+function pathGroupKey(project: Pick<WorkspaceProject, "realPath" | "repoRoot" | "id">): string {
+  const p = project.realPath ?? project.repoRoot;
+  if (!p) return `id:${project.id}`;
+  return `path:${p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()}`;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+export function mergeProviderProjectsByPath(
+  projects: ProviderWorkspaceProject[],
+): ProviderWorkspaceProject[] {
+  const groups = new Map<string, ProviderWorkspaceProject[]>();
+  for (const project of projects) {
+    const key = pathGroupKey(project);
+    const arr = groups.get(key) ?? [];
+    arr.push(project);
+    groups.set(key, arr);
+  }
+
+  const merged: ProviderWorkspaceProject[] = [];
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((a, b) => b.lastActivity - a.lastActivity);
+    const primary = sorted[0];
+    const memberIds = uniqueStrings(sorted.flatMap((p) => [p.id, ...(p.memberIds ?? [])]));
+    const providers = new Set(sorted.map((p) => p.provider).filter(Boolean));
+    merged.push({
+      ...primary,
+      provider: providers.size === 1 ? primary.provider : undefined,
+      memberIds,
+      worktrees: sorted.flatMap((p) => p.worktrees ?? []),
+      lastActivity: Math.max(...sorted.map((p) => p.lastActivity)),
+      staleDays: Math.min(...sorted.map((p) => p.staleDays)),
+    });
+  }
+  return merged.sort((a, b) => b.lastActivity - a.lastActivity);
 }
 
 export function toTimelineEvents(
@@ -160,12 +201,13 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
 export async function getProviderWorkspaceProjects(
   filter: ProviderFilter = "all",
 ): Promise<WorkspaceProject[]> {
-  const lists: WorkspaceProject[][] = [];
+  const lists: ProviderWorkspaceProject[][] = [];
   if (filter === "all" || filter === "claude") {
     lists.push((await getWorkspaceProjects()).map((p) => ({ ...p, provider: "claude" as const })));
   }
   if (filter === "all" || filter === "codex") lists.push(await codexWorkspaceProjects());
-  return lists.flat().sort((a, b) => b.lastActivity - a.lastActivity);
+  const projects = lists.flat().sort((a, b) => b.lastActivity - a.lastActivity);
+  return filter === "all" ? mergeProviderProjectsByPath(projects) : projects;
 }
 
 export async function getProviderProjectSessions(projectId: string): Promise<SessionRecall[]> {

@@ -149,6 +149,8 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
 
   const projName = useMemo(() => buildProjNameMap(sorted), [sorted]);
   const unassigned = plansByProject.get(UNASSIGNED) ?? [];
+  const projectPlans = (p: WorkspaceProject) =>
+    (p.memberIds?.length ? p.memberIds : [p.id]).flatMap((id) => plansByProject.get(id) ?? []);
 
   // 기본/필터 변경 선택: 현재 선택이 사라지면 첫(숨김 제외) 프로젝트로 보정.
   useEffect(() => {
@@ -237,7 +239,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     <ProjectMasterCard
       key={p.id}
       p={p}
-      planCount={(plansByProject.get(p.id) ?? []).length}
+      planCount={projectPlans(p).length}
       active={selectedId === p.id}
       sortMode={sortMode}
       isFirst={idx === 0}
@@ -435,6 +437,8 @@ function ProjectDetail({
 }) {
   const r = p.recall;
   const base = shortName(p.realPath, p.id);
+  const projectIds = p.memberIds?.length ? p.memberIds : [p.id];
+  const hasClaudeMember = projectIds.some((id) => id.startsWith("claude:"));
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
   // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
@@ -566,8 +570,8 @@ function ProjectDetail({
         </>
       ) : detailMode === "session" ? (
         <>
-          <SessionsSection projectId={p.id} />
-          {(p.provider ?? "claude") === "claude" && <MemorySection projectId={p.id} />}
+          <SessionsSection projectIds={projectIds} />
+          {hasClaudeMember && <MemorySection projectId={projectIds.find((id) => id.startsWith("claude:")) ?? p.id} />}
         </>
       ) : (
         <>
@@ -679,23 +683,30 @@ function WorktreeSection({
 }
 
 // ============================ 세션 탭(그룹 내 모든 세션 — Timeline 행 스타일 재사용) ============================
-function SessionsSection({ projectId }: { projectId: string }) {
+function SessionsSection({ projectIds }: { projectIds: string[] }) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const projectKey = projectIds.join("\n");
 
   useEffect(() => {
     let alive = true;
     setSessions(null);
     setError("");
-    api
-      .get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`)
-      .then((d) => alive && setSessions(d))
+    Promise.all(
+      projectIds.map((projectId) =>
+        api.get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`),
+      ),
+    )
+      .then((lists) =>
+        alive &&
+        setSessions(lists.flat().sort((a, b) => b.transcriptMtime - a.transcriptMtime)),
+      )
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;
     };
-  }, [projectId]);
+  }, [projectKey]);
 
   const toggle = (key: string) =>
     setExpanded((prev) => {

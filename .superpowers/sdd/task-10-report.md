@@ -42,3 +42,22 @@
 ## Concerns
 - Combined `all` filter uses lightweight normalized summaries rather than the full Claude detail surface; users must switch back to `Claude Code` to access board/Git/memory rich interactions.
 - Config editing for Codex/provider-generic files is intentionally not implemented here to respect Task 11 boundaries.
+
+## Fix: Workspace selection revalidation for provider reloads
+- Files changed:
+  - `src/renderer/src/pages/Workspace.tsx`
+  - `src/renderer/src/pages/Workspace.test.ts`
+- Commit:
+  - `42d6375` — `fix: revalidate provider workspace selection`
+- Commands:
+  - `npm test -- Workspace.test.ts`
+    - FAIL (RED): `(0 , resolveProviderWorkspaceSelection) is not a function`
+    - PASS after fix
+  - `npm run typecheck`
+    - PASS
+  - `npm run build`
+    - PASS
+- PASS/FAIL summary:
+  - Stale provider selection revalidation: PASS
+  - Fallback to first current project when selected id disappears: PASS
+  - Existing Claude-rich workspace flows unchanged at compile/build level: PASS

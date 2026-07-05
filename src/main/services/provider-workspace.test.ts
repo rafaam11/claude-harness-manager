@@ -83,6 +83,7 @@ describe("provider workspace normalization", () => {
           id: "codex:memory-summary",
           provider: "codex",
           projectId: "codex:local",
+          sessionKind: "main",
           title: "memory_summary.md",
           updatedAt: "2026-03-01T00:00:00.000Z",
           sourcePath: "memory_summary.md",

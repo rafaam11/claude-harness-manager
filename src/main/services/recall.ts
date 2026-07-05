@@ -21,7 +21,7 @@ import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
-import type { ProviderId } from "@shared/provider-types";
+import type { ProviderId, SessionKind } from "@shared/provider-types";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -29,6 +29,7 @@ const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
 /** "마지막으로 뭐 했는지" — 한 세션 transcript에서 뽑은 회상 정보 */
 export interface SessionRecall {
   sessionId: string | null;
+  sessionKind?: SessionKind;
   aiTitle: string | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
@@ -157,6 +158,7 @@ function getCompatEntry<T>(map: Record<string, T>, id: string): T | undefined {
 // --- transcript 파싱 ---
 interface RecallAcc {
   sessionId: string | null;
+  sessionKind: SessionKind;
   aiTitle: string | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
@@ -171,6 +173,74 @@ function firstNonEmptyText(content: unknown): string | null {
     if (c && c.type === "text" && typeof c.text === "string" && c.text.trim()) return c.text;
   }
   return null;
+}
+
+function isAgentTranscriptPath(filePath: string): boolean {
+  return path.basename(filePath).startsWith("agent-");
+}
+
+function isInjectedClaudeText(text: string): boolean {
+  const t = text.trimStart();
+  return t.startsWith("<") || t.startsWith("# AGENTS.md instructions") || t.startsWith("========= MEMORY_SUMMARY");
+}
+
+function preferRecallSessionKind(current: SessionKind, next: SessionKind): SessionKind {
+  if (next === "main") return "main";
+  if (current === "main") return current;
+  if (next === "worker") return "worker";
+  if (current === "worker") return current;
+  if (next === "system") return "system";
+  return current;
+}
+
+function sessionRecallRank(s: SessionRecall): number {
+  if (s.sessionKind === "main") return 4;
+  if (s.sessionKind === "unknown") return 3;
+  if (s.sessionKind === "worker") return 2;
+  if (s.sessionKind === "system") return 1;
+  return 0;
+}
+
+function hasUserFacingRecallText(s: SessionRecall): boolean {
+  return Boolean(s.aiTitle || s.lastPrompt || s.lastAssistantSnippet);
+}
+
+function betterUserFacingRecall(a: SessionRecall, b: SessionRecall): SessionRecall {
+  const ar = sessionRecallRank(a);
+  const br = sessionRecallRank(b);
+  if (ar !== br) return br > ar ? b : a;
+  const at = hasUserFacingRecallText(a);
+  const bt = hasUserFacingRecallText(b);
+  if (at !== bt) return bt ? b : a;
+  return b.transcriptMtime >= a.transcriptMtime ? b : a;
+}
+
+function mergeSessionRecall(a: SessionRecall, b: SessionRecall): SessionRecall {
+  const latest = b.transcriptMtime >= a.transcriptMtime ? b : a;
+  const userFacing = betterUserFacingRecall(a, b);
+  return {
+    ...latest,
+    sessionKind: preferRecallSessionKind(a.sessionKind ?? "unknown", b.sessionKind ?? "unknown"),
+    aiTitle: userFacing.aiTitle ?? latest.aiTitle,
+    lastPrompt: userFacing.lastPrompt ?? latest.lastPrompt,
+    lastAssistantSnippet: userFacing.lastAssistantSnippet ?? latest.lastAssistantSnippet,
+    cwd: latest.cwd ?? userFacing.cwd,
+    gitBranch: latest.gitBranch ?? userFacing.gitBranch,
+    lastModel: latest.lastModel ?? userFacing.lastModel,
+    transcriptPath: userFacing.transcriptPath,
+    transcriptMtime: Math.max(a.transcriptMtime, b.transcriptMtime),
+    truncatedScan: a.truncatedScan || b.truncatedScan,
+  };
+}
+
+export function dedupeSessionRecallsByConversation(sessions: SessionRecall[]): SessionRecall[] {
+  const byKey = new Map<string, SessionRecall>();
+  for (const session of sessions) {
+    const key = session.sessionId ? `sid:${session.sessionId}` : `path:${session.transcriptPath}`;
+    const prev = byKey.get(key);
+    byKey.set(key, prev ? mergeSessionRecall(prev, session) : session);
+  }
+  return [...byKey.values()].sort((a, b) => b.transcriptMtime - a.transcriptMtime);
 }
 
 /** 한 줄(JSON)을 파싱해 acc의 "마지막 값"을 갱신. 순서대로 호출하면 최종값이 가장 마지막 등장값. */
@@ -205,7 +275,12 @@ function applyLine(line: string, acc: RecallAcc) {
       // 세션에서도 "(제목 없음)" 대신 실제 마지막 입력이 뜨도록 하는 fallback.
       if (!o.isMeta && typeof o.message?.content === "string") {
         const t = o.message.content.trim();
-        if (t && !t.startsWith("<")) acc.lastPrompt = t;
+        if (t && !isInjectedClaudeText(t)) {
+          acc.lastPrompt = t;
+          if (acc.sessionKind !== "worker") acc.sessionKind = "main";
+        } else if (t && acc.sessionKind === "unknown") {
+          acc.sessionKind = "system";
+        }
       }
       break;
   }
@@ -274,6 +349,7 @@ async function readSessionRecallFromFile(
 ): Promise<SessionRecall> {
   const acc: RecallAcc = {
     sessionId: path.basename(filePath, ".jsonl"), // 파일명 uuid = sessionId
+    sessionKind: isAgentTranscriptPath(filePath) ? "worker" : "unknown",
     aiTitle: null,
     lastPrompt: null,
     lastAssistantSnippet: null,
@@ -300,6 +376,7 @@ async function readSessionRecallFromFile(
 
   return {
     sessionId: acc.sessionId,
+    sessionKind: acc.sessionKind,
     aiTitle: acc.aiTitle,
     lastPrompt: trunc(acc.lastPrompt, PROMPT_MAX),
     lastAssistantSnippet: trunc(acc.lastAssistantSnippet, ASSISTANT_MAX),
@@ -313,7 +390,12 @@ async function readSessionRecallFromFile(
 }
 
 export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {
-  const newest = await findNewestTranscript(projectDir);
+  const all = await findAllTranscripts(projectDir);
+  const nonAgent = all.filter((t) => !isAgentTranscriptPath(t.path));
+  const newest = (nonAgent.length ? nonAgent : all).reduce<TranscriptRef | null>(
+    (best, r) => (!best || r.mtime > best.mtime ? r : best),
+    null,
+  );
   if (!newest) return null;
   return readSessionRecallFromFile(newest.path, newest.size, newest.mtime);
 }
@@ -613,7 +695,7 @@ export async function getProjectSessions(projectId: string): Promise<SessionReca
       );
     }),
   );
-  return lists.flat().sort((a, b) => b.transcriptMtime - a.transcriptMtime);
+  return dedupeSessionRecallsByConversation(lists.flat());
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {

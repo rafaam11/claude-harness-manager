@@ -73,12 +73,12 @@ beforeEach(() => {
 describe("provider-aware catalog and MCP routes", () => {
   it("defaults missing provider query to claude for /api/catalog and /api/mcp", async () => {
     await expect(routeRequest({ method: "GET", url: "app://local/api/catalog" } as never)).resolves.toEqual([
-      { name: "claude-catalog" },
+      { name: "claude-catalog", provider: "claude" },
     ]);
     expect(getProvidersMock).toHaveBeenNthCalledWith(1, "claude");
 
     await expect(routeRequest({ method: "GET", url: "app://local/api/mcp" } as never)).resolves.toEqual([
-      { name: "claude-mcp" },
+      { name: "claude-mcp", provider: "claude" },
     ]);
     expect(getProvidersMock).toHaveBeenNthCalledWith(2, "claude");
   });
@@ -99,10 +99,24 @@ describe("provider-aware catalog and MCP routes", () => {
   });
 
   it.each([
-    ["/api/catalog", "provider=codex", [{ name: "codex-catalog" }]],
-    ["/api/catalog", "provider=all", [{ name: "claude-catalog" }, { name: "codex-catalog" }]],
-    ["/api/mcp", "provider=codex", [{ name: "codex-mcp" }]],
-    ["/api/mcp", "provider=all", [{ name: "claude-mcp" }, { name: "codex-mcp" }]],
+    ["/api/catalog", "provider=codex", [{ name: "codex-catalog", provider: "codex" }]],
+    [
+      "/api/catalog",
+      "provider=all",
+      [
+        { name: "claude-catalog", provider: "claude" },
+        { name: "codex-catalog", provider: "codex" },
+      ],
+    ],
+    ["/api/mcp", "provider=codex", [{ name: "codex-mcp", provider: "codex" }]],
+    [
+      "/api/mcp",
+      "provider=all",
+      [
+        { name: "claude-mcp", provider: "claude" },
+        { name: "codex-mcp", provider: "codex" },
+      ],
+    ],
   ])("accepts %s with %s", async (pathname, search, expected) => {
     await expect(
       routeRequest({

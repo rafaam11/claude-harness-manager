@@ -462,15 +462,6 @@ pre.viewer {
 .ws-when { color: var(--muted); font-size: 12px; margin-left: auto; }
 .ws-card-head .ws-select { margin-left: 8px; }
 .ws-path { color: var(--muted); margin-top: 2px; word-break: break-all; }
-/* 워크트리 섹션(대표 repo에 접힌 linked 워크트리) + Git 모드 대상 전환 바 */
-.ws-worktrees { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 4px; }
-.ws-wt-row { display: flex; flex-direction: column; gap: 2px; font-size: 12px; padding: 4px 7px; border-radius: 5px; background: var(--active-bg); }
-.ws-wt-row.removed { opacity: 0.5; }
-.ws-wt-row-top { display: flex; align-items: center; gap: 8px; }
-.ws-wt-name { font-weight: 600; }
-.ws-wt-removed { font-size: 11px; }
-.ws-wt-preview { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-git-target { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
 .ws-recall { border-left: 2px solid var(--accent); padding-left: 12px; margin: 12px 0; }
 .ws-aititle { font-weight: 650; font-size: 13px; margin-bottom: 4px; }
 .ws-line { font-size: 12px; color: var(--text); line-height: 1.45; margin-top: 3px; }
@@ -1306,6 +1297,35 @@ pre.viewer {
    scroll 컨테이너는 window이고 main엔 overflow가 없어 sticky가 정상 동작한다. top은 main 패딩(24px)과 맞춤. */
 .cat-master-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; position: sticky; top: 24px; align-self: start; }
 .cat-toolbar { display: flex; flex-direction: column; gap: 8px; }
+.cat-provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.cat-provider-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+.cat-provider-tab:hover { color: var(--text); }
+.cat-provider-tab.provider-all,
+.cat-provider-tab.provider-claude,
+.cat-provider-tab.provider-codex { box-shadow: none; }
+.cat-provider-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--provider-tone, var(--accent));
+  background: color-mix(in srgb, var(--provider-tone, var(--accent)) 8%, transparent);
+}
 .cat-search {
   width: 100%; box-sizing: border-box; background: var(--editor-bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12.5px;

@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import { api, fmtSize, fmtDate } from "../api/client";
-import type { ProviderFilter } from "@shared/provider-types";
+import type { ProviderFilter, ProviderId } from "@shared/provider-types";
 import { providerLabel } from "./workspace-shared";
+import { groupRowsByProvider, providerGroupLabel, providerToneClass } from "../provider-ui";
 
 interface CatalogItem {
   name: string;
   kind: "skill" | "agent" | "command";
+  provider?: ProviderId;
   description: string;
   path: string;
   size: number;
@@ -23,6 +25,7 @@ interface PluginInfo {
 
 interface McpServer {
   name: string;
+  provider?: ProviderId;
   scope: "user" | "project";
   projectPath?: string;
   transport: "stdio" | "http" | "sse" | "unknown";
@@ -64,7 +67,25 @@ const GROUP_LABEL: Record<Exclude<KindFilter, "all">, string> = {
   plugin: "Plugins",
 };
 
-const mcpKey = (m: McpServer) => `mcp:${m.scope}:${m.projectPath ?? ""}:${m.name}`;
+const mcpKey = (m: McpServer) => `mcp:${m.provider ?? "unknown"}:${m.scope}:${m.projectPath ?? ""}:${m.name}`;
+
+export const CATALOG_PROVIDER_TABS: { key: ProviderFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "claude", label: "Claude" },
+  { key: "codex", label: "Codex" },
+];
+
+export function filterCatalogItemsByProvider<T extends { provider?: ProviderId }>(
+  rows: T[],
+  provider: ProviderFilter,
+): T[] {
+  return provider === "all" ? rows : rows.filter((row) => row.provider === provider);
+}
+
+// 현재 plugin catalog는 Claude Code의 ~/.claude/plugins만 읽는다. Codex 탭에서는 숨겨 오염을 막는다.
+export function filterCatalogPluginsByProvider<T>(rows: T[], provider: ProviderFilter): T[] {
+  return provider === "codex" ? [] : rows;
+}
 
 interface Props {
   providerFilter: ProviderFilter;
@@ -81,7 +102,10 @@ export default function Catalog({ providerFilter }: Props) {
   const [kind, setKind] = useState<KindFilter>(
     () => (localStorage.getItem("hm-cat-kind") as KindFilter | null) ?? "all",
   );
-  const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
+  const [catalogProviderFilter, setCatalogProviderFilter] = useState<ProviderFilter>(
+    () => (localStorage.getItem("hm-cat-provider") as ProviderFilter | null) ?? providerFilter ?? "all",
+  );
+  const providerQuery = "provider=all";
 
   useEffect(() => {
     setSelectedKey(null);
@@ -103,6 +127,11 @@ export default function Catalog({ providerFilter }: Props) {
     setKind(k);
     localStorage.setItem("hm-cat-kind", k);
   };
+  const changeCatalogProvider = (p: ProviderFilter) => {
+    setCatalogProviderFilter(p);
+    localStorage.setItem("hm-cat-provider", p);
+    setSelectedKey(null);
+  };
 
   // 항목 선택(펼침 대체). skill/agent/command는 본문을 lazy-fetch.
   async function selectItem(key: string, path?: string) {
@@ -123,10 +152,26 @@ export default function Catalog({ providerFilter }: Props) {
   const hit = (...parts: (string | undefined)[]) =>
     q === "" || parts.some((p) => p && p.toLowerCase().includes(q));
 
+  const scopedItems = filterCatalogItemsByProvider(items, catalogProviderFilter);
+  const scopedMcps = filterCatalogItemsByProvider(mcps, catalogProviderFilter);
+  const scopedPlugins = filterCatalogPluginsByProvider(plugins, catalogProviderFilter);
+
   const itemRows = (k: CatalogItem["kind"]) =>
-    items.filter((i) => i.kind === k && hit(i.name, i.description));
-  const mcpRows = mcps.filter((m) => hit(m.name, m.projectPath));
-  const pluginRows = plugins.filter((p) => hit(p.id));
+    scopedItems.filter((i) => i.kind === k && hit(i.name, i.description));
+  const mcpRows = scopedMcps.filter((m) => hit(m.name, m.projectPath));
+  const pluginRows = scopedPlugins.filter((p) => hit(p.id));
+
+  const providerCounts: Record<ProviderFilter, number> = {
+    all: items.length + mcps.length + plugins.length,
+    claude:
+      filterCatalogItemsByProvider(items, "claude").length +
+      filterCatalogItemsByProvider(mcps, "claude").length +
+      filterCatalogPluginsByProvider(plugins, "claude").length,
+    codex:
+      filterCatalogItemsByProvider(items, "codex").length +
+      filterCatalogItemsByProvider(mcps, "codex").length +
+      filterCatalogPluginsByProvider(plugins, "codex").length,
+  };
 
   const counts: Record<KindFilter, number> = {
     skill: itemRows("skill").length,
@@ -143,31 +188,41 @@ export default function Catalog({ providerFilter }: Props) {
   function itemGroup(k: CatalogItem["kind"]): ReactNode {
     const rows = itemRows(k);
     if (!showGroup(k) || rows.length === 0) return null;
+    const groups =
+      catalogProviderFilter === "all" ? groupRowsByProvider(rows) : [{ provider: catalogProviderFilter as ProviderId, rows }];
     return (
       <div key={k}>
-        <div className="cat-group-head">
-          {GROUP_LABEL[k]} <span className="cat-count">{rows.length}</span>
-        </div>
-        {rows.map((it) => {
-          const key = `item:${it.path}`;
-          return (
-            <button
-              key={it.path}
-              className={`cat-master-item${selectedKey === key ? " active" : ""}`}
-              onClick={() => selectItem(key, it.path)}
-            >
-              <div className="cat-mi-head">
-                <span className={`bdg bdg-${k}`}>{ITEM_BADGE[k]}</span>
-                <span className="cat-mi-name">{it.name}</span>
-                {it.warn && <span className="tag warn">⚠</span>}
-              </div>
-              <div className="cat-mi-meta">
-                <span>{fmtSize(it.size)}</span>
-                <span>{fmtDate(it.mtime)}</span>
-              </div>
-            </button>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={`${k}:${group.provider}`}>
+            <div className="cat-group-head">
+              {GROUP_LABEL[k]}{catalogProviderFilter === "all" ? ` · ${providerGroupLabel(group.provider)}` : ""}{" "}
+              <span className="cat-count">{group.rows.length}</span>
+            </div>
+            {group.rows.map((it) => {
+              const key = `item:${it.path}`;
+              return (
+                <button
+                  key={it.path}
+                  className={`cat-master-item${selectedKey === key ? " active" : ""}`}
+                  onClick={() => selectItem(key, it.path)}
+                >
+                  <div className="cat-mi-head">
+                    {it.provider && catalogProviderFilter === "all" && (
+                      <span className={`provider-badge ${providerToneClass(it.provider)}`}>{providerLabel(it.provider)}</span>
+                    )}
+                    <span className={`bdg bdg-${k}`}>{ITEM_BADGE[k]}</span>
+                    <span className="cat-mi-name">{it.name}</span>
+                    {it.warn && <span className="tag warn">⚠</span>}
+                  </div>
+                  <div className="cat-mi-meta">
+                    <span>{fmtSize(it.size)}</span>
+                    <span>{fmtDate(it.mtime)}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     );
   }
@@ -176,8 +231,27 @@ export default function Catalog({ providerFilter }: Props) {
 
   return (
     <div className="cat-page">
-      <h2>Catalog <span className={`provider-badge ${providerFilter !== "all" ? `provider-${providerFilter}` : ""}`}>{providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}</span></h2>
+      <h2>
+        Catalog{" "}
+        <span className={`provider-badge ${providerToneClass(catalogProviderFilter)}`}>
+          {catalogProviderFilter === "all" ? "All Providers" : providerGroupLabel(catalogProviderFilter)}
+        </span>
+      </h2>
       {error && <div className="banner err">{error}</div>}
+
+      <div className="cat-provider-tabs" role="tablist" aria-label="Catalog provider">
+        {CATALOG_PROVIDER_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            role="tab"
+            aria-selected={catalogProviderFilter === tab.key}
+            className={`cat-provider-tab ${providerToneClass(tab.key)}${catalogProviderFilter === tab.key ? " active" : ""}`}
+            onClick={() => changeCatalogProvider(tab.key)}
+          >
+            {tab.label} <span className="cat-seg-n">{providerCounts[tab.key]}</span>
+          </button>
+        ))}
+      </div>
 
       <div className="cat-split">
         <div className="cat-master-col">
@@ -208,34 +282,46 @@ export default function Catalog({ providerFilter }: Props) {
             {itemGroup("command")}
             {showGroup("mcp") && mcpRows.length > 0 && (
               <div>
-                <div className="cat-group-head">
-                  {GROUP_LABEL.mcp} <span className="cat-count">{mcpRows.length}</span>
-                </div>
-                {mcpRows.map((m) => {
-                  const key = mcpKey(m);
-                  return (
-                    <button
-                      key={key}
-                      className={`cat-master-item${selectedKey === key ? " active" : ""}`}
-                      onClick={() => selectItem(key)}
-                    >
-                      <div className="cat-mi-head">
-                        <span className="bdg bdg-mcp">MCP</span>
-                        <span className="cat-mi-name">{m.name}</span>
-                        <span className="t-tag">{m.transport}</span>
-                      </div>
-                      <div className="cat-mi-meta">
-                        <span>{m.scope === "project" ? `project: ${m.projectPath}` : "user scope"}</span>
-                      </div>
-                    </button>
-                  );
-                })}
+                {(catalogProviderFilter === "all"
+                  ? groupRowsByProvider(mcpRows)
+                  : [{ provider: catalogProviderFilter as ProviderId, rows: mcpRows }]
+                ).map((group) => (
+                  <div key={`mcp:${group.provider}`}>
+                    <div className="cat-group-head">
+                      {GROUP_LABEL.mcp}{catalogProviderFilter === "all" ? ` · ${providerGroupLabel(group.provider)}` : ""}{" "}
+                      <span className="cat-count">{group.rows.length}</span>
+                    </div>
+                    {group.rows.map((m) => {
+                      const key = mcpKey(m);
+                      return (
+                        <button
+                          key={key}
+                          className={`cat-master-item${selectedKey === key ? " active" : ""}`}
+                          onClick={() => selectItem(key)}
+                        >
+                          <div className="cat-mi-head">
+                            {m.provider && catalogProviderFilter === "all" && (
+                              <span className={`provider-badge ${providerToneClass(m.provider)}`}>{providerLabel(m.provider)}</span>
+                            )}
+                            <span className="bdg bdg-mcp">MCP</span>
+                            <span className="cat-mi-name">{m.name}</span>
+                            <span className="t-tag">{m.transport}</span>
+                          </div>
+                          <div className="cat-mi-meta">
+                            <span>{m.scope === "project" ? `project: ${m.projectPath}` : "user scope"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
             {showGroup("plugin") && pluginRows.length > 0 && (
               <div>
                 <div className="cat-group-head">
-                  {GROUP_LABEL.plugin} <span className="cat-count">{pluginRows.length}</span>
+                  {GROUP_LABEL.plugin}{catalogProviderFilter === "all" ? " · Claude Code" : ""}{" "}
+                  <span className="cat-count">{pluginRows.length}</span>
                 </div>
                 {pluginRows.map((p) => {
                   const key = `plugin:${p.id}`;
@@ -325,6 +411,7 @@ function ItemDetail({ it, data }: { it: CatalogItem; data?: CatalogContent }) {
   return (
     <div className="cat-detail">
       <div className="cat-detail-title">
+        {it.provider && <span className={`provider-badge ${providerToneClass(it.provider)}`}>{providerGroupLabel(it.provider)}</span>}
         <span className={`bdg bdg-${it.kind}`}>{ITEM_BADGE[it.kind]}</span>
         <span className="cat-detail-name">{it.name}</span>
       </div>
@@ -384,12 +471,13 @@ function McpDetail({ m }: { m: McpServer }) {
   return (
     <div className="cat-detail">
       <div className="cat-detail-title">
+        {m.provider && <span className={`provider-badge ${providerToneClass(m.provider)}`}>{providerGroupLabel(m.provider)}</span>}
         <span className="bdg bdg-mcp">MCP</span>
         <span className="cat-detail-name">{m.name}</span>
         <span className="t-tag">{m.transport}</span>
       </div>
       <div className="cat-path mono">
-        ~/.claude.json · {m.scope === "project" ? m.projectPath : "user scope"}
+        {m.provider === "codex" ? "~/.codex/config.toml" : "~/.claude.json"} · {m.scope === "project" ? m.projectPath : "user scope"}
       </div>
       <div className="sec-label">연결</div>
       {m.command && (

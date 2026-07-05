@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createJSONEditor, type Content } from "vanilla-jsoneditor";
 import "vanilla-jsoneditor/themes/jse-theme-dark.css";
 import { api, fmtSize, fmtDate, ApiError } from "../api/client";
-import type { NormalizedConfigFile, ProviderFilter } from "@shared/provider-types";
+import type { NormalizedConfigFile, ProviderFilter, ProviderId } from "@shared/provider-types";
 import { providerBadgeClass, providerLabel } from "./workspace-shared";
+import { groupRowsByProvider, providerGroupLabel } from "../provider-ui";
 
 const LEGACY_CONFIGS = {
   settings: { label: "settings.json" },
@@ -353,6 +354,8 @@ export default function ConfigEditor({ providerFilter }: Props) {
   };
 
   const dirty = data !== null && text !== data.content;
+  const fileGroups =
+    providerFilter === "all" ? groupRowsByProvider(files) : [{ provider: providerFilter as ProviderId, rows: files }];
 
   return (
     <div>
@@ -362,19 +365,32 @@ export default function ConfigEditor({ providerFilter }: Props) {
           {providerFilter === "all" ? "All Providers" : providerLabel(providerFilter)}
         </span>
       </h2>
-      <p>
-        {files.map((file) => (
-          <button
-            key={file.id}
-            className={`btn ghost${selectedId === file.id ? " active" : ""}`}
-            style={selectedId === file.id ? { borderColor: "var(--accent)" } : undefined}
-            onClick={() => setSelectedId(file.id)}
-            title={file.path}
-          >
-            {file.label}
-          </button>
+      <div className="config-file-groups">
+        {fileGroups.map((group) => (
+          <div key={group.provider} className="config-file-group">
+            {providerFilter === "all" && (
+              <div className="cat-group-head">
+                {providerGroupLabel(group.provider)} <span className="cat-count">{group.rows.length}</span>
+              </div>
+            )}
+            <p>
+              {group.rows.map((file) => (
+                <button
+                  key={file.id}
+                  className={`btn ghost${selectedId === file.id ? " active" : ""}`}
+                  style={selectedId === file.id ? { borderColor: "var(--accent)" } : undefined}
+                  onClick={() => setSelectedId(file.id)}
+                  title={file.path}
+                >
+                  {providerFilter === "all" ? `${providerLabel(file.provider)} · ` : ""}
+                  {file.label}
+                  {!file.writable ? " 🔒" : ""}
+                </button>
+              ))}
+            </p>
+          </div>
         ))}
-      </p>
+      </div>
 
       {message && <div className={`banner ${message.kind}`}>{message.text}</div>}
       {externalChange && selectedFile && (
@@ -392,7 +408,7 @@ export default function ConfigEditor({ providerFilter }: Props) {
         <div>
           {!data.descriptor.writable && (
             <div className="banner warn">
-              이 파일은 읽기 전용입니다.
+              이 {providerLabel(data.descriptor.provider)} 설정 파일은 읽기 전용입니다.
             </div>
           )}
           <p className="muted mono">

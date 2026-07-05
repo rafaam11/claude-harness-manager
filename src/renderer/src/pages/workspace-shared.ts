@@ -1,12 +1,13 @@
 // Workspace / Timeline 페이지가 공유하는 타입과 이름 헬퍼.
 // 서버(services/recall.ts)의 응답 형태와 1:1 대응한다.
-import type { EntityId, ProviderId } from "@shared/provider-types";
+import type { EntityId, ProviderId, SessionKind } from "@shared/provider-types";
 
 export type BoardStatus = "진행중" | "보류" | "완료" | "보관";
 export const STATUSES: BoardStatus[] = ["진행중", "보류", "완료", "보관"];
 
 export interface SessionRecall {
   sessionId: string | null;
+  sessionKind?: SessionKind;
   aiTitle: string | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;

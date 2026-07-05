@@ -149,6 +149,7 @@ function normalizeBoard(entry: unknown): WorkspaceProject["board"] {
 function normalizedSessionToRecall(session: NormalizedSession): SessionRecall {
   return {
     sessionId: session.id,
+    sessionKind: session.sessionKind,
     aiTitle: session.title ?? null,
     lastPrompt: session.lastUserText ?? null,
     lastAssistantSnippet: session.lastAssistantText ?? null,

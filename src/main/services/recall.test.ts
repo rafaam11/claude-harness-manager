@@ -142,4 +142,53 @@ describe("recall provider-prefixed Claude ids", () => {
       parentSessionId: "claude:session-a",
     });
   });
+
+  it("deduplicates Claude agent transcripts under their parent conversation session", async () => {
+    const projectId = "D--repo";
+    const sessionId = "session-a";
+    const mainTranscript = [
+      JSON.stringify({ type: "ai-title", aiTitle: "Main conversation" }),
+      JSON.stringify({
+        type: "user",
+        message: { content: "사용자가 직접 입력한 프롬프트" },
+        cwd: "C:/work/repo",
+        sessionId,
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "main answer" }], model: "claude-sonnet-5" },
+        cwd: "C:/work/repo",
+        sessionId,
+      }),
+    ].join("\n");
+    const agentTranscript = [
+      JSON.stringify({
+        type: "user",
+        message: { content: "하위 에이전트에게 넘긴 조사 프롬프트" },
+        cwd: "C:/work/repo",
+        sessionId,
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "agent answer" }], model: "claude-sonnet-5" },
+        cwd: "C:/work/repo",
+        sessionId,
+      }),
+    ].join("\n");
+
+    await writeText(path.join(homeDir, ".claude", "projects", projectId, `${sessionId}.jsonl`), mainTranscript);
+    await writeText(path.join(homeDir, ".claude", "projects", projectId, "agent-a123.jsonl"), agentTranscript);
+
+    const { getProjectSessions } = await loadRecallModule();
+    const sessions = await getProjectSessions("claude:D--repo");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId,
+      sessionKind: "main",
+      aiTitle: "Main conversation",
+      lastPrompt: "사용자가 직접 입력한 프롬프트",
+      lastAssistantSnippet: "main answer",
+    });
+  });
 });

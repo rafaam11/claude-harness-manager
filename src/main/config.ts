@@ -3,10 +3,11 @@ import path from "node:path";
 
 export const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 export const CLAUDE_JSON = path.join(os.homedir(), ".claude.json");
+export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 export const APP_STATE_DIR = path.join(os.homedir(), ".harness-manager");
 
 // 모든 파일 연산이 허용되는 경로. path-guard가 이 목록으로 검사한다.
-export const ALLOWED_ROOTS = [CLAUDE_HOME, CLAUDE_JSON, APP_STATE_DIR];
+export const ALLOWED_ROOTS = [CLAUDE_HOME, CLAUDE_JSON, CODEX_HOME, APP_STATE_DIR];
 
 export const BACKUP_DIR = path.join(CLAUDE_HOME, "backups", "harness-manager");
 export const BACKUP_KEEP = 20;

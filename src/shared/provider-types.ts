@@ -1,6 +1,7 @@
 export type ProviderId = "claude" | "codex";
 export type ProviderFilter = ProviderId | "all";
 export type EntityId = `${ProviderId}:${string}`;
+export type SessionKind = "main" | "worker" | "system" | "unknown";
 
 export interface ProviderStatus {
   id: ProviderId;
@@ -23,6 +24,7 @@ export interface NormalizedSession {
   id: EntityId;
   provider: ProviderId;
   projectId?: EntityId;
+  sessionKind: SessionKind;
   title?: string;
   cwd?: string;
   model?: string;

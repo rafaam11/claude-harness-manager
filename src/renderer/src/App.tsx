@@ -10,7 +10,7 @@ import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
 import type { ProviderFilter, ProviderStatus } from "@shared/provider-types";
 import { providerLabel } from "./pages/workspace-shared";
-import { PROVIDER_FILTER_OPTIONS, providerToneClass } from "./provider-ui";
+import { DEFAULT_PROVIDER_FILTER, PROVIDER_FILTER_OPTIONS, providerToneClass } from "./provider-ui";
 
 const PAGES = {
   timeline: { label: "타임라인" },
@@ -31,7 +31,7 @@ const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("claude");
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>(DEFAULT_PROVIDER_FILTER);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem("hm-theme") as Theme) || "dark",

@@ -321,4 +321,164 @@ describe("codex provider", () => {
     expect(sessions.find((s) => s.id === `codex:${indexedSessionId}`)?.title).toBe("history title");
     expect(sessions.find((s) => s.id === `codex:${rolloutOnlySessionId}`)?.title).toBe("rollout only prompt");
   });
+
+  it("classifies direct user sessions separately from OMX/subagent worker sessions", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const mainSessionId = "019f2main-1111-7222-8333-444455556666";
+    const workerSessionId = "019f2work-1111-7222-8333-444455556666";
+    for (const [sessionId, prompt] of [
+      [mainSessionId, "현재 앱의 버그를 고쳐줘"],
+      [
+        workerSessionId,
+        "CODE REVIEW TASK (READ-ONLY; DO NOT MUTATE REPO)\n\nRepository: C:\\repo\nScope: Re-review final blocker fix",
+      ],
+    ] as const) {
+      await writeText(
+        path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T10-00-00-${sessionId}.jsonl`),
+        [
+          JSON.stringify({
+            timestamp: "2026-07-05T01:00:00.000Z",
+            type: "session_meta",
+            payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+          }),
+          JSON.stringify({
+            timestamp: "2026-07-05T01:01:00.000Z",
+            type: "response_item",
+            payload: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: prompt }],
+            },
+          }),
+        ].join("\n"),
+      );
+    }
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions.find((s) => s.id === `codex:${mainSessionId}`)?.sessionKind).toBe("main");
+    expect(sessions.find((s) => s.id === `codex:${workerSessionId}`)?.sessionKind).toBe("worker");
+  });
+
+  it("keeps metadata-only Codex session files when they have a cwd", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2meta-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T11-00-00-${sessionId}.jsonl`),
+      JSON.stringify({
+        timestamp: "2026-07-05T02:00:00.000Z",
+        type: "session_meta",
+        payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+      }),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        id: `codex:${sessionId}`,
+        projectId: "codex:C--repo",
+        sessionKind: "unknown",
+        title: expect.stringContaining(sessionId),
+      }),
+    ]);
+  });
+
+  it("does not let later worker fragments replace the main user-facing session", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2merge-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T10-00-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T01:00:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T01:01:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "타임라인 버그를 고쳐줘" }],
+          },
+        }),
+      ].join("\n"),
+    );
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T10-05-00-019f2worker-1111-7222-8333-444455556666.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T01:05:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T01:06:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "You are implementing Task 12 of the Harness Manager refactor." }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      sessionKind: "main",
+      title: "타임라인 버그를 고쳐줘",
+      lastUserText: "타임라인 버그를 고쳐줘",
+    });
+  });
+
+  it("ignores shell command wrappers when choosing the session title", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2shell-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T12-00-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T03:00:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T03:01:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "세션 탭을 고쳐줘" }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T03:02:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "<user_shell_command>\n<command>\nnpm run dev\n</command>\n</user_shell_command>" }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      title: "세션 탭을 고쳐줘",
+      lastUserText: "세션 탭을 고쳐줘",
+      sessionKind: "main",
+    });
+  });
 });

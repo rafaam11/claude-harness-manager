@@ -4,6 +4,7 @@ import path from "node:path";
 import { detectProcess } from "../lib/process-detect.js";
 import { readCodexMcpServersFromToml } from "../lib/toml-validate.js";
 import type { ProviderAdapter } from "./types.js";
+import type { SessionKind } from "@shared/provider-types";
 
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
@@ -77,9 +78,45 @@ function isInjectedCodexText(text: string): boolean {
     t.startsWith("<collaboration_mode>") ||
     t.startsWith("<apps_instructions>") ||
     t.startsWith("<skills_instructions>") ||
+    t.startsWith("<user_shell_command>") ||
+    t.startsWith("<subagent_notification>") ||
     t.startsWith("========= MEMORY_SUMMARY") ||
     t.startsWith("You are Codex,")
   );
+}
+
+function isWorkerCodexText(text: string): boolean {
+  const t = text.trimStart();
+  return (
+    t.startsWith("CODE REVIEW TASK") ||
+    t.startsWith("ARCHITECTURE / DEVIL'S-ADVOCATE REVIEW TASK") ||
+    t.startsWith("ARCHITECTURE / DEVIL’S-ADVOCATE REVIEW TASK") ||
+    t.startsWith("Review Task ") ||
+    t.startsWith("Read-only review") ||
+    t.startsWith("You are implementing Task ") ||
+    t.startsWith("You are reviewing Task ") ||
+    t.startsWith("You are re-reviewing") ||
+    t.startsWith("You are a final-review") ||
+    t.startsWith("You are a final review") ||
+    t.startsWith("You are a Senior Code Reviewer") ||
+    /^You are .*subagent\b/i.test(t.slice(0, 500)) ||
+    /\b(read-only; do not mutate repo|READ-ONLY; DO NOT MUTATE REPO)\b/.test(t.slice(0, 800))
+  );
+}
+
+function sessionKindFromUserText(text: string): SessionKind {
+  if (isInjectedCodexText(text)) return "system";
+  if (isWorkerCodexText(text)) return "worker";
+  return "main";
+}
+
+function preferSessionKind(current: SessionKind, next: SessionKind): SessionKind {
+  if (next === "main") return "main";
+  if (current === "main") return current;
+  if (next === "worker") return "worker";
+  if (current === "worker") return current;
+  if (next === "system") return "system";
+  return current;
 }
 
 function userTextFromContent(content: unknown): string | null {
@@ -108,6 +145,7 @@ interface CodexSessionSummary {
   id: `codex:${string}`;
   localId: string;
   projectId: `codex:${string}` | undefined;
+  sessionKind: SessionKind;
   cwd: string | undefined;
   model: string | undefined;
   title: string | undefined;
@@ -232,6 +270,7 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     if (text && !text.startsWith("<")) {
       acc.lastUserText = text;
       acc.title = text;
+      acc.sessionKind = preferSessionKind(acc.sessionKind, sessionKindFromUserText(text));
     }
   } else if (payload.role === "assistant") {
     const text = textFromContent(payload.content);
@@ -247,6 +286,7 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
     id: `codex:${localId}`,
     localId,
     projectId: undefined,
+    sessionKind: "unknown",
     cwd: undefined,
     model: undefined,
     title: undefined,
@@ -263,6 +303,43 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
   return acc;
 }
 
+function sessionKindRank(kind: SessionKind): number {
+  if (kind === "main") return 3;
+  if (kind === "worker") return 2;
+  if (kind === "system") return 1;
+  return 0;
+}
+
+function newerSession(a: CodexSessionSummary, b: CodexSessionSummary): CodexSessionSummary {
+  return Date.parse(b.updatedAt) >= Date.parse(a.updatedAt) ? b : a;
+}
+
+function betterUserFacingSession(
+  a: CodexSessionSummary,
+  b: CodexSessionSummary,
+): CodexSessionSummary {
+  const ar = sessionKindRank(a.sessionKind);
+  const br = sessionKindRank(b.sessionKind);
+  if (ar !== br) return br > ar ? b : a;
+  return newerSession(a, b);
+}
+
+function mergeCodexSessionSummary(
+  a: CodexSessionSummary,
+  b: CodexSessionSummary,
+): CodexSessionSummary {
+  const latest = newerSession(a, b);
+  const userFacing = betterUserFacingSession(a, b);
+  return {
+    ...latest,
+    sessionKind: preferSessionKind(a.sessionKind, b.sessionKind),
+    title: userFacing.title ?? latest.title,
+    lastUserText: userFacing.lastUserText ?? latest.lastUserText,
+    lastAssistantText: latest.lastAssistantText ?? userFacing.lastAssistantText,
+    sourcePath: userFacing.sourcePath,
+  };
+}
+
 async function readCodexSessions(): Promise<CodexSessionSummary[]> {
   const files = await listSessionFiles();
   const rawSessions = (await Promise.all(files.map((file) => readCodexSession(file)))).filter(
@@ -272,13 +349,14 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
   const byId = new Map<string, CodexSessionSummary>();
   for (const session of rawSessions) {
     const prev = byId.get(session.id);
-    if (!prev || Date.parse(session.updatedAt) >= Date.parse(prev.updatedAt)) {
-      byId.set(session.id, session);
-    }
+    byId.set(session.id, prev ? mergeCodexSessionSummary(prev, session) : session);
   }
   const sessions = [...byId.values()];
   return sessions
-    .filter((session) => session.lastUserText || session.lastAssistantText || history.has(session.localId))
+    .filter(
+      (session) =>
+        session.cwd || session.lastUserText || session.lastAssistantText || history.has(session.localId),
+    )
     .map((session) => {
       const h = history.get(session.localId);
       if (!h) return session;
@@ -286,6 +364,7 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
         ...session,
         title: h.text,
         lastUserText: h.text,
+        sessionKind: preferSessionKind(session.sessionKind, sessionKindFromUserText(h.text)),
         updatedAt: Date.parse(h.updatedAt) >= Date.parse(session.updatedAt) ? h.updatedAt : session.updatedAt,
       };
     })
@@ -398,6 +477,7 @@ export const codexProvider: ProviderAdapter = {
       id: session.id,
       provider: "codex" as const,
       projectId: session.projectId,
+      sessionKind: session.sessionKind,
       title: session.title ?? session.lastUserText ?? path.basename(session.sourcePath),
       cwd: session.cwd,
       model: session.model,

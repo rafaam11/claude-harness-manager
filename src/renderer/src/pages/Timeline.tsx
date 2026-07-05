@@ -30,18 +30,23 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   const [activeTab, setActiveTab] = useState<string>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [hideMenu, setHideMenu] = useState<{ projectId: string; name: string; x: number; y: number } | null>(null);
   const [error, setError] = useState("");
   const archiveRef = useRef<HTMLDivElement>(null);
+  const hiddenRef = useRef<HTMLDivElement>(null);
   const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
   useEffect(() => {
-    if (!archiveOpen) return;
+    if (!archiveOpen && !hiddenOpen && !hideMenu) return;
     const onClick = (ev: MouseEvent) => {
       if (archiveRef.current && !archiveRef.current.contains(ev.target as Node)) setArchiveOpen(false);
+      if (hiddenRef.current && !hiddenRef.current.contains(ev.target as Node)) setHiddenOpen(false);
+      setHideMenu(null);
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [archiveOpen]);
+  }, [archiveOpen, hiddenOpen, hideMenu]);
 
   const reload = () =>
     api
@@ -103,10 +108,21 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     [projects],
   );
 
+  const hiddenProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of projects) {
+      if (!p.board.hidden) continue;
+      ids.add(p.id);
+      for (const memberId of p.memberIds ?? []) ids.add(memberId);
+    }
+    return ids;
+  }, [projects]);
+
   const projectTabs = useMemo(() => {
     if (!events) return [];
     const counts = new Map<string, { name: string; count: number; status: BoardStatus | null }>();
     for (const e of events) {
+      if (e.projectId && hiddenProjectIds.has(e.projectId)) continue;
       const status = e.projectId ? projStatusById.get(e.projectId) ?? null : null;
       if (status === "보관") continue;
       const key = projectKey(e);
@@ -124,7 +140,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
         const bt = projLastActivityById.get(b.key) ?? 0;
         return bt - at || b.count - a.count;
       });
-  }, [events, projName, projStatusById, projLastActivityById]);
+  }, [events, projName, projStatusById, projLastActivityById, hiddenProjectIds]);
 
   useEffect(() => {
     if (activeTab === "all") return;
@@ -132,6 +148,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   }, [projectTabs, activeTab]);
 
   const archivedProjects = useMemo(() => projects.filter((p) => p.board.status === "보관"), [projects]);
+  const hiddenProjects = useMemo(() => projects.filter((p) => p.board.hidden), [projects]);
 
   const toggleExpand = (key: string) =>
     setExpanded((prev) => {
@@ -172,15 +189,32 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     }
   }
 
+  async function setProjectHidden(projectId: string, hidden: boolean) {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, board: { ...p.board, hidden } } : p)),
+    );
+    if (hidden && activeTab === projectId) setActiveTab("all");
+    try {
+      await api.post(`/api/workspace/board/project/${encodeURIComponent(projectId)}`, { hidden });
+    } catch (err) {
+      setError((err as Error).message);
+      api
+        .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
+        .then(setProjects)
+        .catch(() => {});
+    }
+  }
+
   if (error) return <div className="banner err">{error}</div>;
   if (!events) return <div className="muted">불러오는 중…</div>;
   if (events.length === 0) return <div className="muted">활동 기록이 없습니다.</div>;
 
-  const shown = events.filter((e) => {
-    if (e.projectId && projStatusById.get(e.projectId) === "보관") return false;
-    if (activeTab === "all") return true;
-    return projectKey(e) === activeTab;
-  });
+  const shown = filterTimelineEventsForVisibleProjects(
+    events.filter((e) => !(e.projectId && projStatusById.get(e.projectId) === "보관")),
+    hiddenProjectIds,
+    activeTab,
+    projectKey,
+  );
 
   const visibleSessionIds = new Set(
     shown.filter((e) => e.kind === "session" && e.sessionId).map((e) => e.sessionId!),
@@ -252,13 +286,23 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   return (
     <div>
       <h2>Timeline</h2>
-      {projectTabs.length > 0 && (
+      {(projectTabs.length > 0 || archivedProjects.length > 0 || hiddenProjects.length > 0) && (
         <div className="tl-tabs">
           <button className={`tl-tab${activeTab === "all" ? " active" : ""}`} onClick={() => setActiveTab("all")}>
             전체 <span className="tl-tab-count">{totalShownCount}</span>
           </button>
           {projectTabs.map((t) => (
-            <button key={t.key} className={`tl-tab${activeTab === t.key ? " active" : ""}`} onClick={() => setActiveTab(t.key)}>
+            <button
+              key={t.key}
+              className={`tl-tab${activeTab === t.key ? " active" : ""}`}
+              onClick={() => setActiveTab(t.key)}
+              onContextMenu={(ev) => {
+                if (!canHideTimelineProjectTab(t.key)) return;
+                ev.preventDefault();
+                setHideMenu({ projectId: t.key, name: t.name, x: ev.clientX, y: ev.clientY });
+              }}
+              title="우클릭하면 프로젝트 숨김 메뉴가 열립니다"
+            >
               {t.status && <span className={`tl-tab-dot ${chipDotClass(t.status)}`} title={t.status} />}
               <span>{t.name}</span>
               <span className="tl-tab-count">{t.count}</span>
@@ -282,6 +326,47 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
                   </div>
                 </div>
               )}
+            </div>
+          )}
+          {hiddenProjects.length > 0 && (
+            <div className="tl-archive-mgr-wrap" ref={hiddenRef}>
+              <button className={`tl-archive-mgr-btn${hiddenOpen ? " open" : ""}`} onClick={() => setHiddenOpen((v) => !v)}>
+                숨김 {hiddenProjects.length}개 관리
+                <span className="tl-filter-caret">{hiddenOpen ? "▾" : "▸"}</span>
+              </button>
+              {hiddenOpen && (
+                <div className="tl-filter-panel">
+                  <div className="tl-filter-archive-list">
+                    {hiddenProjects.map((p) => (
+                      <div key={p.id} className="tl-filter-archive-item">
+                        <span className="tl-filter-name">{displayName(p)}</span>
+                        <button onClick={() => setProjectHidden(p.id, false)}>숨김 해제</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {hideMenu && (
+            <div
+              className="tl-filter-panel"
+              style={{ position: "fixed", left: hideMenu.x, top: hideMenu.y, zIndex: 80 }}
+              onMouseDown={(ev) => ev.stopPropagation()}
+            >
+              <div className="tl-filter-archive-list">
+                <div className="tl-filter-archive-item">
+                  <span className="tl-filter-name">{hideMenu.name}</span>
+                  <button
+                    onClick={() => {
+                      void setProjectHidden(hideMenu.projectId, true);
+                      setHideMenu(null);
+                    }}
+                  >
+                    프로젝트 숨기기
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -318,6 +403,23 @@ export function isTopLevelTimelineEvent(e: TimelineEvent, visibleSessionIds: Set
   if (e.kind !== "plan") return true;
   if (!e.parentSessionId) return false;
   return !visibleSessionIds.has(e.parentSessionId);
+}
+
+export function filterTimelineEventsForVisibleProjects(
+  events: TimelineEvent[],
+  hiddenProjectIds: Set<string>,
+  activeTab: string,
+  getProjectKey: (e: TimelineEvent) => string = (e) => e.projectId ?? NONE_KEY,
+): TimelineEvent[] {
+  return events.filter((e) => {
+    if (e.projectId && hiddenProjectIds.has(e.projectId)) return false;
+    if (activeTab === "all") return true;
+    return getProjectKey(e) === activeTab;
+  });
+}
+
+export function canHideTimelineProjectTab(tabKey: string): boolean {
+  return tabKey !== "all" && tabKey !== NONE_KEY;
 }
 
 export function timelineModelBadge(e: TimelineEvent): { label: string; className: string; title: string } {

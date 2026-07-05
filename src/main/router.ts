@@ -302,7 +302,13 @@ const routes: Route[] = [
     handler: async ({ query }) => {
       const provider = resolveProviderFilter(query.provider, "claude");
       if (!provider) throw new HttpError(400, "invalid provider filter");
-      return (await Promise.all(getProviders(provider).map((p) => p.listCatalog()))).flat();
+      return (
+        await Promise.all(
+          getProviders(provider).map(async (p) =>
+            (await p.listCatalog()).map((item) => ({ ...item, provider: p.id })),
+          ),
+        )
+      ).flat();
     },
   },
   {
@@ -333,7 +339,13 @@ const routes: Route[] = [
     handler: async ({ query }) => {
       const provider = resolveProviderFilter(query.provider, "claude");
       if (!provider) throw new HttpError(400, "invalid provider filter");
-      return (await Promise.all(getProviders(provider).map((p) => p.readMcpServers()))).flat();
+      return (
+        await Promise.all(
+          getProviders(provider).map(async (p) =>
+            (await p.readMcpServers()).map((server) => ({ ...server, provider: p.id })),
+          ),
+        )
+      ).flat();
     },
   },
   {

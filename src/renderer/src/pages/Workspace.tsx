@@ -20,7 +20,6 @@ import {
   type ProjectTrack,
   type SessionRecall,
   type WorkspaceProject,
-  type WorktreeMember,
 } from "./workspace-shared";
 
 // 왼쪽 마스터 목록의 '미연결 계획' 가상 항목 식별자(프로젝트 id와 충돌 안 나는 센티넬)
@@ -86,6 +85,28 @@ export function resolveWorkspaceSelection(
   const first = projects.find((p) => !p.board.hidden) ?? projects[0];
   if (first) return first.id;
   return unassignedCount > 0 ? UNASSIGNED : null;
+}
+
+export function partitionWorkspaceSessions(sessions: SessionRecall[]): {
+  primary: SessionRecall[];
+  auxiliary: SessionRecall[];
+} {
+  const primary: SessionRecall[] = [];
+  const auxiliary: SessionRecall[] = [];
+  for (const session of sessions) {
+    if (session.sessionKind === "worker" || session.sessionKind === "system") auxiliary.push(session);
+    else primary.push(session);
+  }
+  return { primary, auxiliary };
+}
+
+export function workspaceProjectMetricLabels(p: WorkspaceProject, planCount: number): string[] {
+  const labels: string[] = [];
+  const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
+  const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
+  if (totalTodos > 0) labels.push(`✓ ${doneTodos}/${totalTodos}`);
+  if (planCount > 0) labels.push(`📄 ${planCount}`);
+  return labels;
 }
 
 function StatusTag({ s }: { s: BoardStatus }) {
@@ -362,9 +383,7 @@ function ProjectMasterCard({
   onHide: (hidden: boolean) => void;
   onMove: (dir: -1 | 1) => void;
 }) {
-  const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
-  const doneTodos = p.board.tracks.reduce((n, t) => n + t.items.filter((i) => i.done).length, 0);
-  const liveWorktrees = p.worktrees.filter((w) => !w.removed).length;
+  const metricLabels = workspaceProjectMetricLabels(p, planCount);
   // 자식 컨트롤 클릭이 카드 선택으로 번지지 않게 막는다.
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -389,13 +408,9 @@ function ProjectMasterCard({
       </div>
       <div className="ws-mi-meta">
         <span>{fmtRelative(p.lastActivity)}</span>
-        {totalTodos > 0 && (
-          <span>
-            ✓ {doneTodos}/{totalTodos}
-          </span>
-        )}
-        {planCount > 0 && <span>📄 {planCount}</span>}
-        {liveWorktrees > 0 && <span title="워크트리">⑂ {liveWorktrees}</span>}
+        {metricLabels.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
       </div>
       <div className="ws-mi-actions">
         {sortMode === "manual" && !p.board.hidden && (
@@ -448,13 +463,6 @@ function ProjectDetail({
   const hasClaudeMember = projectIds.some((id) => id.startsWith("claude:"));
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
-  // Git 모드 대상 워킹트리 경로("" = 메인 repo). 세션 유무와 무관하게 경로로 전환한다.
-  // ProjectDetail이 key로 리마운트되므로 프로젝트 전환 시 자동으로 ""로 초기화된다.
-  const [gitTargetWt, setGitTargetWt] = useState("");
-  const openWorktreeInGit = (worktreeRoot: string) => {
-    setGitTargetWt(worktreeRoot);
-    setDetailMode("git");
-  };
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const startEditName = () => {
@@ -547,33 +555,7 @@ function ProjectDetail({
         </button>
       </div>
       {detailMode === "git" ? (
-        <>
-          {p.worktrees.length > 0 && (
-            <div className="ws-git-target">
-              <label className="ws-sort-k">대상</label>
-              <select
-                className="ws-select"
-                value={gitTargetWt}
-                onChange={(e) => setGitTargetWt(e.target.value)}
-              >
-                <option value="">메인 ({base})</option>
-                {p.worktrees.map((w) => (
-                  <option key={w.worktreeRoot} value={w.worktreeRoot} disabled={w.removed}>
-                    ⑂ {w.name}
-                    {w.removed ? " (삭제됨)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {/* 전환 시 GitPanel을 리마운트(대상 경로 기준)해 그 워킹트리로 갱신. projectId는 대표 고정. */}
-          <GitPanel
-            key={gitTargetWt || "main"}
-            projectId={p.id}
-            worktreePath={gitTargetWt || undefined}
-            onError={onError}
-          />
-        </>
+        <GitPanel key="main" projectId={p.id} onError={onError} />
       ) : detailMode === "session" ? (
         <>
           <SessionsSection projectIds={projectIds} />
@@ -582,8 +564,6 @@ function ProjectDetail({
       ) : (
         <>
           <div className="ws-path mono">{p.realPath ?? p.id}</div>
-
-          <WorktreeSection worktrees={p.worktrees} onOpenGit={openWorktreeInGit} />
 
       {r ? (
         <div className="ws-recall">
@@ -642,57 +622,12 @@ function ProjectDetail({
   );
 }
 
-// ============================ 워크트리 섹션(대표 repo에 접힌 linked 워크트리) ============================
-function WorktreeSection({
-  worktrees,
-  onOpenGit,
-}: {
-  worktrees: WorktreeMember[];
-  onOpenGit: (worktreeRoot: string) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  if (worktrees.length === 0) return null;
-  const live = worktrees.filter((w) => !w.removed).length;
-  return (
-    <>
-      <button className="ws-section-toggle" onClick={() => setOpen((v) => !v)}>
-        <span className="ws-plan-caret">{open ? "▾" : "▸"}</span>
-        워크트리 <span className="cat-count">{live}</span>
-      </button>
-      {open && (
-        <div className="ws-worktrees">
-          {worktrees.map((w) => (
-            <div key={w.worktreeRoot} className={`ws-wt-row${w.removed ? " removed" : ""}`}>
-              <div className="ws-wt-row-top">
-                <span className="ws-wt-name">⑂ {w.name}</span>
-                {w.gitBranch && <span className="t-tag">⎇ {w.gitBranch}</span>}
-                <span className="ws-when">{fmtRelative(w.lastActivity)}</span>
-                {w.removed ? (
-                  <span className="muted ws-wt-removed">삭제됨</span>
-                ) : (
-                  <button
-                    className="ws-icon-btn"
-                    title="Git 모드에서 이 워크트리 열기"
-                    onClick={() => onOpenGit(w.worktreeRoot)}
-                  >
-                    Git ▸
-                  </button>
-                )}
-              </div>
-              {w.lastPrompt && <div className="ws-wt-preview muted">{w.lastPrompt}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 // ============================ 세션 탭(그룹 내 모든 세션 — Timeline 행 스타일 재사용) ============================
 function SessionsSection({ projectIds }: { projectIds: string[] }) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [auxOpen, setAuxOpen] = useState(false);
   const projectKey = projectIds.join("\n");
 
   useEffect(() => {
@@ -724,15 +659,45 @@ function SessionsSection({ projectIds }: { projectIds: string[] }) {
   if (error) return <div className="banner err">{error}</div>;
   if (!sessions) return <div className="muted">불러오는 중…</div>;
   if (sessions.length === 0) return <div className="muted">세션 기록이 없습니다.</div>;
+  const { primary, auxiliary } = partitionWorkspaceSessions(sessions);
 
   return (
     <div className="timeline">
+      <SessionRows sessions={primary} expanded={expanded} onToggle={toggle} />
+      {primary.length === 0 && <div className="muted">직접 대화 세션이 없습니다.</div>}
+      {auxiliary.length > 0 && (
+        <>
+          <button className="ws-section-toggle" onClick={() => setAuxOpen((v) => !v)}>
+            <span className="ws-plan-caret">{auxOpen ? "▾" : "▸"}</span>
+            보조 활동 / worker 세션 <span className="cat-count">{auxiliary.length}</span>
+          </button>
+          {auxOpen && <SessionRows sessions={auxiliary} expanded={expanded} onToggle={toggle} auxiliary />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SessionRows({
+  sessions,
+  expanded,
+  onToggle,
+  auxiliary = false,
+}: {
+  sessions: SessionRecall[];
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  auxiliary?: boolean;
+}) {
+  return (
+    <>
       {sessions.map((s) => {
         const key = s.transcriptPath;
         const open = expanded.has(key);
         return (
-          <div className="timeline-row" key={key}>
-            <div className="timeline-item" onClick={() => toggle(key)}>
+          <div className={`timeline-row${auxiliary ? " timeline-row-child" : ""}`} key={key}>
+            <div className="timeline-item" onClick={() => onToggle(key)}>
+              {auxiliary && <span className="bdg bdg-model-missing">AUX</span>}
               {s.lastModel && (
                 <span className={`bdg ${modelBadgeClass(s.lastModel)}`} title={s.lastModel}>
                   {modelDisplayName(s.lastModel)}
@@ -770,7 +735,7 @@ function SessionsSection({ projectIds }: { projectIds: string[] }) {
           </div>
         );
       })}
-    </div>
+    </>
   );
 }
 

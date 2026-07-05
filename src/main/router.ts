@@ -29,6 +29,11 @@ import { translateItems } from "./services/translate.js";
 import { listFavorites, addFavorite, removeFavorite, getFavoriteItem } from "./lib/favorites.js";
 import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
+  disableClaudeUsageCapture,
+  getUsageSummaries,
+  setupClaudeUsageCapture,
+} from "./services/usage.js";
+import {
   setPlanField,
   setProjectField,
   setProjectsOrder,
@@ -517,6 +522,27 @@ const routes: Route[] = [
     },
   },
   { method: "GET", pattern: "/api/cleanup/manifest", handler: async () => listManifests() },
+
+  // --- usage (Claude/Codex 5시간·주간 사용량) ---
+  {
+    method: "GET",
+    pattern: "/api/usage",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider);
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getUsageSummaries(provider);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/usage/claude-capture/setup",
+    handler: async () => setupClaudeUsageCapture(),
+  },
+  {
+    method: "POST",
+    pattern: "/api/usage/claude-capture/disable",
+    handler: async () => disableClaudeUsageCapture(),
+  },
 
   // --- git (DT_GitManager 흡수: 로컬 git 작업) ---
   // 모든 라우트는 projectId만 받고 main(facade)에서 repoPath를 해석·검증한다.

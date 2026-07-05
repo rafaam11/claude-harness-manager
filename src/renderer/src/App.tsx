@@ -5,6 +5,7 @@ import Workspace from "./pages/Workspace";
 import Catalog from "./pages/Catalog";
 import Cleanup from "./pages/Cleanup";
 import ConfigEditor from "./pages/ConfigEditor";
+import Usage from "./pages/Usage";
 import News from "./pages/News";
 import Glossary from "./pages/Glossary";
 import UpdateBadge from "./components/UpdateBadge";
@@ -18,6 +19,7 @@ const PAGES = {
   catalog: { label: "카탈로그" },
   cleanup: { label: "정리" },
   configs: { label: "설정 편집기" },
+  usage: { label: "사용량" },
   news: { label: "뉴스" },
   glossary: { label: "용어집" },
 } as const;
@@ -25,9 +27,9 @@ const PAGES = {
 type PageKey = keyof typeof PAGES;
 type Theme = "dark" | "light";
 
-const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs"];
+const PRIMARY_PAGES: PageKey[] = ["timeline", "workspace", "catalog", "cleanup", "configs", "usage"];
 const SECONDARY_PAGES: PageKey[] = ["news", "glossary"];
-const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news"];
+const WIDE_PAGES: PageKey[] = ["workspace", "catalog", "glossary", "news", "usage"];
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("timeline");
@@ -71,6 +73,8 @@ export default function App() {
         return <Cleanup />;
       case "configs":
         return <ConfigEditor providerFilter={providerFilter} />;
+      case "usage":
+        return <Usage providerFilter={providerFilter} />;
       case "news":
         return <News />;
       case "glossary":

@@ -6,6 +6,9 @@ const {
   claudeProvider,
   codexProvider,
   safeWriteMock,
+  getUsageSummariesMock,
+  setupClaudeUsageCaptureMock,
+  disableClaudeUsageCaptureMock,
 } = vi.hoisted(() => {
   const makeProvider = (id: "claude" | "codex", catalogName: string, mcpName: string) => {
     return {
@@ -31,8 +34,21 @@ const {
   });
 
   const safeWriteMock = vi.fn(async () => ({ ok: true }));
+  const getUsageSummariesMock = vi.fn(async (filter: "claude" | "codex" | "all") => [
+    { provider: filter },
+  ]);
+  const setupClaudeUsageCaptureMock = vi.fn(async () => ({ provider: "claude", enabled: true }));
+  const disableClaudeUsageCaptureMock = vi.fn(async () => ({ provider: "claude", enabled: false }));
 
-  return { getProvidersMock, claudeProvider, codexProvider, safeWriteMock };
+  return {
+    getProvidersMock,
+    claudeProvider,
+    codexProvider,
+    safeWriteMock,
+    getUsageSummariesMock,
+    setupClaudeUsageCaptureMock,
+    disableClaudeUsageCaptureMock,
+  };
 });
 
 vi.mock("./providers/registry.js", async () => {
@@ -55,6 +71,12 @@ vi.mock("./lib/safe-write.js", async () => {
   };
 });
 
+vi.mock("./services/usage.js", () => ({
+  getUsageSummaries: getUsageSummariesMock,
+  setupClaudeUsageCapture: setupClaudeUsageCaptureMock,
+  disableClaudeUsageCapture: disableClaudeUsageCaptureMock,
+}));
+
 import { HttpError, routeRequest } from "./router.js";
 
 beforeEach(() => {
@@ -68,6 +90,9 @@ beforeEach(() => {
   claudeProvider.listConfigFiles.mockResolvedValue([]);
   codexProvider.listConfigFiles.mockResolvedValue([]);
   safeWriteMock.mockClear();
+  getUsageSummariesMock.mockClear();
+  setupClaudeUsageCaptureMock.mockClear();
+  disableClaudeUsageCaptureMock.mockClear();
 });
 
 describe("provider-aware catalog and MCP routes", () => {
@@ -150,5 +175,32 @@ describe("provider config writes", () => {
     expect(error).toBeInstanceOf(HttpError);
     expect(error).toMatchObject({ statusCode: 403 });
     expect(safeWriteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("usage routes", () => {
+  it("passes provider filter to usage service and rejects invalid filters", async () => {
+    await expect(
+      routeRequest({ method: "GET", url: "app://local/api/usage?provider=codex" } as never),
+    ).resolves.toEqual([{ provider: "codex" }]);
+    expect(getUsageSummariesMock).toHaveBeenCalledWith("codex");
+
+    const error = await routeRequest({
+      method: "GET",
+      url: "app://local/api/usage?provider=bogus",
+    } as never).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({ statusCode: 400, message: "invalid provider filter" });
+  });
+
+  it("routes Claude capture setup and disable actions", async () => {
+    await expect(
+      routeRequest({ method: "POST", url: "app://local/api/usage/claude-capture/setup" } as never),
+    ).resolves.toMatchObject({ enabled: true });
+    await expect(
+      routeRequest({ method: "POST", url: "app://local/api/usage/claude-capture/disable" } as never),
+    ).resolves.toMatchObject({ enabled: false });
+    expect(setupClaudeUsageCaptureMock).toHaveBeenCalledTimes(1);
+    expect(disableClaudeUsageCaptureMock).toHaveBeenCalledTimes(1);
   });
 });

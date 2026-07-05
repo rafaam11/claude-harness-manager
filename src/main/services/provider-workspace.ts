@@ -100,6 +100,10 @@ export function toTimelineEvents(
   return events.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
+export function filterUserFacingSessions(sessions: NormalizedSession[]): NormalizedSession[] {
+  return sessions.filter((session) => session.provider !== "codex" || session.sessionKind === "main");
+}
+
 export async function getNormalizedWorkspaceProjects(
   filter: ProviderFilter = "all",
 ): Promise<NormalizedProject[]> {
@@ -170,7 +174,7 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
     readBoard(),
   ]);
   const latestByProject = new Map<string, NormalizedSession>();
-  for (const session of sessions) {
+  for (const session of filterUserFacingSessions(sessions)) {
     if (!session.projectId) continue;
     const prev = latestByProject.get(session.projectId);
     if (!prev || Date.parse(session.updatedAt) > Date.parse(prev.updatedAt)) {
@@ -214,7 +218,7 @@ export async function getProviderWorkspaceProjects(
 export async function getProviderProjectSessions(projectId: string): Promise<SessionRecall[]> {
   if (projectId.startsWith("codex:")) {
     const provider = getProviders("codex")[0];
-    return (await provider.listSessions())
+    return filterUserFacingSessions(await provider.listSessions())
       .filter((session) => session.projectId === projectId)
       .map(normalizedSessionToRecall)
       .sort((a, b) => b.transcriptMtime - a.transcriptMtime);
@@ -256,7 +260,7 @@ export async function getProviderTimeline(
   }
   if (filter === "all" || filter === "codex") {
     const provider = getProviders("codex")[0];
-    events.push(...(await provider.listSessions()).map(codexSessionToTimelineEvent));
+    events.push(...filterUserFacingSessions(await provider.listSessions()).map(codexSessionToTimelineEvent));
   }
   const sessionIds = new Set(events.filter((event) => event.kind === "session" && event.sessionId).map((event) => event.sessionId!));
   return events

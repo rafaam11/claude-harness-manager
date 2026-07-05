@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { HttpError, routeRequest } from "../router.js";
 import type { ApiRequest } from "@shared/types";
-import { mergeProviderProjectsByPath, sortNormalizedProjects, toTimelineEvents } from "./provider-workspace.js";
+import {
+  filterUserFacingSessions,
+  mergeProviderProjectsByPath,
+  sortNormalizedProjects,
+  toTimelineEvents,
+} from "./provider-workspace.js";
 
 function req(url: string): ApiRequest {
   return { method: "GET", url };
@@ -97,6 +102,45 @@ describe("provider workspace normalization", () => {
       kind: "session",
       projectId: "codex:local",
     });
+  });
+
+  it("keeps only direct user-facing sessions for Codex timeline surfaces", () => {
+    const sessions = filterUserFacingSessions([
+      {
+        id: "codex:main",
+        provider: "codex",
+        projectId: "codex:repo",
+        sessionKind: "main",
+        title: "사용자 대화",
+        updatedAt: "2026-07-05T01:00:00.000Z",
+      },
+      {
+        id: "codex:worker",
+        provider: "codex",
+        projectId: "codex:repo",
+        sessionKind: "worker",
+        title: "subagent fragment",
+        updatedAt: "2026-07-05T01:01:00.000Z",
+      },
+      {
+        id: "codex:system",
+        provider: "codex",
+        projectId: "codex:repo",
+        sessionKind: "system",
+        title: "injected context",
+        updatedAt: "2026-07-05T01:02:00.000Z",
+      },
+      {
+        id: "claude:worker-kept",
+        provider: "claude",
+        projectId: "claude:repo",
+        sessionKind: "worker",
+        title: "Claude 기존 정책 유지",
+        updatedAt: "2026-07-05T01:03:00.000Z",
+      },
+    ]);
+
+    expect(sessions.map((s) => s.id)).toEqual(["codex:main", "claude:worker-kept"]);
   });
 
   it("rejects empty provider filter on normalized workspace routes", async () => {

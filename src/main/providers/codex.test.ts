@@ -361,6 +361,43 @@ describe("codex provider", () => {
     expect(sessions.find((s) => s.id === `codex:${workerSessionId}`)?.sessionKind).toBe("worker");
   });
 
+  it("uses Codex thread_source metadata to classify subagent rollouts as workers", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2subg-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T10-30-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T01:30:00.000Z",
+          type: "session_meta",
+          payload: {
+            session_id: sessionId,
+            cwd: "C:\\repo",
+            model: "gpt-5.5",
+            thread_source: "subagent",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T01:31:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Inspect src/main/providers/codex.ts and report findings." }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      sessionKind: "worker",
+    });
+  });
+
   it("keeps metadata-only Codex session files when they have a cwd", async () => {
     const codexHome = path.join(homeDir, ".codex");
     const sessionId = "019f2meta-1111-7222-8333-444455556666";

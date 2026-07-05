@@ -149,6 +149,7 @@ interface CodexSessionSummary {
   sessionKind: SessionKind;
   originator: string | undefined;
   source: string | undefined;
+  threadSource: string | undefined;
   cwd: string | undefined;
   model: string | undefined;
   title: string | undefined;
@@ -255,6 +256,7 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     if (typeof o.payload?.model === "string") acc.model = o.payload.model;
     if (typeof o.payload?.originator === "string") acc.originator = o.payload.originator;
     if (typeof o.payload?.source === "string") acc.source = o.payload.source;
+    if (typeof o.payload?.thread_source === "string") acc.threadSource = o.payload.thread_source;
     return;
   }
 
@@ -298,6 +300,7 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
     sessionKind: "unknown",
     originator: undefined,
     source: undefined,
+    threadSource: undefined,
     cwd: undefined,
     model: undefined,
     title: undefined,
@@ -358,6 +361,9 @@ function isImportedDesktopLog(session: CodexSessionSummary): boolean {
 function finalizeCodexSessionKind(session: CodexSessionSummary): CodexSessionSummary {
   if (isImportedDesktopLog(session)) {
     return { ...session, sessionKind: "system" };
+  }
+  if (session.threadSource === "subagent") {
+    return { ...session, sessionKind: "worker" };
   }
   return session;
 }

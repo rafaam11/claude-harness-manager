@@ -1,6 +1,6 @@
 {
   "name": "harness-manager",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Claude Code와 Codex 로컬 환경을 관리하는 로컬 전용 데스크톱 앱",
   "main": "out/main/index.js",
   "private": true,

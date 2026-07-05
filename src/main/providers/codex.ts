@@ -71,6 +71,7 @@ function textFromContent(content: unknown): string | null {
 function isInjectedCodexText(text: string): boolean {
   const t = text.trimStart();
   return (
+    t.startsWith("⚠") ||
     t.startsWith("# AGENTS.md instructions") ||
     t.startsWith("<INSTRUCTIONS>") ||
     t.startsWith("<environment_context>") ||
@@ -146,6 +147,8 @@ interface CodexSessionSummary {
   localId: string;
   projectId: `codex:${string}` | undefined;
   sessionKind: SessionKind;
+  originator: string | undefined;
+  source: string | undefined;
   cwd: string | undefined;
   model: string | undefined;
   title: string | undefined;
@@ -250,6 +253,8 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
       acc.projectId = `codex:${localProjectIdFromCwd(o.payload.cwd)}`;
     }
     if (typeof o.payload?.model === "string") acc.model = o.payload.model;
+    if (typeof o.payload?.originator === "string") acc.originator = o.payload.originator;
+    if (typeof o.payload?.source === "string") acc.source = o.payload.source;
     return;
   }
 
@@ -266,6 +271,10 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
   const payload = o.payload;
   if (payload?.type !== "message") return;
   if (payload.role === "user") {
+    const rawText = textFromContent(payload.content);
+    if (rawText && isInjectedCodexText(rawText)) {
+      acc.sessionKind = preferSessionKind(acc.sessionKind, "system");
+    }
     const text = userTextFromContent(payload.content);
     if (text && !text.startsWith("<")) {
       acc.lastUserText = text;
@@ -287,6 +296,8 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
     localId,
     projectId: undefined,
     sessionKind: "unknown",
+    originator: undefined,
+    source: undefined,
     cwd: undefined,
     model: undefined,
     title: undefined,
@@ -340,6 +351,17 @@ function mergeCodexSessionSummary(
   };
 }
 
+function isImportedDesktopLog(session: CodexSessionSummary): boolean {
+  return session.originator === "Codex Desktop" && session.source === "vscode" && !session.model;
+}
+
+function finalizeCodexSessionKind(session: CodexSessionSummary): CodexSessionSummary {
+  if (isImportedDesktopLog(session)) {
+    return { ...session, sessionKind: "system" };
+  }
+  return session;
+}
+
 async function readCodexSessions(): Promise<CodexSessionSummary[]> {
   const files = await listSessionFiles();
   const rawSessions = (await Promise.all(files.map((file) => readCodexSession(file)))).filter(
@@ -359,14 +381,17 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
     )
     .map((session) => {
       const h = history.get(session.localId);
-      if (!h) return session;
-      return {
-        ...session,
-        title: h.text,
-        lastUserText: h.text,
-        sessionKind: preferSessionKind(session.sessionKind, sessionKindFromUserText(h.text)),
-        updatedAt: Date.parse(h.updatedAt) >= Date.parse(session.updatedAt) ? h.updatedAt : session.updatedAt,
-      };
+      const overlaid = h
+        ? {
+            ...session,
+            title: h.text,
+            lastUserText: h.text,
+            sessionKind: preferSessionKind(session.sessionKind, sessionKindFromUserText(h.text)),
+            updatedAt:
+              Date.parse(h.updatedAt) >= Date.parse(session.updatedAt) ? h.updatedAt : session.updatedAt,
+          }
+        : session;
+      return finalizeCodexSessionKind(overlaid);
     })
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }

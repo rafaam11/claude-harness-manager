@@ -37,6 +37,7 @@ type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: Entity
 
 // 정렬 모드: 뷰 전역 취향이라 localStorage에 저장(테마와 동일 패턴), board.json엔 안 둔다.
 type SortMode = "recent" | "status" | "manual";
+const DEFAULT_WORKSPACE_SORT: SortMode = "status";
 
 export function workspaceProviderToneClass(p: WorkspaceProject): string {
   const ids = p.memberIds?.length ? p.memberIds : [p.id];
@@ -48,11 +49,15 @@ export function workspaceProviderToneClass(p: WorkspaceProject): string {
   return "";
 }
 const SORT_KEY = "ws-sort-mode";
+const SORT_MODES: SortMode[] = ["recent", "status", "manual"];
 const SORT_LABELS: Record<SortMode, string> = {
   recent: "최근 활동순",
   status: "상태순",
   manual: "수동 정렬",
 };
+export function initialWorkspaceSortMode(stored: string | null): SortMode {
+  return SORT_MODES.includes(stored as SortMode) ? (stored as SortMode) : DEFAULT_WORKSPACE_SORT;
+}
 // 상태 정렬 rank(작을수록 위). 무상태(null)는 진행중 바로 뒤.
 const STATUS_RANK: Record<BoardStatus, number> = {
   진행중: 0,
@@ -100,6 +105,65 @@ export function partitionWorkspaceSessions(sessions: SessionRecall[]): {
   return { primary, auxiliary };
 }
 
+function sessionKindRank(session: SessionRecall): number {
+  if (session.sessionKind === "main") return 4;
+  if (session.sessionKind === "unknown" || !session.sessionKind) return 3;
+  if (session.sessionKind === "worker") return 2;
+  if (session.sessionKind === "system") return 1;
+  return 0;
+}
+
+function hasSessionRecallText(session: SessionRecall): boolean {
+  return Boolean(session.aiTitle || session.lastPrompt || session.lastAssistantSnippet);
+}
+
+function betterSessionTextSource(a: SessionRecall, b: SessionRecall): SessionRecall {
+  const ar = sessionKindRank(a);
+  const br = sessionKindRank(b);
+  if (ar !== br) return br > ar ? b : a;
+  const at = hasSessionRecallText(a);
+  const bt = hasSessionRecallText(b);
+  if (at !== bt) return bt ? b : a;
+  return b.transcriptMtime >= a.transcriptMtime ? b : a;
+}
+
+function preferWorkspaceSessionKind(
+  a: SessionRecall["sessionKind"],
+  b: SessionRecall["sessionKind"],
+): SessionRecall["sessionKind"] {
+  const ar = sessionKindRank({ sessionKind: a } as SessionRecall);
+  const br = sessionKindRank({ sessionKind: b } as SessionRecall);
+  return br > ar ? b : a;
+}
+
+function mergeWorkspaceSession(a: SessionRecall, b: SessionRecall): SessionRecall {
+  const latest = b.transcriptMtime >= a.transcriptMtime ? b : a;
+  const textSource = betterSessionTextSource(a, b);
+  return {
+    ...latest,
+    sessionKind: preferWorkspaceSessionKind(a.sessionKind, b.sessionKind),
+    aiTitle: textSource.aiTitle ?? latest.aiTitle,
+    lastPrompt: textSource.lastPrompt ?? latest.lastPrompt,
+    lastAssistantSnippet: latest.lastAssistantSnippet ?? textSource.lastAssistantSnippet,
+    cwd: latest.cwd ?? textSource.cwd,
+    gitBranch: latest.gitBranch ?? textSource.gitBranch,
+    lastModel: latest.lastModel ?? textSource.lastModel,
+    transcriptPath: textSource.transcriptPath,
+    transcriptMtime: Math.max(a.transcriptMtime, b.transcriptMtime),
+    truncatedScan: a.truncatedScan || b.truncatedScan,
+  };
+}
+
+export function mergeWorkspaceSessionLists(lists: SessionRecall[][]): SessionRecall[] {
+  const byKey = new Map<string, SessionRecall>();
+  for (const session of lists.flat()) {
+    const key = session.sessionId ? `sid:${session.sessionId}` : `path:${session.transcriptPath}`;
+    const prev = byKey.get(key);
+    byKey.set(key, prev ? mergeWorkspaceSession(prev, session) : session);
+  }
+  return [...byKey.values()].sort((a, b) => b.transcriptMtime - a.transcriptMtime);
+}
+
 export function workspaceProjectMetricLabels(p: WorkspaceProject, planCount: number): string[] {
   const labels: string[] = [];
   const totalTodos = p.board.tracks.reduce((n, t) => n + t.items.length, 0);
@@ -128,7 +192,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>(
-    () => (localStorage.getItem(SORT_KEY) as SortMode | null) ?? "recent",
+    () => initialWorkspaceSortMode(localStorage.getItem(SORT_KEY)),
   );
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
@@ -158,7 +222,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     loadPlans();
   }, [providerQuery]);
 
-  // 정렬 모드(최근 활동순/상태순/수동)별 정렬. 회상 대시보드 기본은 최근 활동순.
+  // 정렬 모드(최근 활동순/상태순/수동)별 정렬. 회상 대시보드 기본은 상태순.
   const sorted = useMemo(
     () => (projects ? sortProjects(projects, sortMode) : []),
     [projects, sortMode],
@@ -639,10 +703,7 @@ function SessionsSection({ projectIds }: { projectIds: string[] }) {
         api.get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`),
       ),
     )
-      .then((lists) =>
-        alive &&
-        setSessions(lists.flat().sort((a, b) => b.transcriptMtime - a.transcriptMtime)),
-      )
+      .then((lists) => alive && setSessions(mergeWorkspaceSessionLists(lists)))
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;

@@ -481,4 +481,77 @@ describe("codex provider", () => {
       sessionKind: "main",
     });
   });
+
+  it("classifies imported Codex Desktop rollout logs as auxiliary system sessions", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2old-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "04", `rollout-2026-07-04T08-53-33-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-03T23:53:33.000Z",
+          type: "session_meta",
+          payload: {
+            session_id: sessionId,
+            cwd: "C:\\repo",
+            originator: "Codex Desktop",
+            source: "vscode",
+            model_provider: "openai",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-03T23:53:34.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "PR이 몇개 있는데 뭐지?" }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      title: "PR이 몇개 있는데 뭐지?",
+      lastUserText: "PR이 몇개 있는데 뭐지?",
+      sessionKind: "system",
+    });
+  });
+
+  it("keeps warning-only Codex records out of the default session list", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2warn-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T12-30-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T03:30:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T03:31:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "⚠ Skipped loading 1 skill(s) due to invalid SKILL.md files." }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      lastUserText: undefined,
+      sessionKind: "system",
+    });
+  });
 });

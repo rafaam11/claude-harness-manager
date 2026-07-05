@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  initialWorkspaceSortMode,
+  mergeWorkspaceSessionLists,
   partitionWorkspaceSessions,
   resolveWorkspaceSelection,
   workspaceProjectMetricLabels,
@@ -84,6 +86,53 @@ describe("provider workspace selection", () => {
       primary: [sessions[0], sessions[2]],
       auxiliary: [sessions[1]],
     });
+  });
+
+  it("dedupes sessions loaded through repeated provider member ids", () => {
+    const base = {
+      sessionId: "claude:shared",
+      sessionKind: "main" as const,
+      aiTitle: "대표 세션",
+      lastPrompt: "마지막 요청",
+      lastAssistantSnippet: null,
+      cwd: "C:/repo",
+      gitBranch: null,
+      lastModel: "claude-sonnet-5",
+      transcriptPath: "C:/repo/.claude/projects/shared.jsonl",
+      transcriptMtime: 10,
+      truncatedScan: false,
+    } satisfies SessionRecall;
+    const duplicateFromWorktreeMember = {
+      ...base,
+      aiTitle: null,
+      lastPrompt: null,
+      transcriptMtime: 12,
+    } satisfies SessionRecall;
+    const other = {
+      ...base,
+      sessionId: "codex:other",
+      aiTitle: "다른 세션",
+      transcriptPath: "codex-other",
+      transcriptMtime: 20,
+    } satisfies SessionRecall;
+
+    expect(mergeWorkspaceSessionLists([[base], [duplicateFromWorktreeMember], [other]])).toEqual([
+      other,
+      expect.objectContaining({
+        sessionId: "claude:shared",
+        aiTitle: "대표 세션",
+        lastPrompt: "마지막 요청",
+        transcriptMtime: 12,
+      }),
+    ]);
+  });
+
+  it("defaults the workspace sort to status order unless the stored preference is valid", () => {
+    expect(initialWorkspaceSortMode(null)).toBe("status");
+    expect(initialWorkspaceSortMode("")).toBe("status");
+    expect(initialWorkspaceSortMode("recent")).toBe("recent");
+    expect(initialWorkspaceSortMode("manual")).toBe("manual");
+    expect(initialWorkspaceSortMode("unknown")).toBe("status");
   });
 
   it("does not expose worktree counts as separate workspace card metrics", () => {

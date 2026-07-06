@@ -8,6 +8,8 @@ import type {
 } from "@shared/provider-types";
 import { getProviders } from "../providers/registry.js";
 import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { normalizePathKey } from "../lib/path-normalize.js";
+import { parseTimeMs } from "../lib/time.js";
 import {
   getEnrichedPlans,
   getProjectSessions,
@@ -23,20 +25,39 @@ type ProviderWorkspaceProject = WorkspaceProject & { provider?: ProviderId };
 
 export function sortNormalizedProjects(projects: NormalizedProject[]): NormalizedProject[] {
   return [...projects].sort((a, b) => {
-    const at = a.latestActivityAt ? Date.parse(a.latestActivityAt) : 0;
-    const bt = b.latestActivityAt ? Date.parse(b.latestActivityAt) : 0;
-    return bt - at;
+    return parseTimeMs(b.latestActivityAt) - parseTimeMs(a.latestActivityAt);
   });
 }
 
 function pathGroupKey(project: Pick<WorkspaceProject, "realPath" | "repoRoot" | "id">): string {
   const p = project.realPath ?? project.repoRoot;
   if (!p) return `id:${project.id}`;
-  return `path:${p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()}`;
+  return `path:${normalizePathKey(p)}`;
 }
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+// 상태의 "아카이브 정도"(작을수록 활성). 병합 카드 status 계산에 쓴다.
+const STATUS_ARCHIVE_RANK: Record<BoardStatus, number> = { 진행중: 0, 보류: 1, 완료: 2, 보관: 3 };
+
+/**
+ * 여러 provider 프로젝트를 한 repo 카드로 접을 때 대표 status를 고른다.
+ * 가장 덜 아카이브된(가장 활성) 멤버 기준 — 한쪽이 보관이어도 다른 쪽이 활성이면 활성으로 본다.
+ * 미지정(null)은 활성으로 취급하되, 동순위면 명시 상태를 선호해 정보를 보존한다.
+ */
+function leastArchivedStatus(statuses: (BoardStatus | null)[]): BoardStatus | null {
+  let best: BoardStatus | null = null;
+  let bestRank = Infinity;
+  for (const s of statuses) {
+    const rank = s == null ? 0 : STATUS_ARCHIVE_RANK[s];
+    if (rank < bestRank || (rank === bestRank && best == null && s != null)) {
+      bestRank = rank;
+      best = s;
+    }
+  }
+  return best;
 }
 
 export function mergeProviderProjectsByPath(
@@ -63,6 +84,14 @@ export function mergeProviderProjectsByPath(
       worktrees: sorted.flatMap((p) => p.worktrees ?? []),
       lastActivity: Math.max(...sorted.map((p) => p.lastActivity)),
       staleDays: Math.min(...sorted.map((p) => p.staleDays)),
+      board: {
+        // memo/nameOverride/tracks/order는 primary 것을 유지하되, 세션 가시성을 좌우하는
+        // hidden/status만 교차-provider 오염을 제거한다: 한쪽 provider의 보관/숨김이 다른
+        // provider의 세션을 가리지 않도록, 모든 멤버가 숨김일 때만 숨기고 상태는 가장 활성 멤버 기준.
+        ...primary.board,
+        hidden: sorted.every((p) => p.board.hidden),
+        status: leastArchivedStatus(sorted.map((p) => p.board.status)),
+      },
     });
   }
   return merged.sort((a, b) => b.lastActivity - a.lastActivity);
@@ -97,7 +126,7 @@ export function toTimelineEvents(
       sourcePath: p.sourcePath,
     });
   }
-  return events.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  return events.sort((a, b) => parseTimeMs(b.updatedAt) - parseTimeMs(a.updatedAt));
 }
 
 export function filterUserFacingSessions(sessions: NormalizedSession[]): NormalizedSession[] {
@@ -161,7 +190,7 @@ function normalizedSessionToRecall(session: NormalizedSession): SessionRecall {
     gitBranch: null,
     lastModel: session.model ?? null,
     transcriptPath: session.sourcePath ?? session.id,
-    transcriptMtime: Date.parse(session.updatedAt),
+    transcriptMtime: parseTimeMs(session.updatedAt),
     truncatedScan: true,
   };
 }
@@ -177,13 +206,13 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
   for (const session of filterUserFacingSessions(sessions)) {
     if (!session.projectId) continue;
     const prev = latestByProject.get(session.projectId);
-    if (!prev || Date.parse(session.updatedAt) > Date.parse(prev.updatedAt)) {
+    if (!prev || parseTimeMs(session.updatedAt) > parseTimeMs(prev.updatedAt)) {
       latestByProject.set(session.projectId, session);
     }
   }
   return projects.map((project) => {
     const latest = latestByProject.get(project.id);
-    const lastActivity = project.latestActivityAt ? Date.parse(project.latestActivityAt) : 0;
+    const lastActivity = parseTimeMs(project.latestActivityAt);
     return {
       id: project.id,
       provider: "codex" as ProviderId,
@@ -236,7 +265,7 @@ export async function getProviderEnrichedPlans(
 
 function codexSessionToTimelineEvent(session: NormalizedSession): TimelineEvent {
   return {
-    ts: Date.parse(session.updatedAt),
+    ts: parseTimeMs(session.updatedAt),
     kind: "session",
     projectId: session.projectId ?? null,
     realPath: session.cwd ?? null,

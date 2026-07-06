@@ -121,7 +121,10 @@ export async function restoreItem(archivedPath: string): Promise<ManifestEntry> 
     for (const d of dates) {
       const manifestPath = path.join(ARCHIVE_ROOT, d, "manifest.json");
       const manifest = await readJsonArray<ManifestEntry>(manifestPath);
-      const idx = manifest.findIndex((e) => path.resolve(e.archived) === archived);
+      // Windows는 파일시스템이 대소문자를 무시하므로 경로 비교도 무시(케이스만 다른 매칭 실패 방지)
+      const samePath = (a: string, b: string) =>
+        process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+      const idx = manifest.findIndex((e) => samePath(path.resolve(e.archived), archived));
       if (idx === -1) continue;
 
       const entry = manifest[idx];

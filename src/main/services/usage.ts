@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../config.js";
 import { validateConfig } from "../lib/json-validate.js";
 import { guardPath } from "../lib/path-guard.js";
+import { parseTimeMs } from "../lib/time.js";
 import { readConfig, safeWrite } from "../lib/safe-write.js";
 import type { ProviderFilter } from "@shared/provider-types";
 import type {
@@ -56,6 +57,12 @@ interface CaptureState {
   version: 1;
   proxyCommand: string;
   originalCommand: string | null;
+  /**
+   * proxy가 originalCommand를 forward할 때 쓸 셸(절대경로). Windows에서 bash 문법 statusLine을
+   * cmd.exe로 실행하면 깨지므로 setup 시점에 git-bash 경로를 계산해 박아둔다. null/미지정이면
+   * proxy가 shell:true(win32=cmd.exe, POSIX=/bin/sh)로 폴백한다.
+   */
+  forwardShell?: string | null;
   originalStatusLine?: unknown;
   updatedAt: string;
 }
@@ -303,7 +310,7 @@ export function parseUsageSnapshot(
   if (!observedAt) return null;
   return {
     observedAt,
-    stale: nowMs - Date.parse(observedAt) > staleMs,
+    stale: nowMs - parseTimeMs(observedAt) > staleMs,
     fiveHour: quotaWindow(obj.five_hour ?? obj.fiveHour ?? obj.primary, FIVE_HOUR_MINUTES),
     weekly: quotaWindow(obj.seven_day ?? obj.weekly ?? obj.secondary, WEEK_MINUTES),
     planType: typeof obj.plan_type === "string" ? obj.plan_type : null,
@@ -318,7 +325,7 @@ export function buildCodexUsageSummary(
   const latestQuota = valid
     .map((event) => event.quota)
     .filter((q): q is ParsedQuotaObservation => Boolean(q))
-    .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+    .sort((a, b) => parseTimeMs(b.observedAt) - parseTimeMs(a.observedAt))[0];
   return {
     provider: "codex",
     label: "Codex",
@@ -326,7 +333,7 @@ export function buildCodexUsageSummary(
       ? {
           source: "codex-log",
           observedAt: latestQuota.observedAt,
-          stale: nowMs - Date.parse(latestQuota.observedAt) > DEFAULT_STALE_MS,
+          stale: nowMs - parseTimeMs(latestQuota.observedAt) > DEFAULT_STALE_MS,
           planType: latestQuota.planType,
           fiveHour: latestQuota.fiveHour,
           weekly: latestQuota.weekly,
@@ -413,6 +420,56 @@ function claudeProxyCommand(): string {
   return `node ${quoteCommandPath(CLAUDE_USAGE_PROXY_FILE)}`;
 }
 
+/**
+ * bash/sh 문법 신호(명령 치환·파라미터 확장·/dev/ 리다이렉트·exec·MSYS 절대경로)를 포함하면
+ * cmd.exe로는 실행할 수 없고 POSIX 셸이 필요하다. 순수 Windows 명령엔 이런 토큰이 없다.
+ */
+export function commandNeedsPosixShell(command: string): boolean {
+  return (
+    /\$\(/.test(command) || // $(...)
+    /\$\{/.test(command) || // ${...}
+    /[<>]\s*\/dev\//.test(command) || // </dev/tty, 2>/dev/null
+    /(^|[\s;&|(])exec\s/.test(command) || // exec ...
+    /(^|\s)\/[a-zA-Z]\//.test(command) // /c/... MSYS 스타일 절대경로
+  );
+}
+
+/** 알려진 Git for Windows 설치 위치에서 bash.exe를 찾는다(WSL bash는 경로 스타일이 달라 제외). */
+function defaultFindGitBash(): string | null {
+  if (process.platform !== "win32") return null;
+  const pf = process.env.ProgramFiles ?? "C:\\Program Files";
+  const pf86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+  const candidates = [
+    path.join(pf, "Git", "bin", "bash.exe"),
+    path.join(pf, "Git", "usr", "bin", "bash.exe"),
+    path.join(pf86, "Git", "bin", "bash.exe"),
+  ];
+  for (const c of candidates) {
+    try {
+      if (existsSync(c)) return c;
+    } catch {
+      // 접근 불가 후보는 건너뛴다
+    }
+  }
+  return null;
+}
+
+/**
+ * proxy가 statusLine을 forward할 셸 경로를 결정한다. Windows + bash 문법 명령일 때만 git-bash를
+ * 반환하고(Claude Code 본체가 실행하던 셸과 일치), 그 외(POSIX·순수 cmd·bash 미발견)엔 null을
+ * 반환해 proxy가 shell:true로 폴백하게 한다. findGitBash는 테스트를 위해 주입 가능.
+ */
+export function resolveForwardShell(
+  originalCommand: string | null,
+  platform: NodeJS.Platform,
+  findGitBash: () => string | null = defaultFindGitBash,
+): string | null {
+  if (!originalCommand) return null;
+  if (platform !== "win32") return null; // POSIX는 shell:true(=/bin/sh)로 충분
+  if (!commandNeedsPosixShell(originalCommand)) return null; // 순수 cmd 명령은 cmd.exe 유지
+  return findGitBash();
+}
+
 async function readJsonObject(filePath: string): Promise<Record<string, unknown> | null> {
   const raw = await fs.readFile(guardPath(filePath), "utf8").catch(() => null);
   if (!raw) return null;
@@ -456,6 +513,7 @@ async function readCaptureState(): Promise<CaptureState | null> {
     version: 1,
     proxyCommand: typeof raw.proxyCommand === "string" ? raw.proxyCommand : claudeProxyCommand(),
     originalCommand: typeof raw.originalCommand === "string" ? raw.originalCommand : null,
+    forwardShell: typeof raw.forwardShell === "string" ? raw.forwardShell : null,
     originalStatusLine: raw.originalStatusLine,
     updatedAt:
       typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString(),
@@ -561,9 +619,12 @@ async function forward(stdinText) {
     state = JSON.parse(await fs.readFile(statePath, "utf8"));
   } catch {}
   if (!state.originalCommand) return 0;
+  // forwardShell(setup 시점에 계산한 git-bash 경로)이 있으면 그 셸로, 없으면 shell:true 폴백.
+  // Windows에서 bash 문법 statusLine을 cmd.exe(shell:true)로 실행하면 깨지므로 필요하다.
+  const shell = typeof state.forwardShell === "string" && state.forwardShell ? state.forwardShell : true;
   return await new Promise((resolve) => {
     const child = spawn(state.originalCommand, {
-      shell: true,
+      shell,
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -663,12 +724,14 @@ export async function setupClaudeUsageCapture(): Promise<UsageCaptureStatus> {
   const settings = (await readJsonObject(CONFIG_FILES.settings.path)) ?? {};
   const proxyCommand = claudeProxyCommand();
   const setup = buildClaudeCaptureSettings(settings, proxyCommand);
+  const originalCommand = setup.alreadyEnabled
+    ? (await readCaptureState())?.originalCommand ?? null
+    : setup.originalCommand;
   const state: CaptureState = {
     version: 1,
     proxyCommand,
-    originalCommand: setup.alreadyEnabled
-      ? (await readCaptureState())?.originalCommand ?? null
-      : setup.originalCommand,
+    originalCommand,
+    forwardShell: resolveForwardShell(originalCommand, process.platform),
     originalStatusLine: setup.alreadyEnabled ? (await readCaptureState())?.originalStatusLine : settings.statusLine,
     updatedAt: new Date().toISOString(),
   };

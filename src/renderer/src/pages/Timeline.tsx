@@ -8,6 +8,7 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  projectVisibilityWrite,
   providerLabel,
   shortName,
   type BoardStatus,
@@ -179,7 +180,8 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     );
     if (status === "보관" && activeTab === projectId) setActiveTab("all");
     try {
-      await api.post(`/api/workspace/board/project/${encodeURIComponent(projectId)}`, { status });
+      const req = projectVisibilityWrite(projects.find((p) => p.id === projectId), projectId, { status });
+      await api.post(req.url, req.body);
     } catch (err) {
       setError((err as Error).message);
       api
@@ -195,7 +197,8 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     );
     if (hidden && activeTab === projectId) setActiveTab("all");
     try {
-      await api.post(`/api/workspace/board/project/${encodeURIComponent(projectId)}`, { hidden });
+      const req = projectVisibilityWrite(projects.find((p) => p.id === projectId), projectId, { hidden });
+      await api.post(req.url, req.body);
     } catch (err) {
       setError((err as Error).message);
       api

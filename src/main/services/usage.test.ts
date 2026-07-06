@@ -6,6 +6,7 @@ import {
   parseClaudeUsageLine,
   parseCodexUsageLine,
   parseUsageSnapshot,
+  resolveForwardShell,
   restoreClaudeCaptureSettings,
 } from "./usage.js";
 
@@ -125,5 +126,31 @@ describe("Claude capture settings", () => {
       type: "command",
       command: "node C:/Users/me/.claude/hud/omc-hud.mjs",
     });
+  });
+});
+
+describe("resolveForwardShell", () => {
+  const BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
+
+  it("returns git-bash for a bash-style statusLine on win32 (claude-hud case)", () => {
+    const cmd =
+      'cols=$(stty size </dev/tty 2>/dev/null | awk \'{print $2}\'); export COLUMNS=$(( ${cols:-120} )); exec "/c/Program Files/nodejs/node" "$plugin_dir/dist/index.js"';
+    expect(resolveForwardShell(cmd, "win32", () => BASH)).toBe(BASH);
+  });
+
+  it("keeps cmd.exe (null) for a plain windows command", () => {
+    expect(resolveForwardShell("node C:\\Users\\me\\hud.mjs", "win32", () => BASH)).toBeNull();
+  });
+
+  it("returns null on posix so shell:true uses /bin/sh", () => {
+    expect(resolveForwardShell("foo=$(bar); exec baz", "linux", () => BASH)).toBeNull();
+  });
+
+  it("falls back to null (cmd.exe) when git-bash is not found", () => {
+    expect(resolveForwardShell("foo=$(bar); exec baz", "win32", () => null)).toBeNull();
+  });
+
+  it("returns null for an empty command", () => {
+    expect(resolveForwardShell(null, "win32", () => BASH)).toBeNull();
   });
 });

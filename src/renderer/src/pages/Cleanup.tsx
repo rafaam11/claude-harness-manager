@@ -52,7 +52,7 @@ export default function Cleanup() {
         // 최신(첫) 날짜만 기본 펼침.
         if (m.length > 0) setOpenDates((prev) => (prev.size === 0 ? new Set([m[0].date]) : prev));
       })
-      .catch(() => {});
+      .catch((e) => setMessage({ kind: "err", text: `아카이브 기록 로드 실패: ${e.message}` }));
 
   useEffect(() => { scan(); loadManifest(); }, []);
 

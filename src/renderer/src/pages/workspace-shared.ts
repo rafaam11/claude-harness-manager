@@ -108,6 +108,24 @@ export function providerLabel(provider: ProviderId): string {
   return provider === "claude" ? "Claude" : "Codex";
 }
 
+/**
+ * 프로젝트 카드의 hidden/status 변경 요청을 만든다.
+ * 교차-provider 병합 카드(provider undefined, 멤버 2개 이상)는 대표 규칙(모두 숨김일 때만 숨김·
+ * 가장 활성 status)이 있어 단건 write로는 바뀌지 않으므로, 모든 memberId에 팬아웃하는 배치
+ * 엔드포인트로 보낸다. 그 외(단일 provider 카드)는 기존 단건 엔드포인트를 그대로 쓴다.
+ */
+export function projectVisibilityWrite(
+  project: WorkspaceProject | undefined,
+  id: string,
+  patch: { hidden?: boolean; status?: BoardStatus },
+): { url: string; body: unknown } {
+  const memberIds = project?.memberIds?.length ? project.memberIds : [id];
+  if (project && project.provider === undefined && memberIds.length > 1) {
+    return { url: `/api/workspace/board/projects/visibility`, body: { ids: memberIds, ...patch } };
+  }
+  return { url: `/api/workspace/board/project/${encodeURIComponent(id)}`, body: patch };
+}
+
 export function providerBadgeClass(provider: ProviderId): string {
   return `provider-${provider}`;
 }

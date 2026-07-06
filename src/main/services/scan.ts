@@ -51,7 +51,8 @@ export async function scanCandidates(): Promise<CleanupCandidate[]> {
   for (const entry of await fs.readdir(agentsDir).catch(() => [])) {
     if (!entry.endsWith(".md")) continue;
     const p = path.join(agentsDir, entry);
-    const stat = await fs.stat(p);
+    const stat = await fs.stat(p).catch(() => null);
+    if (!stat) continue; // readdir 후 삭제된 파일
     if (stat.size > AGENT_SIZE_WARN_BYTES) {
       out.push({
         path: p,

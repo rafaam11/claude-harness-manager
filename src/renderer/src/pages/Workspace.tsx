@@ -13,6 +13,7 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  projectVisibilityWrite,
   shortName,
   stripClaudeEntityId,
   type BoardStatus,
@@ -265,8 +266,21 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
         ? prev.map((p) => (p.id === id ? { ...p, board: { ...p.board, ...boardPatch } } : p))
         : prev,
     );
+    // hidden/status만 단독으로 바뀌는 경우(숨김 버튼·상태 드롭다운) 병합 카드면 memberIds에 팬아웃.
+    const visibilityOnly =
+      (body.hidden !== undefined || body.status !== undefined) &&
+      body.memo === undefined &&
+      body.nameOverride === undefined &&
+      body.tracks === undefined &&
+      body.order === undefined;
+    const req = visibilityOnly
+      ? projectVisibilityWrite(projects?.find((p) => p.id === id), id, {
+          hidden: body.hidden,
+          status: body.status,
+        })
+      : { url: `/api/workspace/board/project/${encodeURIComponent(id)}`, body };
     try {
-      await api.post(`/api/workspace/board/project/${encodeURIComponent(id)}`, body);
+      await api.post(req.url, req.body);
     } catch (e) {
       setError((e as Error).message);
       loadProjects(); // 실패 시 서버 상태로 재동기화
@@ -698,13 +712,23 @@ function SessionsSection({ projectIds }: { projectIds: string[] }) {
     let alive = true;
     setSessions(null);
     setError("");
-    Promise.all(
+    // 병합 카드에서 멤버 하나의 조회 실패가 전체를 가리지 않게 성공분만 표시(전부 실패 시에만 에러)
+    Promise.allSettled(
       projectIds.map((projectId) =>
         api.get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`),
       ),
-    )
-      .then((lists) => alive && setSessions(mergeWorkspaceSessionLists(lists)))
-      .catch((e) => alive && setError((e as Error).message));
+    ).then((results) => {
+      if (!alive) return;
+      const lists = results
+        .filter((r): r is PromiseFulfilledResult<SessionRecall[]> => r.status === "fulfilled")
+        .map((r) => r.value);
+      if (lists.length === 0 && results.length > 0) {
+        const first = results[0] as PromiseRejectedResult;
+        setError((first.reason as Error).message);
+        return;
+      }
+      setSessions(mergeWorkspaceSessionLists(lists));
+    });
     return () => {
       alive = false;
     };
@@ -1285,18 +1309,29 @@ function MemoBox({
   onSave: (memo: string) => void;
 }) {
   const [text, setText] = useState(value);
-  // 외부 값이 바뀌면(재동기화) 반영
+  const focusedRef = useRef(false);
+  const dirtyRef = useRef(false); // 포커스 중 실제 편집 여부(미편집 blur가 외부 변경을 덮어쓰지 않게)
+  // 외부 값이 바뀌면(재동기화) 반영 — 단, 입력 중(포커스)에는 사용자 텍스트를 덮어쓰지 않는다
   useEffect(() => {
-    setText(value);
+    if (!focusedRef.current) setText(value);
   }, [value]);
   return (
     <textarea
       className="ws-memo"
       placeholder={placeholder}
       value={text}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        dirtyRef.current = true;
+        setText(e.target.value);
+      }}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
       onBlur={() => {
-        if (text !== value) onSave(text);
+        focusedRef.current = false;
+        if (dirtyRef.current && text !== value) onSave(text);
+        else if (text !== value) setText(value); // 미편집 상태면 보류했던 외부 값으로 재동기화
+        dirtyRef.current = false;
       }}
     />
   );

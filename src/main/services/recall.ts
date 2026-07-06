@@ -15,6 +15,7 @@ import {
   GLOSSARY_PROMPT_MAX,
 } from "../config.js";
 import { guardPath } from "../lib/path-guard.js";
+import { normalizePathKey } from "../lib/path-normalize.js";
 import { getProjects, guessOriginalPath } from "./projects.js";
 import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
@@ -525,7 +526,7 @@ export const getSessionToPathMap = cached(WORKSPACE_CACHE_TTL_MS, buildSessionTo
 
 // --- plan ↔ project 자동추정 ---
 function normPath(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalizePathKey(p);
 }
 
 function buildRealToIdMap(recalls: ProjectRecall[]): Map<string, string> {

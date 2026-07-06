@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { detectProcess } from "../lib/process-detect.js";
+import { parseTimeMs } from "../lib/time.js";
 import { readCodexMcpServersFromToml } from "../lib/toml-validate.js";
 import type { ProviderAdapter } from "./types.js";
 import type { SessionKind } from "@shared/provider-types";
@@ -186,7 +187,7 @@ async function readCodexHistory(): Promise<Map<string, CodexHistoryEntry>> {
     if (!text || isNoiseHistoryText(text)) continue;
     const updatedAt = isoFromTimestamp(o.ts) ?? iso(Date.now());
     const prev = latest.get(o.session_id);
-    if (!prev || Date.parse(updatedAt) >= Date.parse(prev.updatedAt)) {
+    if (!prev || parseTimeMs(updatedAt) >= parseTimeMs(prev.updatedAt)) {
       latest.set(o.session_id, { sessionId: o.session_id, text, updatedAt });
     }
   }
@@ -241,7 +242,7 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     return;
   }
   const ts = isoFromTimestamp(o?.timestamp ?? o?.payload?.timestamp ?? o?.payload?.created_at);
-  if (ts && Date.parse(ts) >= Date.parse(acc.updatedAt)) acc.updatedAt = ts;
+  if (ts && parseTimeMs(ts) >= parseTimeMs(acc.updatedAt)) acc.updatedAt = ts;
 
   if (o?.type === "session_meta") {
     const sid = o.payload?.session_id ?? o.payload?.id;
@@ -325,7 +326,7 @@ function sessionKindRank(kind: SessionKind): number {
 }
 
 function newerSession(a: CodexSessionSummary, b: CodexSessionSummary): CodexSessionSummary {
-  return Date.parse(b.updatedAt) >= Date.parse(a.updatedAt) ? b : a;
+  return parseTimeMs(b.updatedAt) >= parseTimeMs(a.updatedAt) ? b : a;
 }
 
 function betterUserFacingSession(
@@ -394,12 +395,12 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
             lastUserText: h.text,
             sessionKind: preferSessionKind(session.sessionKind, sessionKindFromUserText(h.text)),
             updatedAt:
-              Date.parse(h.updatedAt) >= Date.parse(session.updatedAt) ? h.updatedAt : session.updatedAt,
+              parseTimeMs(h.updatedAt) >= parseTimeMs(session.updatedAt) ? h.updatedAt : session.updatedAt,
           }
         : session;
       return finalizeCodexSessionKind(overlaid);
     })
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    .sort((a, b) => parseTimeMs(b.updatedAt) - parseTimeMs(a.updatedAt));
 }
 
 async function codexMemoryFiles(): Promise<string[]> {
@@ -486,7 +487,7 @@ export const codexProvider: ProviderAdapter = {
       const localId = session.cwd ? localProjectIdFromCwd(session.cwd) : "unknown";
       const id = `codex:${localId}`;
       const prev = byProject.get(id);
-      if (!prev || Date.parse(session.updatedAt) > Date.parse(prev.latestActivityAt ?? "")) {
+      if (!prev || parseTimeMs(session.updatedAt) > parseTimeMs(prev.latestActivityAt)) {
         byProject.set(id, {
           localId,
           title: session.cwd ? titleFromCwd(session.cwd) : "Codex Session",
@@ -501,7 +502,7 @@ export const codexProvider: ProviderAdapter = {
         provider: "codex" as const,
         ...project,
       }))
-      .sort((a, b) => Date.parse(b.latestActivityAt ?? "") - Date.parse(a.latestActivityAt ?? ""));
+      .sort((a, b) => parseTimeMs(b.latestActivityAt) - parseTimeMs(a.latestActivityAt));
   },
   async listSessions() {
     return (await readCodexSessions()).map((session) => ({

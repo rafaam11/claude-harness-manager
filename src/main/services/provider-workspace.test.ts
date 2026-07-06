@@ -59,6 +59,91 @@ describe("provider workspace normalization", () => {
     expect(merged[0].provider).toBeUndefined();
   });
 
+  it("keeps a merged repo visible when only one provider archived it", () => {
+    // 한쪽(Claude)에서 보관·숨김 처리한 프로젝트가 활성 Codex 프로젝트와 병합되어도,
+    // 다른 provider의 세션을 가리지 않도록 대표 카드는 활성(hidden:false, status≠보관)이어야 한다.
+    const merged = mergeProviderProjectsByPath([
+      {
+        id: "claude:C--repo",
+        provider: "claude",
+        realPath: "C:\\repo",
+        gitBranch: null,
+        lastActivity: 30, // primary(최근)이지만 보관/숨김
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: { status: "보관", memo: "", nameOverride: "", tracks: [], hidden: true, order: null },
+        repoRoot: "C:\\repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["claude:C--repo"],
+      },
+      {
+        id: "codex:C--repo",
+        provider: "codex",
+        realPath: "c:/repo",
+        gitBranch: null,
+        lastActivity: 20,
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: { status: null, memo: "", nameOverride: "", tracks: [], hidden: false, order: null },
+        repoRoot: "c:/repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["codex:C--repo"],
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].board.hidden).toBe(false); // 모든 멤버가 숨김일 때만 숨김
+    expect(merged[0].board.status).not.toBe("보관"); // 가장 활성 멤버 기준
+    expect(merged[0].memberIds).toEqual(["claude:C--repo", "codex:C--repo"]);
+  });
+
+  it("hides a merged repo only when every provider archived it", () => {
+    const archived = { status: "보관" as const, memo: "", nameOverride: "", tracks: [], hidden: true, order: null };
+    const merged = mergeProviderProjectsByPath([
+      {
+        id: "claude:C--repo",
+        provider: "claude",
+        realPath: "C:\\repo",
+        gitBranch: null,
+        lastActivity: 30,
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: archived,
+        repoRoot: "C:\\repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["claude:C--repo"],
+      },
+      {
+        id: "codex:C--repo",
+        provider: "codex",
+        realPath: "c:/repo",
+        gitBranch: null,
+        lastActivity: 20,
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: archived,
+        repoRoot: "c:/repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["codex:C--repo"],
+      },
+    ]);
+
+    expect(merged[0].board.hidden).toBe(true);
+    expect(merged[0].board.status).toBe("보관");
+  });
+
   it("sorts projects by latest activity descending", () => {
     const projects = sortNormalizedProjects([
       {

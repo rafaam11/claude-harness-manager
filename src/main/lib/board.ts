@@ -365,6 +365,34 @@ export async function setProjectsOrder(orders: Record<string, number>): Promise<
   });
 }
 
+/**
+ * 여러 프로젝트에 같은 hidden/status를 한 번의 atomic write로 일괄 적용.
+ * 교차-provider 병합 카드(예: claude:X + codex:X)의 숨김/보관을 모든 멤버에 동시에 반영해야
+ * 대표 status/hidden(가장 활성·모두 숨김 규칙)이 의도대로 바뀐다. .bak 링 소진을 막기 위해
+ * 개별 setProjectField를 N번 돌리지 않고 단일 write로 처리한다.
+ */
+export async function setProjectsVisibility(
+  ids: string[],
+  patch: { hidden?: boolean; status?: string },
+): Promise<BoardData> {
+  return withLock(async () => {
+    const board = await readBoard();
+    const st = patch.status !== undefined ? asStatus(patch.status) : undefined;
+    for (const id of ids) {
+      const entry: ProjectBoardEntry = { ...board.projects[id] };
+      if (patch.hidden !== undefined) {
+        if (patch.hidden) entry.hidden = true;
+        else delete entry.hidden;
+      }
+      if (st) entry.status = st;
+      board.projects[id] = entry;
+      pruneIfEmpty(board.projects, id);
+    }
+    await writeBoardAtomic(board);
+    return board;
+  });
+}
+
 export async function setSessionField(
   sessionId: string,
   patch: { status?: string; memo?: string },

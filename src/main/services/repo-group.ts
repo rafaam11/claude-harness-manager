@@ -8,6 +8,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { BROAD_DIRS, REPO_TOPOLOGY_CACHE_TTL_MS } from "../config.js";
+import { normalizePathKey } from "../lib/path-normalize.js";
 import { execGit } from "./git/GitService.js";
 import type { ProjectRecall } from "./recall.js";
 
@@ -42,9 +43,8 @@ export interface RepoTopology {
 }
 
 // --- 경로 정규화/판별 헬퍼 ---
-function norm(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
+// 케이스 처리는 플랫폼별(lib/path-normalize) — Linux는 케이스가 다르면 별개 경로다.
+const norm = normalizePathKey;
 
 const BROAD_SET = new Set(BROAD_DIRS.map(norm));
 /** 접기 앵커 금지 디렉토리: 명시 블록리스트 + 드라이브 루트(c:) + unix 루트. */
@@ -70,7 +70,7 @@ const WORKTREE_ROOT_RE = /[\\/]worktrees[\\/][^\\/]+$/i;
 function realCase(target: string, recalls: ProjectRecall[]): string {
   for (const r of recalls) {
     if (!r.realPath) continue;
-    const rp = r.realPath.replace(/\\/g, "/"); // norm과 같은 길이(소문자화만 차이)
+    const rp = r.realPath.replace(/\\/g, "/"); // norm과 같은 길이(케이스 처리만 차이)
     const n = norm(r.realPath);
     if (n === target) return rp;
     if (n.startsWith(target + "/")) return rp.slice(0, target.length);

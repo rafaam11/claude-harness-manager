@@ -49,7 +49,8 @@ export async function getCatalog(): Promise<CatalogItem[]> {
   for (const entry of await fs.readdir(agentsDir).catch(() => [])) {
     if (!entry.endsWith(".md")) continue;
     const p = path.join(agentsDir, entry);
-    const stat = await fs.stat(p);
+    const stat = await fs.stat(p).catch(() => null);
+    if (!stat) continue; // readdir 후 삭제된 파일
     items.push({
       name: entry.replace(/\.md$/, ""),
       kind: "agent",
@@ -69,7 +70,8 @@ export async function getCatalog(): Promise<CatalogItem[]> {
       if (entry.isDirectory()) {
         await walkCommands(p, prefix ? `${prefix}:${entry.name}` : entry.name);
       } else if (entry.name.endsWith(".md")) {
-        const stat = await fs.stat(p);
+        const stat = await fs.stat(p).catch(() => null);
+        if (!stat) continue; // readdir 후 삭제된 파일
         const cmdName = entry.name.replace(/\.md$/, "");
         items.push({
           name: prefix ? `${prefix}:${cmdName}` : cmdName,

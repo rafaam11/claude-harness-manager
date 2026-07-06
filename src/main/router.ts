@@ -37,6 +37,7 @@ import {
   setPlanField,
   setProjectField,
   setProjectsOrder,
+  setProjectsVisibility,
   setSessionField,
   type ProjectTrack,
 } from "./lib/board.js";
@@ -465,6 +466,20 @@ const routes: Route[] = [
     handler: async ({ body }) => {
       const { orders } = body as { orders?: Record<string, number> };
       return setProjectsOrder(orders ?? {});
+    },
+  },
+  {
+    // 교차-provider 병합 카드의 hidden/status를 모든 멤버에 일괄 적용(팬아웃).
+    method: "POST",
+    pattern: "/api/workspace/board/projects/visibility",
+    handler: async ({ body }) => {
+      const { ids, hidden, status } = body as {
+        ids?: string[];
+        hidden?: boolean;
+        status?: string;
+      };
+      if (!Array.isArray(ids) || ids.length === 0) throw new HttpError(400, "ids 필요");
+      return setProjectsVisibility(ids, { hidden, status });
     },
   },
   {

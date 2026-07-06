@@ -207,11 +207,16 @@ export async function computeRepoGroups(recalls: ProjectRecall[]): Promise<RepoG
 
   // 3) 해석 실패 recall(추정경로/삭제된 워크트리)을 flatten-id 접두사로 대표 그룹에 접는다.
   //    Claude Code는 하위 cwd의 flatten id를 부모 id + "-…"로 만들므로 경로 존재와 무관하게 견고하다.
+  //    단, broad 앵커(홈/Desktop/드라이브 루트 등)에는 접지 않는다 — Step 1의 isBroadDir 차단과 같은
+  //    원칙으로, 홈에서 연 세션 하나가 그 아래 모든 non-git 프로젝트를 흡수(대표가 숨김이면 하위가
+  //    통째로 목록에서 사라짐)하는 것을 막는다.
+  const isBroadAnchor = (g: RepoGroup) => !!g.repoRoot && isBroadDir(norm(g.repoRoot));
   for (const { r, realCwd } of orphans) {
     // 가장 긴 접두사 memberId를 가진 그룹에 붙인다(가장 구체적인 부모).
     let best: RepoGroup | null = null;
     let bestLen = -1;
     for (const g of groups) {
+      if (isBroadAnchor(g)) continue;
       for (const mid of g.memberIds) {
         if (mid.length > bestLen && r.id.startsWith(mid + "-")) {
           best = g;
@@ -225,10 +230,11 @@ export async function computeRepoGroups(recalls: ProjectRecall[]): Promise<RepoG
       best =
         groups.find(
           (g) =>
-            (g.repoRoot && (rp === norm(g.repoRoot) || rp.startsWith(norm(g.repoRoot) + "/"))) ||
-            g.worktrees.some(
-              (w) => rp === norm(w.worktreeRoot) || rp.startsWith(norm(w.worktreeRoot) + "/"),
-            ),
+            !isBroadAnchor(g) &&
+            ((g.repoRoot && (rp === norm(g.repoRoot) || rp.startsWith(norm(g.repoRoot) + "/"))) ||
+              g.worktrees.some(
+                (w) => rp === norm(w.worktreeRoot) || rp.startsWith(norm(w.worktreeRoot) + "/"),
+              )),
         ) ?? null;
     }
     if (best) {

@@ -393,6 +393,7 @@ pre.viewer {
 /* 정렬 바 + 숨긴 프로젝트 토글 */
 .ws-sortbar { display: flex; align-items: center; gap: 6px; padding: 0 1px 2px; }
 .ws-sort-k { font-size: 11px; color: var(--muted); }
+.ws-refresh { margin-left: auto; font-size: 15px; }
 .ws-hidden-toggle {
   text-align: left; width: 100%; background: none; border: none; cursor: pointer;
   color: var(--muted); font-size: 12px; padding: 4px 2px; margin-top: 2px;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { marked } from "marked";
 import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
@@ -196,6 +196,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     () => initialWorkspaceSortMode(localStorage.getItem(SORT_KEY)),
   );
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0); // 세션 탭에 조용한 재fetch 신호
   const providerQuery = `provider=${encodeURIComponent(providerFilter)}`;
 
   const changeSort = (m: SortMode) => {
@@ -203,17 +204,31 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     localStorage.setItem(SORT_KEY, m);
   };
 
-  const loadProjects = () =>
-    api
-      .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
-      .then(setProjects)
-      .catch((e) => setError(e.message));
+  // 로딩 리셋 없이 조용히 데이터만 교체(자동/수동 갱신에서 재사용). 포커스 복귀 리스너의
+  // stale 클로저를 막기 위해 providerQuery에만 의존하도록 useCallback으로 안정화한다.
+  const loadProjects = useCallback(
+    () =>
+      api
+        .get<WorkspaceProject[]>(`/api/workspace/projects?${providerQuery}`)
+        .then(setProjects)
+        .catch((e) => setError(e.message)),
+    [providerQuery],
+  );
   // 보관 계획도 항상 흐리게 함께 보여주므로 archived=1로 한 번에 가져온다.
-  const loadPlans = () =>
-    api
-      .get<EnrichedPlan[]>(`/api/workspace/plans?archived=1&${providerQuery}`)
-      .then(setPlans)
-      .catch((e) => setError(e.message));
+  const loadPlans = useCallback(
+    () =>
+      api
+        .get<EnrichedPlan[]>(`/api/workspace/plans?archived=1&${providerQuery}`)
+        .then(setPlans)
+        .catch((e) => setError(e.message)),
+    [providerQuery],
+  );
+  // 개요는 loadProjects가 p를 새 객체로 교체하면 갱신되고, 세션은 nonce로 재fetch를 유도한다.
+  const refresh = useCallback(() => {
+    loadProjects();
+    loadPlans();
+    setRefreshNonce((n) => n + 1);
+  }, [loadProjects, loadPlans]);
   useEffect(() => {
     setProjects(null);
     setPlans(null);
@@ -222,6 +237,20 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     loadProjects();
     loadPlans();
   }, [providerQuery]);
+
+  // 다른 창(Claude Code 등)에서 작업하고 돌아오면 최신으로 조용히 갱신.
+  useEffect(() => {
+    const onFocus = () => refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh]);
 
   // 정렬 모드(최근 활동순/상태순/수동)별 정렬. 회상 대시보드 기본은 상태순.
   const sorted = useMemo(
@@ -378,6 +407,14 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
                   </option>
                 ))}
               </select>
+              <button
+                className="ws-icon-btn ws-refresh"
+                onClick={refresh}
+                title="새로고침 (최신 회상·세션 다시 불러오기)"
+                aria-label="새로고침"
+              >
+                ↻
+              </button>
             </div>
             {visible.map((p, idx) => renderCard(p, visible, idx))}
             <button
@@ -413,6 +450,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
               <ProjectDetail
                 key={selectedProject.id}
                 p={selectedProject}
+                refreshNonce={refreshNonce}
                 onPatch={patchProject}
                 onOpenFolder={openFolder}
                 onError={setError}
@@ -526,11 +564,13 @@ function ProjectMasterCard({
 // ============================ 오른쪽 디테일: 프로젝트 상세 ============================
 function ProjectDetail({
   p,
+  refreshNonce,
   onPatch,
   onOpenFolder,
   onError,
 }: {
   p: WorkspaceProject;
+  refreshNonce: number;
   onPatch: (id: string, body: ProjectPatch) => void;
   onOpenFolder: (realPath: string) => void;
   onError: (message: string) => void;
@@ -636,7 +676,7 @@ function ProjectDetail({
         <GitPanel key="main" projectId={p.id} onError={onError} />
       ) : detailMode === "session" ? (
         <>
-          <SessionsSection projectIds={projectIds} />
+          <SessionsSection projectIds={projectIds} refreshNonce={refreshNonce} />
           {hasClaudeMember && <MemorySection projectId={projectIds.find((id) => id.startsWith("claude:")) ?? p.id} />}
         </>
       ) : (
@@ -701,16 +741,28 @@ function ProjectDetail({
 }
 
 // ============================ 세션 탭(그룹 내 모든 세션 — Timeline 행 스타일 재사용) ============================
-function SessionsSection({ projectIds }: { projectIds: string[] }) {
+function SessionsSection({
+  projectIds,
+  refreshNonce,
+}: {
+  projectIds: string[];
+  refreshNonce: number;
+}) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [auxOpen, setAuxOpen] = useState(false);
   const projectKey = projectIds.join("\n");
+  const prevKeyRef = useRef(projectKey);
 
   useEffect(() => {
     let alive = true;
-    setSessions(null);
+    // 다른 프로젝트로 전환(projectKey 변경) 시에만 로딩 표시. nonce만 증가한 조용한 갱신은
+    // 기존 목록을 유지하고 완료 시 결과만 교체해 깜빡임을 없앤다.
+    if (prevKeyRef.current !== projectKey) {
+      prevKeyRef.current = projectKey;
+      setSessions(null);
+    }
     setError("");
     // 병합 카드에서 멤버 하나의 조회 실패가 전체를 가리지 않게 성공분만 표시(전부 실패 시에만 에러)
     Promise.allSettled(
@@ -732,7 +784,7 @@ function SessionsSection({ projectIds }: { projectIds: string[] }) {
     return () => {
       alive = false;
     };
-  }, [projectKey]);
+  }, [projectKey, refreshNonce]);
 
   const toggle = (key: string) =>
     setExpanded((prev) => {

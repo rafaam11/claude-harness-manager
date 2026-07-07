@@ -15,6 +15,7 @@ function setupCsp(): void {
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' https: data:",
+    "media-src 'self' https:",
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "connect-src 'self'",

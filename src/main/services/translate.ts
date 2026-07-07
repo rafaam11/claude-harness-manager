@@ -1,119 +1,18 @@
-import {
-  DEEPL_FREE_URL,
-  DEEPL_PRO_URL,
-  DEEPL_TIMEOUT_MS,
-  DEEPL_MAX_BATCH,
-  DEEPL_MAX_BODY_BYTES,
-} from "../config.js";
+import { DEEPL_MAX_BATCH } from "../config.js";
 import { getDeepLKey } from "../lib/secrets.js";
 import { readTranslationCache, mergeTranslations } from "../lib/translation-cache.js";
 import { maskText, isRestoreValid } from "../lib/mask.js";
-import type { ItemTranslation, NewsItem, NewsSource, TranslateResponse } from "@shared/types";
+import { deeplBatch, splitForBudget, chunk, toTranslateError } from "../lib/deepl-client.js";
+import type { ItemTranslation, NewsItem, NewsSource, TranslateResponse, TranslateReason } from "@shared/types";
 
 /**
  * News 번역 오케스트레이션. main이 DeepL Free/Pro API를 직접 호출한다(renderer는 CSP로 불가).
  * 캐시 히트 분리 → 미번역만 마스킹 → DeepL 배치 → 복원 → 검증 게이트 → 캐시 머지.
  * 어떤 실패든 성공분은 반환(graceful degradation), 라우트는 항상 200.
+ * DeepL HTTP 호출 자체는 lib/deepl-client.ts 공용 클라이언트(GitHub Stars 번역과 공유).
  */
 
-type Reason = NonNullable<TranslateResponse["reason"]>;
-
-class TranslateError extends Error {
-  constructor(
-    public reason: Reason,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-/** Free 키(:fx로 끝남)면 free 엔드포인트, 아니면 pro. */
-function deeplEndpoint(key: string): string {
-  return key.endsWith(":fx") ? DEEPL_FREE_URL : DEEPL_PRO_URL;
-}
-
-async function deeplFetch(url: string, init: RequestInit): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), DEEPL_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-function toTranslateError(e: unknown): TranslateError {
-  if (e instanceof TranslateError) return e;
-  if (e && typeof e === "object" && (e as { name?: string }).name === "AbortError") {
-    return new TranslateError("network", "DeepL 응답 시간 초과");
-  }
-  return new TranslateError("network", String((e as { message?: string })?.message ?? e));
-}
-
-/** 한 배치(≤50)를 번역해 입력 순서대로 반환. 상태코드를 reason으로 매핑. */
-async function deeplBatch(key: string, texts: string[]): Promise<string[]> {
-  const body = new URLSearchParams();
-  body.set("target_lang", "KO");
-  body.set("source_lang", "EN");
-  body.set("preserve_formatting", "1");
-  for (const t of texts) body.append("text", t);
-
-  let res: Response;
-  try {
-    res = await deeplFetch(deeplEndpoint(key), {
-      method: "POST",
-      headers: {
-        Authorization: `DeepL-Auth-Key ${key}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-    });
-  } catch (e) {
-    throw toTranslateError(e);
-  }
-  if (res.status === 401 || res.status === 403) {
-    throw new TranslateError("auth", "DeepL 인증 실패 (키를 확인하세요)");
-  }
-  if (res.status === 456) throw new TranslateError("rate-limit", "DeepL 무료 한도 초과");
-  if (res.status === 429) throw new TranslateError("rate-limit", "요청이 많습니다 (잠시 후 다시)");
-  if (!res.ok) throw new TranslateError("network", `DeepL HTTP ${res.status}`);
-
-  const data = (await res.json()) as { translations?: { text?: string }[] };
-  if (!Array.isArray(data?.translations)) {
-    throw new TranslateError("network", "DeepL 응답 형식 오류");
-  }
-  return data.translations.map((t) => t.text ?? "");
-}
-
-/** 마스킹된 본문을 \n\n 경계로(과대 문단은 줄 단위로 더) 쪼개 바이트 한도 내로. */
-function splitForBudget(masked: string): string[] {
-  const enc = (s: string): number => Buffer.byteLength(s, "utf8");
-  if (enc(masked) <= DEEPL_MAX_BODY_BYTES) return [masked];
-  const out: string[] = [];
-  for (const para of masked.split(/\n\n/)) {
-    if (enc(para) <= DEEPL_MAX_BODY_BYTES) {
-      out.push(para);
-      continue;
-    }
-    let buf = "";
-    for (const line of para.split(/\n/)) {
-      if (buf && enc(`${buf}\n${line}`) > DEEPL_MAX_BODY_BYTES) {
-        out.push(buf);
-        buf = line;
-      } else {
-        buf = buf ? `${buf}\n${line}` : line;
-      }
-    }
-    if (buf) out.push(buf);
-  }
-  return out;
-}
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+type Reason = TranslateReason;
 
 // 원문이 이미 한국어인 소스 — 번역 대상에서 제외(renderer도 요청 전에 거르지만 이중 방어).
 const KOREAN_SOURCES: ReadonlySet<NewsSource> = new Set([

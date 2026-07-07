@@ -25,7 +25,20 @@ import {
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
 import { getNews, refreshNews, getNewsImage, getNewsBody } from "./services/news.js";
+import { getGitHubStars, refreshGitHubStars, getGitHubReadme } from "./services/github-stars.js";
+import {
+  listGitHubStarsFavorites,
+  addGitHubStarsFavorite,
+  removeGitHubStarsFavorite,
+} from "./lib/github-stars-favorites.js";
+import { getNewsItemState, markNewsRead, setNewsHidden } from "./lib/news-item-state.js";
+import {
+  getGitHubStarsItemState,
+  markGitHubStarsRead,
+  setGitHubStarsHidden,
+} from "./lib/github-stars-item-state.js";
 import { translateItems } from "./services/translate.js";
+import { translateRepos } from "./services/github-stars-translate.js";
 import { listFavorites, addFavorite, removeFavorite, getFavoriteItem } from "./lib/favorites.js";
 import { hasDeepLKey, setDeepLKey } from "./lib/secrets.js";
 import {
@@ -48,6 +61,7 @@ import type {
   ApiRequest,
   CommitDiffRequest,
   DiffRequest,
+  GitHubStarsTranslateRequest,
   GitOpKind,
   GraphActionRequest,
   NewsItem,
@@ -165,6 +179,83 @@ const routes: Route[] = [
   // 부분 실패를 응답의 sources[].ok로 전달한다(전 소스 실패해도 캐시/빈 피드 반환 → 페이지 생존).
   { method: "GET", pattern: "/api/news", handler: async () => getNews() },
   { method: "POST", pattern: "/api/news/refresh", handler: async () => refreshNews() },
+  // --- GitHub Stars (News 탭 서브섹션, 트렌딩/신규 인기 리포지토리) ---
+  // GET은 일일 캐시 게이트(오늘자면 그대로), refresh는 day-gate 무시 강제 재fetch(장애 복구용).
+  { method: "GET", pattern: "/api/github-stars", handler: async () => getGitHubStars() },
+  {
+    method: "POST",
+    pattern: "/api/github-stars/refresh",
+    handler: async () => refreshGitHubStars(),
+  },
+  // 즐겨찾기(북마크): news/favorites와 동일 패턴, 별도 앱 소유 store(github-stars-favorites.json).
+  {
+    method: "GET",
+    pattern: "/api/github-stars/favorites",
+    handler: async () => listGitHubStarsFavorites(),
+  },
+  {
+    method: "POST",
+    pattern: "/api/github-stars/favorites",
+    handler: async ({ body }) => {
+      const { repo } = (body ?? {}) as { repo?: unknown };
+      if (!repo) throw new HttpError(400, "repo 필요");
+      return addGitHubStarsFavorite(repo); // main이 sanitize; 유효하지 않으면 400
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/github-stars/favorites/remove",
+    handler: async ({ body }) => {
+      const { id } = (body ?? {}) as { id?: string };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return removeGitHubStarsFavorite(id);
+    },
+  },
+  // 읽음 시각/숨김 상태: 즐겨찾기와 분리된 앱 소유 store(github-stars-item-state.json), fullName 키.
+  // .bak 없음(잦은 쓰기 — 리포 열 때마다 갱신되는 상호작용 로그라 유실 부담이 낮음).
+  {
+    method: "GET",
+    pattern: "/api/github-stars/item-state",
+    handler: async () => getGitHubStarsItemState(),
+  },
+  {
+    method: "POST",
+    pattern: "/api/github-stars/item-state/read",
+    handler: async ({ body }) => {
+      const { fullName } = (body ?? {}) as { fullName?: string };
+      if (typeof fullName !== "string" || !fullName) throw new HttpError(400, "fullName 필요");
+      return markGitHubStarsRead(fullName);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/github-stars/item-state/hide",
+    handler: async ({ body }) => {
+      const { fullName, hidden } = (body ?? {}) as { fullName?: string; hidden?: boolean };
+      if (typeof fullName !== "string" || !fullName) throw new HttpError(400, "fullName 필요");
+      return setGitHubStarsHidden(fullName, hidden === true);
+    },
+  },
+  // README 미리보기: fullName("owner/repo")을 받아 Contents API로 조회(main이 인메모리 캐시).
+  {
+    method: "POST",
+    pattern: "/api/github-stars/readme",
+    handler: async ({ body }) => {
+      const { fullName } = (body ?? {}) as { fullName?: string };
+      if (typeof fullName !== "string" || !fullName) throw new HttpError(400, "fullName 필요");
+      return getGitHubReadme(fullName);
+    },
+  },
+  // GitHub Stars 번역: fullName 목록을 받아 미번역만 DeepL 호출(설명은 항상, README는 withReadme일 때만).
+  {
+    method: "POST",
+    pattern: "/api/github-stars/translate",
+    handler: async ({ body }) => {
+      const { fullNames, withReadme = false } = body as Partial<GitHubStarsTranslateRequest>;
+      if (!Array.isArray(fullNames) || fullNames.length === 0) throw new HttpError(400, "fullNames 필요");
+      return translateRepos(fullNames, { withReadme: withReadme === true });
+    },
+  },
   // 번역: 보이는/펼친 항목 id를 받아 미번역만 DeepL 호출. 부분 실패해도 200(성공분 반환).
   // id→item은 main이 현재 캐시 피드에서 해석한다(원문을 IPC로 왕복시키지 않음 = 신뢰 경계).
   {
@@ -223,6 +314,27 @@ const routes: Route[] = [
       const { id } = (body ?? {}) as { id?: string };
       if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
       return removeFavorite(id);
+    },
+  },
+  // 읽음 시각/숨김 상태: 즐겨찾기와 분리된 앱 소유 store(news-item-state.json), id 키.
+  // .bak 없음(잦은 쓰기 — 기사 열 때마다 갱신되는 상호작용 로그라 유실 부담이 낮음).
+  { method: "GET", pattern: "/api/news/item-state", handler: async () => getNewsItemState() },
+  {
+    method: "POST",
+    pattern: "/api/news/item-state/read",
+    handler: async ({ body }) => {
+      const { id } = (body ?? {}) as { id?: string };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return markNewsRead(id);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/news/item-state/hide",
+    handler: async ({ body }) => {
+      const { id, hidden } = (body ?? {}) as { id?: string; hidden?: boolean };
+      if (typeof id !== "string" || !id) throw new HttpError(400, "id 필요");
+      return setNewsHidden(id, hidden === true);
     },
   },
   // DeepL 키 존재 여부(boolean만). 키 원문은 절대 반환하지 않는다.

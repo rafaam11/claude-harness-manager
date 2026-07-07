@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { marked } from "marked";
-import { api, fmtDay, fmtTime, fmtRelative } from "../api/client";
+import { api, fmtDay, fmtTime, fmtClock, fmtRelative } from "../api/client";
+import GitHubStars from "./GitHubStars";
 import type {
   NewsFeed,
   NewsItem,
   NewsSource,
   ItemTranslation,
+  ItemStateMap,
   SecretStatus,
   StoredFavorite,
   TranslateResponse,
 } from "@shared/types";
 
-type Mode = "en" | "ko" | "both";
+export type Mode = "en" | "ko" | "both";
 const MODE_KEY = "news.lang.mode";
+// 기사/GitHub Stars 세그먼트 선택 저장 키(localStorage). 통합 타임라인에 섞지 않고 완전히 별도 화면 전환.
+type Segment = "articles" | "github-stars";
+const SEGMENT_KEY = "news.segment";
 
 // 소스 배지 라벨(브랜드명이라 언어 무관 동일).
 const SOURCE_LABEL: Record<NewsSource, string> = {
@@ -76,6 +81,15 @@ interface UIText {
   exportTitle: string;
   exportOne: string;
   openFolder: string;
+  hiddenView: string;
+  hiddenEmpty: string;
+  hideBtn: string;
+  unhideBtn: string;
+  cancelHide: string;
+  pendingHideTag: string;
+  lastRead: string;
+  prevBtn: string;
+  nextBtn: string;
 }
 const UI: Record<"en" | "ko", UIText> = {
   en: {
@@ -101,6 +115,15 @@ const UI: Record<"en" | "ko", UIText> = {
     exportTitle: "Export all favorites as .md files",
     exportOne: "Export this article as .md",
     openFolder: "Open folder",
+    hiddenView: "Hidden",
+    hiddenEmpty: "No hidden articles.",
+    hideBtn: "Hide",
+    unhideBtn: "Unhide",
+    cancelHide: "Cancel hide",
+    pendingHideTag: "Will hide on next",
+    lastRead: "Last read:",
+    prevBtn: "‹ Prev",
+    nextBtn: "Next ›",
   },
   ko: {
     refresh: "새로고침",
@@ -125,6 +148,15 @@ const UI: Record<"en" | "ko", UIText> = {
     exportTitle: "즐겨찾기 전체를 .md 파일로 내보내기",
     exportOne: "이 기사를 .md로 내보내기",
     openFolder: "폴더 열기",
+    hiddenView: "숨김",
+    hiddenEmpty: "숨긴 기사가 없습니다.",
+    hideBtn: "숨기기",
+    unhideBtn: "숨김 해제",
+    cancelHide: "숨김 취소",
+    pendingHideTag: "숨김 예정",
+    lastRead: "마지막 읽음:",
+    prevBtn: "‹ 이전",
+    nextBtn: "다음 ›",
   },
 };
 
@@ -136,6 +168,9 @@ export default function News() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  const [segment, setSegment] = useState<Segment>(
+    () => (localStorage.getItem(SEGMENT_KEY) as Segment) || "articles",
+  );
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem(MODE_KEY) as Mode) || "en");
   const [excludedSources, setExcludedSources] = useState<Set<NewsSource>>(() => {
     try {
@@ -149,6 +184,12 @@ export default function News() {
   // 즐겨찾기: id → 저장된 스냅샷. 마운트 시 서버에서 로드하고 토글은 낙관적 업데이트.
   const [favorites, setFavorites] = useState<Record<string, StoredFavorite>>({});
   const [favOnly, setFavOnly] = useState<boolean>(() => localStorage.getItem(FAV_KEY) === "1");
+  // 읽음 시각/숨김 상태: id → { lastReadAt?, hidden? }. 마운트 시 서버에서 로드, 이후 read/hide 응답으로 재동기화.
+  const [itemState, setItemState] = useState<ItemStateMap>({});
+  const [hiddenView, setHiddenView] = useState(false); // "숨김 보기" 토글(비영속 — filterOpen과 동일).
+  // 숨김 보류: 클릭 즉시 목록에서 지우지 않고, 다른 항목으로 선택이 바뀔 때 실제로 커밋한다(실수 클릭 방지).
+  const [pendingHide, setPendingHide] = useState<Set<string>>(new Set());
+  const pendingHideRef = useRef<Set<string>>(pendingHide); // 커밋 effect가 selectedId 변경 시점의 최신값을 읽기 위함
   const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<{ msg: string; dir?: string } | null>(null);
   const [trans, setTrans] = useState<Record<string, ItemTranslation>>({});
@@ -165,6 +206,10 @@ export default function News() {
   const t = mode === "en" ? UI.en : UI.ko;
 
   useEffect(() => {
+    localStorage.setItem(SEGMENT_KEY, segment);
+  }, [segment]);
+
+  useEffect(() => {
     localStorage.setItem(MODE_KEY, mode);
   }, [mode]);
 
@@ -175,6 +220,10 @@ export default function News() {
   useEffect(() => {
     localStorage.setItem(FAV_KEY, favOnly ? "1" : "0");
   }, [favOnly]);
+
+  useEffect(() => {
+    pendingHideRef.current = pendingHide;
+  }, [pendingHide]);
 
   const asFavMap = (list: StoredFavorite[]) => Object.fromEntries(list.map((f) => [f.id, f]));
 
@@ -209,8 +258,53 @@ export default function News() {
       .get<StoredFavorite[]>("/api/news/favorites")
       .then((list) => setFavorites(asFavMap(list)))
       .catch(() => {});
+    api
+      .get<ItemStateMap>("/api/news/item-state")
+      .then(setItemState)
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 읽음 마킹: 상세가 열릴 때(자동 선택된 첫 항목 포함) 호출. 서버가 돌려준 전체 맵으로 재동기화.
+  const markRead = (id: string) => {
+    api
+      .post<ItemStateMap>("/api/news/item-state/read", { id })
+      .then(setItemState)
+      .catch(() => {});
+  };
+
+  // 숨김 토글: 낙관적 업데이트 후 서버 확정 맵으로 재동기화(실패해도 다음 로드에서 맞춰짐).
+  const toggleHidden = (id: string, hidden: boolean) => {
+    setItemState((prev) => ({ ...prev, [id]: { ...prev[id], hidden: hidden || undefined } }));
+    api
+      .post<ItemStateMap>("/api/news/item-state/hide", { id, hidden })
+      .then(setItemState)
+      .catch(() => {});
+  };
+
+  // 숨김 버튼 클릭: 이미 확정 숨김(숨김 보기 중 해제)이면 즉시 반영, 아니면 목록에서 바로 지우지 않고
+  // 보류 표시만 건다 — 다른 항목으로 이동할 때 커밋 effect가 실제로 숨긴다(실수 클릭 방지).
+  const onHideClick = (id: string, committedHidden: boolean) => {
+    if (committedHidden) {
+      toggleHidden(id, false);
+      return;
+    }
+    setPendingHide((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // 선택이 다른 항목으로 바뀌면(다음/이전, 다른 카드 클릭) 그 사이 보류 중이던 숨김을 실제로 확정한다.
+  useEffect(() => {
+    const ids = pendingHideRef.current;
+    if (ids.size === 0) return;
+    setPendingHide(new Set());
+    ids.forEach((id) => toggleHidden(id, true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   // 즐겨찾기 토글(낙관적 → 서버 확정 목록으로 재동기화, 실패 시 GET으로 롤백).
   const toggleFavorite = (it: NewsItem) => {
@@ -258,6 +352,7 @@ export default function News() {
 
   // 표시 목록: favOnly면 즐겨찾기 스냅샷 ∪ 피드(같은 id는 피드 최신본 우선, timestamp 역순)로 피드에서
   // 빠진 즐겨찾기까지 보여준다. 아니면 기존 피드. 소스 제외 필터는 두 경우 모두 적용.
+  // hiddenView면 숨긴 항목만, 아니면 숨긴 항목을 제외한다(순차 탐색도 이 목록 기준).
   const visibleItems = useMemo<NewsItem[]>(() => {
     if (!feed) return [];
     let pool: NewsItem[];
@@ -269,8 +364,10 @@ export default function News() {
     } else {
       pool = feed.items;
     }
-    return pool.filter((it) => !excludedSources.has(it.source));
-  }, [feed, favOnly, favorites, excludedSources]);
+    return pool
+      .filter((it) => !excludedSources.has(it.source))
+      .filter((it) => Boolean(itemState[it.id]?.hidden) === hiddenView);
+  }, [feed, favOnly, favorites, excludedSources, itemState, hiddenView]);
 
   // 선택 유지/자동선택: 표시 목록 변경 시 현재 선택이 목록에 있으면 유지, 없으면 첫 항목을 자동 선택
   // (읽기용 표면이라 우측 상세가 비어 보이지 않게). 표시할 항목이 없으면 선택 해제.
@@ -360,12 +457,17 @@ export default function News() {
 
   const select = (it: NewsItem) => setSelectedId(it.id);
 
+  // 순차 탐색: 현재 필터된 목록(visibleItems) 기준 상대 이동. 범위 밖이면 no-op(경계에서 버튼 비활성화로 방지).
+  const selectByOffset = (offset: number) => {
+    const idx = visibleItems.findIndex((it) => it.id === selectedId);
+    if (idx < 0) return;
+    const next = visibleItems[idx + offset];
+    if (next) setSelectedId(next.id);
+  };
+
   const onSavedKey = (ok: boolean) => setKeyConfigured(ok); // true면 (A) effect가 재실행돼 번역 시작
 
-  if (error && !feed) return <div className="banner err">{error}</div>;
-  if (!feed) return <div className="muted">{t.loading}</div>;
-
-  // 날짜별 그룹(visibleItems는 이미 시각 역순 정렬됨).
+  // 날짜별 그룹(visibleItems는 이미 시각 역순 정렬됨). feed 로드 전에는 빈 배열.
   const groups: { day: string; items: NewsItem[] }[] = [];
   for (const it of visibleItems) {
     const day = fmtDay(it.timestamp);
@@ -376,20 +478,31 @@ export default function News() {
 
   const showKeyPanel = mode !== "en" && keyConfigured === false;
   // 선택 항목: 피드 우선, 없으면 즐겨찾기 스냅샷(피드에서 빠진 즐겨찾기 상세가 비지 않게).
-  const selected = selectedId
-    ? (feed.items.find((it) => it.id === selectedId) ?? favorites[selectedId] ?? null)
-    : null;
+  const selected =
+    selectedId && feed
+      ? (feed.items.find((it) => it.id === selectedId) ?? favorites[selectedId] ?? null)
+      : null;
+  const selectedIndex = selectedId ? visibleItems.findIndex((it) => it.id === selectedId) : -1;
+  const hiddenCount = Object.values(itemState).filter((s) => s.hidden).length;
 
   return (
     <div className="news-page">
       <h2>News</h2>
-      <div className="news-toolbar">
-        <button className="update-btn" onClick={refresh} disabled={refreshing}>
-          {refreshing ? t.refreshing : t.refresh}
-        </button>
-        <span className="muted">
-          {t.lastUpdate} {feed.lastFetch ? fmtRelative(feed.lastFetch) : "—"}
-        </span>
+      <div className="news-segment-toggle">
+        <div className="news-mode-toggle" role="group" aria-label="segment">
+          <button
+            className={`mode-btn${segment === "articles" ? " active" : ""}`}
+            onClick={() => setSegment("articles")}
+          >
+            기사
+          </button>
+          <button
+            className={`mode-btn${segment === "github-stars" ? " active" : ""}`}
+            onClick={() => setSegment("github-stars")}
+          >
+            GitHub Stars
+          </button>
+        </div>
         <div className="news-mode-toggle" role="group" aria-label="language">
           {(["en", "ko", "both"] as Mode[]).map((m) => (
             <button
@@ -401,178 +514,281 @@ export default function News() {
             </button>
           ))}
         </div>
-        <button
-          className={`news-fav-toggle${favOnly ? " on" : ""}`}
-          onClick={() => setFavOnly((v) => !v)}
-          title={t.favorites}
-        >
-          {favOnly ? "★" : "☆"} {t.favorites}
-          {Object.keys(favorites).length > 0 && (
-            <span className="cat-count">{Object.keys(favorites).length}</span>
-          )}
-        </button>
-        <button
-          className="news-export-btn"
-          onClick={() => void runExport()}
-          disabled={exporting || Object.keys(favorites).length === 0}
-          title={t.exportTitle}
-        >
-          {exporting ? t.exporting : `⬇ ${t.exportBtn}`}
-        </button>
-        <div className="tl-filter news-filter" ref={filterRef}>
-          <button
-            className={`tl-filter-btn${filterOpen ? " open" : ""}`}
-            onClick={() => setFilterOpen((v) => !v)}
-          >
-            {mode === "en" ? "Filter" : "필터"}
-            {excludedSources.size > 0 && (
-              <span className="cat-count">
-                {excludedSources.size}
-                {mode === "en" ? " hidden" : "개 숨김"}
-              </span>
-            )}
-            {feed.sources.some((s) => !s.ok) && (
-              <span className="news-filter-warn" title={t.failed}>
-                ⚠ {feed.sources.filter((s) => !s.ok).length}
-              </span>
-            )}
-            <span className="tl-filter-caret">{filterOpen ? "▾" : "▸"}</span>
-          </button>
-          {filterOpen && (
-            <div className="tl-filter-panel">
-              <div className="tl-filter-list">
-                {feed.sources.map((s) => (
-                  <label key={s.source} className="tl-filter-item">
-                    <input
-                      type="checkbox"
-                      checked={!excludedSources.has(s.source)}
-                      onChange={() => toggleSource(s.source)}
-                    />
-                    <span className={`bdg ${SOURCE_BDG[s.source]}`}>{SOURCE_LABEL[s.source]}</span>
-                    <span className="tl-filter-name" />
-                    <span
-                      className={`tl-filter-count ${s.ok ? "muted" : "news-src-err"}`}
-                      title={s.ok ? undefined : (s.error ?? t.failed)}
+      </div>
+      {showKeyPanel && <DeepLKeyPanel t={t} onSaved={onSavedKey} />}
+
+      {segment === "github-stars" ? (
+        <GitHubStars
+          mode={mode}
+          keyConfigured={keyConfigured}
+          onKeyMissing={() => setKeyConfigured(false)}
+        />
+      ) : error && !feed ? (
+        <div className="banner err">{error}</div>
+      ) : !feed ? (
+        <div className="muted">{t.loading}</div>
+      ) : (
+        <>
+          <div className="news-toolbar">
+            <button className="update-btn" onClick={refresh} disabled={refreshing}>
+              {refreshing ? t.refreshing : t.refresh}
+            </button>
+            <span className="muted">
+              {t.lastUpdate} {feed.lastFetch ? fmtRelative(feed.lastFetch) : "—"}
+            </span>
+            <button
+              className={`news-fav-toggle${favOnly ? " on" : ""}`}
+              onClick={() => setFavOnly((v) => !v)}
+              title={t.favorites}
+            >
+              {favOnly ? "★" : "☆"} {t.favorites}
+              {Object.keys(favorites).length > 0 && (
+                <span className="cat-count">{Object.keys(favorites).length}</span>
+              )}
+            </button>
+            <button
+              className={`news-fav-toggle${hiddenView ? " on" : ""}`}
+              onClick={() => setHiddenView((v) => !v)}
+              title={t.hiddenView}
+            >
+              <EyeIcon off={hiddenView} /> {t.hiddenView}
+              {hiddenCount > 0 && <span className="cat-count">{hiddenCount}</span>}
+            </button>
+            <button
+              className="news-export-btn"
+              onClick={() => void runExport()}
+              disabled={exporting || Object.keys(favorites).length === 0}
+              title={t.exportTitle}
+            >
+              {exporting ? t.exporting : `⬇ ${t.exportBtn}`}
+            </button>
+            <div className="tl-filter news-filter" ref={filterRef}>
+              <button
+                className={`tl-filter-btn${filterOpen ? " open" : ""}`}
+                onClick={() => setFilterOpen((v) => !v)}
+              >
+                {mode === "en" ? "Filter" : "필터"}
+                {excludedSources.size > 0 && (
+                  <span className="cat-count">
+                    {excludedSources.size}
+                    {mode === "en" ? " hidden" : "개 숨김"}
+                  </span>
+                )}
+                {feed.sources.some((s) => !s.ok) && (
+                  <span className="news-filter-warn" title={t.failed}>
+                    ⚠ {feed.sources.filter((s) => !s.ok).length}
+                  </span>
+                )}
+                <span className="tl-filter-caret">{filterOpen ? "▾" : "▸"}</span>
+              </button>
+              {filterOpen && (
+                <div className="tl-filter-panel">
+                  <div className="tl-filter-list">
+                    {feed.sources.map((s) => (
+                      <label key={s.source} className="tl-filter-item">
+                        <input
+                          type="checkbox"
+                          checked={!excludedSources.has(s.source)}
+                          onChange={() => toggleSource(s.source)}
+                        />
+                        <span className={`bdg ${SOURCE_BDG[s.source]}`}>
+                          {SOURCE_LABEL[s.source]}
+                        </span>
+                        <span className="tl-filter-name" />
+                        <span
+                          className={`tl-filter-count ${s.ok ? "muted" : "news-src-err"}`}
+                          title={s.ok ? undefined : (s.error ?? t.failed)}
+                        >
+                          {s.ok ? s.count : t.failed}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="tl-filter-actions">
+                    <button onClick={() => setExcludedSources(new Set())}>
+                      {mode === "en" ? "Show all" : "모두 표시"}
+                    </button>
+                    <button
+                      onClick={() => setExcludedSources(new Set(feed.sources.map((s) => s.source)))}
                     >
-                      {s.ok ? s.count : t.failed}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <div className="tl-filter-actions">
-                <button onClick={() => setExcludedSources(new Set())}>
-                  {mode === "en" ? "Show all" : "모두 표시"}
+                      {mode === "en" ? "Hide all" : "모두 숨기기"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {translating && <div className="muted news-translating-bar">{t.translating}</div>}
+          {transErr && <div className="banner warn">{t.transFail}</div>}
+          {error && <div className="banner err">{error}</div>}
+          {notice && (
+            <div className="banner ok news-export-notice">
+              <span>✓ {notice.msg}</span>
+              {notice.dir && (
+                <button className="update-link" onClick={() => void window.app.openPath(notice.dir!)}>
+                  {t.openFolder}
                 </button>
-                <button onClick={() => setExcludedSources(new Set(feed.sources.map((s) => s.source)))}>
-                  {mode === "en" ? "Hide all" : "모두 숨기기"}
-                </button>
-              </div>
+              )}
+              {notice.dir && <span className="muted news-export-dir">{notice.dir}</span>}
+              <button className="news-notice-x" title="닫기" onClick={() => setNotice(null)}>
+                ✕
+              </button>
             </div>
           )}
-        </div>
-      </div>
 
-      {showKeyPanel && <DeepLKeyPanel t={t} onSaved={onSavedKey} />}
-      {translating && <div className="muted news-translating-bar">{t.translating}</div>}
-      {transErr && <div className="banner warn">{t.transFail}</div>}
-      {error && <div className="banner err">{error}</div>}
-      {notice && (
-        <div className="banner ok news-export-notice">
-          <span>✓ {notice.msg}</span>
-          {notice.dir && (
-            <button className="update-link" onClick={() => void window.app.openPath(notice.dir!)}>
-              {t.openFolder}
-            </button>
-          )}
-          {notice.dir && <span className="muted news-export-dir">{notice.dir}</span>}
-          <button className="news-notice-x" title="닫기" onClick={() => setNotice(null)}>
-            ✕
-          </button>
-        </div>
-      )}
-
-      <div className="cat-split news-split">
-        <div className="ws-master news-master">
-          {visibleItems.length === 0 ? (
-            <div className="muted cat-master-empty">{favOnly ? t.favEmpty : t.empty}</div>
-          ) : (
-            groups.map((g) => (
-              <div key={g.day}>
-                <div className="timeline-day">{g.day}</div>
-                {g.items.map((it) => {
-                  const fav = it.id in favorites;
-                  return (
-                    <button
-                      key={it.id}
-                      className={`cat-master-item${selectedId === it.id ? " active" : ""}`}
-                      onClick={() => select(it)}
-                    >
-                      <div className="cat-mi-head">
-                        <span className={`bdg ${SOURCE_BDG[it.source]}`}>
-                          {SOURCE_LABEL[it.source]}
-                        </span>
-                        <span className="cat-mi-name">
-                          {titleText(it, mode, trans[it.id]?.titleKo)}
-                        </span>
-                        {/* 행 전체가 button이라 별표는 span role=button + stopPropagation로 중첩 회피 */}
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          className={`news-star${fav ? " on" : ""}`}
-                          title={fav ? t.bookmarked : t.bookmark}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFavorite(it);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              toggleFavorite(it);
-                            }
-                          }}
+          <div className="cat-split news-split">
+            <div className="ws-master news-master">
+              {visibleItems.length === 0 ? (
+                <div className="muted cat-master-empty">
+                  {hiddenView ? t.hiddenEmpty : favOnly ? t.favEmpty : t.empty}
+                </div>
+              ) : (
+                groups.map((g) => (
+                  <div key={g.day}>
+                    <div className="timeline-day">{g.day}</div>
+                    {g.items.map((it) => {
+                      const fav = it.id in favorites;
+                      const state = itemState[it.id];
+                      const committed = Boolean(state?.hidden);
+                      const pending = pendingHide.has(it.id);
+                      const hideActive = committed || pending;
+                      return (
+                        <button
+                          key={it.id}
+                          className={`cat-master-item${selectedId === it.id ? " active" : ""}${state?.lastReadAt ? " is-read" : ""}`}
+                          onClick={() => select(it)}
                         >
-                          {fav ? "★" : "☆"}
-                        </span>
-                      </div>
-                      <div className="cat-mi-meta">
-                        <span>{fmtTime(it.timestamp)}</span>
-                        {it.meta && <span>{it.meta}</span>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ))
-          )}
-        </div>
+                          <div className="cat-mi-head">
+                            <span className={`bdg ${SOURCE_BDG[it.source]}`}>
+                              {SOURCE_LABEL[it.source]}
+                            </span>
+                            <span className="cat-mi-name">
+                              {titleText(it, mode, trans[it.id]?.titleKo)}
+                            </span>
+                            {/* 행 전체가 button이라 별표/숨김은 span role=button + stopPropagation로 중첩 회피 */}
+                            <span className="cat-mi-actions">
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                className={`news-hide-btn${hideActive ? " on" : ""}`}
+                                title={committed ? t.unhideBtn : pending ? t.cancelHide : t.hideBtn}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onHideClick(it.id, committed);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onHideClick(it.id, committed);
+                                  }
+                                }}
+                              >
+                                <EyeIcon off={hideActive} />
+                              </span>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                className={`news-star${fav ? " on" : ""}`}
+                                title={fav ? t.bookmarked : t.bookmark}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavorite(it);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    toggleFavorite(it);
+                                  }
+                                }}
+                              >
+                                {fav ? "★" : "☆"}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="cat-mi-meta">
+                            <span>{fmtTime(it.timestamp)}</span>
+                            {it.meta && <span>{it.meta}</span>}
+                            {state?.lastReadAt && (
+                              <span className="t-tag" title={new Date(state.lastReadAt).toLocaleString()}>
+                                ✓ {fmtClock(state.lastReadAt)}
+                              </span>
+                            )}
+                            {pending && <span className="t-tag pending-tag">{t.pendingHideTag}</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
 
-        <div className="ws-detail">
-          <div className="ws-detail-inner">
-            {selected ? (
-              <NewsDetail
-                item={selected}
-                mode={mode}
-                t={t}
-                ko={trans[selected.id]}
-                image={selected.image ?? images[selected.id]}
-                full={selected.body ?? fullBodies[selected.id]}
-                fetched={Boolean(selected.body) || selected.id in fullBodies}
-                bookmarked={selected.id in favorites}
-                onToggleFav={toggleFavorite}
-                onExport={(it) => void runExport([it.id])}
-                exporting={exporting}
-                onNeedBody={ensureBody}
-                onNeedImage={ensureImage}
-                onNeedFull={ensureFullBody}
-              />
-            ) : (
-              <div className="cat-detail-empty">왼쪽에서 뉴스를 선택하세요.</div>
-            )}
+            <div className="ws-detail">
+              <div className="ws-detail-inner">
+                {selected ? (
+                  <NewsDetail
+                    item={selected}
+                    mode={mode}
+                    t={t}
+                    ko={trans[selected.id]}
+                    image={selected.image ?? images[selected.id]}
+                    full={selected.body ?? fullBodies[selected.id]}
+                    fetched={Boolean(selected.body) || selected.id in fullBodies}
+                    bookmarked={selected.id in favorites}
+                    onToggleFav={toggleFavorite}
+                    onExport={(it) => void runExport([it.id])}
+                    exporting={exporting}
+                    onNeedBody={ensureBody}
+                    onNeedImage={ensureImage}
+                    onNeedFull={ensureFullBody}
+                    hidden={Boolean(itemState[selected.id]?.hidden)}
+                    pending={pendingHide.has(selected.id)}
+                    onToggleHidden={onHideClick}
+                    lastReadAt={itemState[selected.id]?.lastReadAt}
+                    onRead={markRead}
+                    hasPrev={selectedIndex > 0}
+                    hasNext={selectedIndex >= 0 && selectedIndex < visibleItems.length - 1}
+                    onPrev={() => selectByOffset(-1)}
+                    onNext={() => selectByOffset(1)}
+                    position={
+                      selectedIndex >= 0
+                        ? { index: selectedIndex + 1, total: visibleItems.length }
+                        : null
+                    }
+                  />
+                ) : (
+                  <div className="cat-detail-empty">왼쪽에서 뉴스를 선택하세요.</div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
+  );
+}
+
+// 숨김 토글 아이콘(눈모양 흑백 SVG, currentColor로 hover/active 색을 그대로 상속).
+// off=true(숨겨진 항목/숨김 보기 중)는 슬래시를 그어 "숨겨짐"을 표현.
+function EyeIcon({ off }: { off: boolean }) {
+  return (
+    <svg
+      className="eye-icon"
+      viewBox="0 0 20 20"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden="true"
+    >
+      <path d="M1 10s3.2-5.5 9-5.5S19 10 19 10s-3.2 5.5-9 5.5S1 10 1 10Z" strokeLinejoin="round" />
+      <circle cx="10" cy="10" r="2.4" />
+      {off && <line x1="2" y1="18" x2="18" y2="2" strokeLinecap="round" />}
+    </svg>
   );
 }
 
@@ -607,6 +823,16 @@ function NewsDetail({
   onNeedBody,
   onNeedImage,
   onNeedFull,
+  hidden,
+  pending,
+  onToggleHidden,
+  lastReadAt,
+  onRead,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  position,
 }: {
   item: NewsItem;
   mode: Mode;
@@ -622,6 +848,16 @@ function NewsDetail({
   onNeedBody: (it: NewsItem) => void;
   onNeedImage: (it: NewsItem) => void;
   onNeedFull: (it: NewsItem) => void;
+  hidden: boolean;
+  pending: boolean; // 숨김 보류 중(아직 커밋 전) — 다른 항목으로 이동하면 실제로 숨겨진다.
+  onToggleHidden: (id: string, committedHidden: boolean) => void;
+  lastReadAt?: number;
+  onRead: (id: string) => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  position: { index: number; total: number } | null;
 }) {
   // 선택 시(그리고 모드가 ko/both로 바뀔 때) 본문 번역을 보장.
   useEffect(() => {
@@ -641,33 +877,58 @@ function NewsDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id]);
 
+  // 선택 시(자동 선택된 첫 항목 포함) 읽음으로 마킹.
+  useEffect(() => {
+    onRead(item.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
   const hasBody = item.source === "claude-code" && !!item.body;
   const html = (md: string) => ({ __html: marked.parse(md) as string });
 
   return (
     <div className="cat-detail">
+      {position && (
+        <div className="cat-detail-nav">
+          <button className="cat-nav-btn" onClick={onPrev} disabled={!hasPrev}>
+            {t.prevBtn}
+          </button>
+          <span className="muted">
+            {position.index} / {position.total}
+          </span>
+          <button className="cat-nav-btn" onClick={onNext} disabled={!hasNext}>
+            {t.nextBtn}
+          </button>
+        </div>
+      )}
       <div className="cat-detail-title">
         <span className={`bdg ${SOURCE_BDG[item.source]}`}>{SOURCE_LABEL[item.source]}</span>
         <span className="cat-detail-name">{titleText(item, mode, ko?.titleKo)}</span>
-        <button
-          className={`news-star-btn${bookmarked ? " on" : ""}`}
-          onClick={() => onToggleFav(item)}
-          title={bookmarked ? t.bookmarked : t.bookmark}
-        >
-          {bookmarked ? "★" : "☆"} {t.bookmark}
-        </button>
-        <button
-          className="news-star-btn news-export-one"
-          onClick={() => onExport(item)}
-          disabled={exporting}
-          title={t.exportOne}
-        >
-          ⬇ md
-        </button>
+        <div className="cat-detail-actions">
+          <button
+            className={`news-star-btn${bookmarked ? " on" : ""}`}
+            onClick={() => onToggleFav(item)}
+            title={bookmarked ? t.bookmarked : t.bookmark}
+          >
+            {bookmarked ? "★" : "☆"} {t.bookmark}
+          </button>
+          <button
+            className={`news-star-btn${hidden || pending ? " on" : ""}`}
+            onClick={() => onToggleHidden(item.id, hidden)}
+            title={hidden ? t.unhideBtn : pending ? t.cancelHide : t.hideBtn}
+          >
+            <EyeIcon off={hidden || pending} /> {hidden ? t.unhideBtn : pending ? t.cancelHide : t.hideBtn}
+          </button>
+          <button className="news-star-btn" onClick={() => onExport(item)} disabled={exporting} title={t.exportOne}>
+            ⬇ md
+          </button>
+        </div>
       </div>
       <div className="cat-detail-meta">
         {new Date(item.timestamp).toLocaleString()}
         {item.meta ? ` · ${item.meta}` : ""}
+        {lastReadAt ? ` · ${t.lastRead} ${new Date(lastReadAt).toLocaleString()}` : ""}
+        {pending ? ` · ${t.pendingHideTag}` : ""}
       </div>
       {/* 전문 마크다운이 있으면 그 안에 본문 이미지가 포함되므로 상단 대표 이미지(hero)는 생략(중복 방지). */}
       {!full && image && (

@@ -14,13 +14,13 @@ import {
   NEWS_RSS_COUNT,
   NEWS_SUMMARY_MAX,
   NEWS_BODY_MAX,
-  NEWS_FETCH_TIMEOUT_MS,
   NEWS_MEMORY_TTL_MS,
   NEWS_REFRESH_MIN_INTERVAL_MS,
 } from "../config.js";
 import { readNewsCache, writeNewsCacheAtomic } from "../lib/news-cache.js";
 import { getFavoriteItem } from "../lib/favorites.js";
 import { decodeEntities, extractSummary, parseFeed } from "../lib/rss.js";
+import { fetchWithTimeout, abortMsg } from "../lib/http.js";
 import type { NewsFeed, NewsItem, NewsSource, NewsSourceStatus } from "@shared/types";
 
 /**
@@ -34,28 +34,6 @@ type FetchResult = { items: NewsItem[]; status: NewsSourceStatus };
 
 function fail(source: NewsSource, error: string, prevFetchedAt: number): FetchResult {
   return { items: [], status: { source, ok: false, count: 0, error, fetchedAt: prevFetchedAt } };
-}
-
-function abortMsg(e: unknown): string {
-  if (e && typeof e === "object" && (e as { name?: string }).name === "AbortError") {
-    return `시간 초과 (${Math.round(NEWS_FETCH_TIMEOUT_MS / 1000)}초)`;
-  }
-  return String((e as { message?: string })?.message ?? e);
-}
-
-/** AbortController 기반 타임아웃 fetch. Node 20+ 내장 fetch만 사용(새 의존성 없음). */
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), NEWS_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: ctrl.signal,
-      headers: { "User-Agent": "harness-manager", ...(init?.headers ?? {}) },
-    });
-  } finally {
-    clearTimeout(t);
-  }
 }
 
 // 슬러그 단어 중 대문자로 표기할 흔한 약어(Tcs→TCS, Ai→AI 등). 화이트리스트라 안전.

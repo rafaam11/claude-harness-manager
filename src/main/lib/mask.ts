@@ -40,24 +40,26 @@ export function maskText(input: string): MaskResult {
   text = text.replace(/```[\s\S]*?```/g, (m) => ph(m));
   // 2) inline code
   text = text.replace(/`[^`\n]+`/g, (m) => ph(m));
-  // 3) 마크다운 링크 URL부만(텍스트는 번역 허용): ](url)
+  // 3) raw HTML 태그(README 정렬/뱃지용 <p align>, <picture>, <img> 등) — 태그 전체를 한 단위로 보호
+  text = text.replace(/<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s+[^<>]*)?\/?>/g, (m) => ph(m));
+  // 4) 마크다운 링크 URL부만(텍스트는 번역 허용): ](url)
   text = text.replace(/\]\(([^)\s]+)\)/g, (_m, url: string) => `](${ph(url)})`);
-  // 4) autolink <http...>
+  // 5) autolink <http...>
   text = text.replace(/<https?:\/\/[^>\s]+>/g, (m) => ph(m));
-  // 5) 맨몸 URL
+  // 6) 맨몸 URL
   text = text.replace(/https?:\/\/[^\s)]+/g, (m) => ph(m));
-  // 6) 플래그/옵션(--resume, -p) — 앞 공백/줄머리는 보존
+  // 7) 플래그/옵션(--resume, -p) — 앞 공백/줄머리는 보존
   text = text.replace(
     /(^|\s)(--?[A-Za-z][\w-]*)/g,
     (_m, pre: string, flag: string) => `${pre}${ph(flag)}`,
   );
-  // 7) 슬래시 커맨드(/rewind)
+  // 8) 슬래시 커맨드(/rewind)
   text = text.replace(
     /(^|\s)(\/[a-z][a-z0-9-]*)/g,
     (_m, pre: string, cmd: string) => `${pre}${ph(cmd)}`,
   );
 
-  // 8) 고유명사 화이트리스트(길이 내림차순 → "Claude Code"가 "Claude"보다 우선)
+  // 9) 고유명사 화이트리스트(길이 내림차순 → "Claude Code"가 "Claude"보다 우선)
   const terms = [...TRANSLATION_GLOSSARY].sort((a, b) => b.length - a.length);
   for (const term of terms) {
     const re = new RegExp(`\\b${escapeRegExp(term)}\\b`, "g");

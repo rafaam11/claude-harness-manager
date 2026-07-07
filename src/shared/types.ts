@@ -8,6 +8,8 @@ export * from "./git-types.js";
 
 // News 탭 도메인 타입(세 소스 정규화·소스별 상태). 분량상 별도 파일로 분리.
 export * from "./news-types.js";
+// News 탭의 GitHub Stars 서브섹션 타입(트렌딩/신규 인기 리포지토리). 분량상 별도 파일로 분리.
+export * from "./github-stars-types.js";
 // AppApi에서 참조하는 export 결과 타입(re-export만으론 로컬 스코프에 안 들어와 명시 import).
 import type { ExportResult } from "./news-types.js";
 
@@ -16,6 +18,9 @@ export * from "./translate-types.js";
 
 // 커스텀 용어집(개인화) 타입(사용자가 CC로 채우는 glossary-custom.json). 분량상 별도 파일로 분리.
 export * from "./glossary-types.js";
+
+// 항목별(기사/레포) 읽음/숨김 상호작용 상태(News/GitHub Stars 공유 shape, 저장소는 독립).
+export * from "./item-state-types.js";
 
 export type ApiMethod = "GET" | "PUT" | "POST";
 

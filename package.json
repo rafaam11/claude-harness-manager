@@ -19,6 +19,7 @@
     "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "dependencies": {
+    "dompurify": "^3.2.3",
     "electron-updater": "^6.3.9",
     "gray-matter": "^4.0.3",
     "lucide-react": "^1.18.0",

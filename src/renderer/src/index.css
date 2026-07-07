@@ -300,6 +300,8 @@ pre.viewer {
   font-size: 10px; padding: 1px 6px; border-radius: 5px;
   border: 1px solid var(--border); color: var(--muted);
 }
+/* 숨김 보류 안내 배지 — 아직 커밋 전이라는 걸 read 배지와 구분되는 색으로 표시. */
+.t-tag.pending-tag { color: #ef4444; border-color: #ef4444; }
 
 .cat-detail { padding: 0 13px 13px; border-top: 1px solid var(--border); margin-top: 2px; }
 .cat-path { color: var(--muted); padding-top: 10px; word-break: break-all; }
@@ -617,7 +619,16 @@ pre.viewer {
 .news-master .cat-mi-name { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.4; }
 /* 전문 마크다운 안의 본문 이미지 — 기사에 있는 모든 이미지를 인라인 표시하되 패널 폭을 넘지 않게 */
 .news-page .md-body img { display: block; max-width: 100%; height: auto; border-radius: 6px; margin: 10px 0; }
+/* GitHub Stars 서브섹션 — News와 동일한 2단 마스터-디테일이지만 상단에 서브탭 줄이 하나 더 있어
+   (기사/GitHub Stars 세그먼트 + 트렌딩/신규인기/즐겨찾기 탭 + 툴바) 높이 예산을 더 넉넉히 둔다. */
+.cat-split.gh-stars-split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+.gh-stars-split .ws-master { max-height: calc(100vh - 250px); gap: 4px; }
+.gh-stars-split .ws-detail-inner { max-height: calc(100vh - 250px); overflow-y: auto; }
 .news-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+/* 기사/GitHub Stars 세그먼트 + 언어 토글 행(h2 바로 아래, 툴바보다 위. 두 세그먼트 공통으로 항상 보임) */
+.news-segment-toggle { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+/* GitHub Stars 리포 행의 소유자/기여자 아바타 */
+.gh-stars-avatar { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; }
 /* 소스 필터 드롭다운은 Timeline .tl-filter* 를 재사용하되 툴바 우측 정렬만 덧입힌다 */
 .news-filter { margin-left: auto; margin-bottom: 0; }
 /* 버튼이 툴바 우측에 있으므로 패널을 우측 정렬해 화면 밖으로 넘치지 않게 한다(Timeline은 좌측 기준). */
@@ -639,14 +650,15 @@ pre.viewer {
 /* RSS 요약 발췌(평문) — main이 줄바꿈을 보존해 내려주므로 pre-wrap */
 .news-summary { white-space: pre-wrap; }
 
-/* 즐겨찾기(북마크) — 목록 행 별표 / 상세 헤더 버튼 / 툴바 토글. 활성은 amber(★). */
+/* 즐겨찾기(북마크) — 목록 행 별표 / 상세 헤더 버튼 / 툴바 토글. 활성은 amber(★).
+   목록 행에서는 .cat-mi-actions wrapper가 우측 정렬을 담당하므로 margin-left는 없음. */
 .news-star {
-  margin-left: auto; flex-shrink: 0; cursor: pointer; font-size: 15px; line-height: 1;
+  flex-shrink: 0; cursor: pointer; font-size: 15px; line-height: 1;
   color: var(--muted); padding: 0 2px; user-select: none;
 }
 .news-star:hover, .news-star.on { color: #f59e0b; }
 .news-star-btn {
-  margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
   background: none; border: 1px solid var(--border); border-radius: 6px;
   color: var(--muted); font-size: 12px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
 }
@@ -658,6 +670,26 @@ pre.viewer {
 }
 .news-fav-toggle:hover { color: var(--text); }
 .news-fav-toggle.on { color: #f59e0b; border-color: #f59e0b; }
+/* 숨김 처리 — 목록 행 아이콘(별표 옆, 눈모양 SVG). 활성(숨김 보기 중)은 red로 별표와 구분. */
+.news-hide-btn {
+  display: inline-flex; align-items: center; flex-shrink: 0; cursor: pointer;
+  color: var(--muted); padding: 0 2px; user-select: none;
+}
+.news-hide-btn:hover, .news-hide-btn.on { color: #ef4444; }
+/* 눈모양 아이콘 공통 — 텍스트와 나란히 쓰일 때(탭/토글 버튼) 베이스라인을 살짝 내려 중앙 정렬. */
+.eye-icon { vertical-align: -2px; }
+/* 상세 헤더 우측 버튼 그룹(즐겨찾기/숨김[/내보내기]) — 그룹 전체를 오른쪽으로 밀고 내부는 촘촘히. */
+.cat-detail-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* 목록 행 우측 버튼 그룹(숨김/즐겨찾기) — 개별 아이템에 auto-margin을 중복시키지 않고 그룹 전체만 오른쪽으로 민다. */
+.cat-mi-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* 상세 패널 순차 탐색 바 — 제목 위, [‹ 이전] N / M [다음 ›] */
+.cat-detail-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.cat-nav-btn {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 12px; padding: 4px 10px; cursor: pointer;
+}
+.cat-nav-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.cat-nav-btn:disabled { opacity: 0.4; cursor: default; }
 /* .md 내보내기 — 툴바 버튼 / 상세 개별 버튼 / 결과 알림 배너 */
 .news-export-btn {
   display: inline-flex; align-items: center; gap: 5px;
@@ -666,7 +698,6 @@ pre.viewer {
 }
 .news-export-btn:hover:not(:disabled) { color: var(--text); }
 .news-export-btn:disabled { opacity: 0.5; cursor: default; }
-.news-export-one { margin-left: 0; } /* 상세 헤더에서 별표 뒤에 붙되 auto-push는 별표만 */
 .news-export-notice { display: flex; align-items: center; gap: 10px; }
 .news-export-dir { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .news-notice-x { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; flex-shrink: 0; }
@@ -1353,6 +1384,9 @@ pre.viewer {
 }
 .cat-master-item:hover { border-color: var(--accent); }
 .cat-master-item.active { border-color: var(--accent); background: var(--active-bg); }
+/* 읽은 항목 음영 — 목록에서 읽음/안읽음을 한눈에 구분. hover/active 중엔 원상태로 돌려 조작에 방해되지 않게. */
+.cat-master-item.is-read { opacity: .55; }
+.cat-master-item.is-read:hover, .cat-master-item.is-read.active { opacity: 1; }
 .cat-mi-head { display: flex; align-items: center; gap: 7px; }
 .cat-mi-name { font-weight: 650; font-size: 12.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-mi-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }

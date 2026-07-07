@@ -49,6 +49,15 @@ export function fmtTime(ms: number): string {
   return `${hh}:${mm}`;
 }
 
+/** 로컬 타임존 HH:MM:SS. 마지막 읽음 시각처럼 초 단위까지 필요한 표시용(fmtTime의 확장). */
+export function fmtClock(ms: number): string {
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
 /** "오늘/어제/N일 전" 형태의 상대 시간. 회상 표면에서 "마지막 활동"을 직관적으로 보여준다. */
 export function fmtRelative(ms: number): string {
   if (!ms) return "—";
@@ -67,4 +76,10 @@ export function fmtRelative(ms: number): string {
   if (dayDiff === 1) return "어제";
   if (dayDiff < 7) return `${dayDiff}일 전`;
   return fmtDate(ms);
+}
+
+/** GitHub 스타 수 축약(1000 이상은 "12.3k"). GitHub Stars 목록의 star 배지용. */
+export function fmtStars(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
 }

@@ -90,6 +90,39 @@ export const NEWS_ZDNET_URL = "https://feeds.feedburner.com/zdkorea";
 export const NEWS_IROBOT_URL = "https://www.irobotnews.com/rss/allArticle.xml";
 export const NEWS_HANKYUNG_URL = "https://www.hankyung.com/feed/it";
 
+// --- GitHub Stars (News 탭 서브섹션) ---
+// 앱 소유 캐시. news-cache.json과 같은 harness-manager 디렉토리(allowlist 통과).
+export const GITHUB_STARS_CACHE_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "github-stars-cache.json",
+);
+export const GITHUB_TRENDING_URL = "https://github.com/trending?since=daily";
+export const GITHUB_SEARCH_REPOS_URL = "https://api.github.com/search/repositories";
+// 그룹(트렌딩/신규 인기)당 표시 개수.
+export const GITHUB_STARS_COUNT = 10;
+// "최근 생성" 판단 기간(일). 짧으면 바이럴 신규 리포를 잘 잡지만 표본이 부족할 수 있어 절충값.
+export const GITHUB_NEW_REPO_WINDOW_DAYS = 14;
+// 중복 GET 방지용 메모리 캐시 수명(news와 동일 패턴). 일일 캐시라 TTL보다는 fetchedDay가 유효성의 본체.
+export const GITHUB_STARS_MEMORY_TTL_MS = 60 * 1000;
+// GitHub Stars 즐겨찾기(북마크). favorites.ts와 같은 이유로 별도 앱 소유 파일에 GitHubRepo 스냅샷을 보관한다.
+export const GITHUB_STARS_FAVORITES_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "github-stars-favorites.json",
+);
+// README 조회(Contents API). 리포별 조회라 별도 상수로 분리(검색/트렌딩 URL과 다른 베이스).
+export const GITHUB_API_REPOS_URL = "https://api.github.com/repos";
+// 기사별 "읽음 시각 + 숨김" 상태. 피드(news-cache.json)와 분리 — id 기준으로 새로고침에도 유지.
+// 기사 열 때마다 쓰는 잦은 쓰기라 .bak 백업은 생략(유실 시 손실이 낮은 상호작용 로그일 뿐).
+export const NEWS_ITEM_STATE_FILE = path.join(CLAUDE_HOME, "harness-manager", "news-item-state.json");
+// GitHub Stars 버전. News와 별도 파일(fullName 키 — 그룹별로 갈리는 id 대신 안정 키).
+export const GITHUB_STARS_ITEM_STATE_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "github-stars-item-state.json",
+);
+
 // --- News 번역(DeepL) / 시크릿 ---
 // 앱 소유 시크릿. board.json과 분리(이유: board.json은 .bak에 평문 키가 누적됨).
 export const SECRET_FILE = path.join(CLAUDE_HOME, "harness-manager", "secrets.json");
@@ -98,6 +131,12 @@ export const TRANSLATION_CACHE_FILE = path.join(
   CLAUDE_HOME,
   "harness-manager",
   "translation-cache.json",
+);
+// GitHub Stars 번역 캐시. News와 별도 파일 — fullName 키(그룹별로 id가 갈리는 GitHubRepo.id와 달리 안정적).
+export const GITHUB_STARS_TRANSLATION_CACHE_FILE = path.join(
+  CLAUDE_HOME,
+  "harness-manager",
+  "github-stars-translation-cache.json",
 );
 // Free 키는 ":fx"로 끝남 → 키 접미사로 엔드포인트 자동 선택(translate.ts).
 export const DEEPL_FREE_URL = "https://api-free.deepl.com/v2/translate";

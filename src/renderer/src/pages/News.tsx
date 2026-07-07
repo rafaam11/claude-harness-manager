@@ -315,9 +315,16 @@ export default function News() {
       .finally(() => bodyReq.current.delete(it.id));
   };
 
-  // 선택 시 원문 전문(마크다운) 보장: claude-code는 이미 body 보유(스킵), 그 외는 원문 페이지에서 1회 lazy-fetch.
+  // 선택 시 원문 전문(마크다운) 보장: claude-code는 hasBody 경로로 별도 처리(스킵), yozm처럼
+  // RSS content:encoded에서 이미 body를 확보한 소스는 재fetch 없이 그대로 채우고, 그 외는
+  // 원문 페이지에서 1회 lazy-fetch.
   const ensureFullBody = (it: NewsItem) => {
-    if (it.body || it.id in fullBodies || fullReq.current.has(it.id)) return;
+    if (it.id in fullBodies || fullReq.current.has(it.id)) return;
+    if (it.source === "claude-code") return; // hasBody 경로가 번역까지 포함해 따로 렌더 — full 미사용.
+    if (it.body) {
+      setFullBodies((p) => ({ ...p, [it.id]: it.body! }));
+      return;
+    }
     fullReq.current.add(it.id);
     api
       .post<{ body: string | null }>("/api/news/body", { id: it.id })
@@ -549,8 +556,8 @@ export default function News() {
                 t={t}
                 ko={trans[selected.id]}
                 image={selected.image ?? images[selected.id]}
-                full={fullBodies[selected.id]}
-                fetched={selected.id in fullBodies}
+                full={selected.body ?? fullBodies[selected.id]}
+                fetched={Boolean(selected.body) || selected.id in fullBodies}
                 bookmarked={selected.id in favorites}
                 onToggleFav={toggleFavorite}
                 onExport={(it) => void runExport([it.id])}

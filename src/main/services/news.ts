@@ -194,6 +194,15 @@ async function fetchRss(
       if (seen.has(id)) continue;
       seen.add(id);
       const summary = extractSummary(e.description, NEWS_SUMMARY_MAX);
+      // 요즘IT는 Next.js SPA라 원문 웹페이지엔 서버 렌더 본문이 없다(클라이언트 하이드레이션 후
+      // 채워짐) → fetchArticleBody가 JSON-LD의 개행 없는 flat articleBody로 폴백해 줄글이
+      // 된다. 반면 RSS의 content:encoded(parseFeed가 description에 우선 채움)는 이미 문단
+      // 구조가 살아있는 원문 HTML이므로, 원문 재fetch 없이 여기서 바로 마크다운으로 만든다.
+      let body: string | undefined;
+      if (source === "yozm" && e.description) {
+        const md = htmlToMarkdown(e.description, e.link, NEWS_BODY_MAX);
+        if (md.length >= 200) body = md;
+      }
       items.push({
         id,
         source,
@@ -203,6 +212,7 @@ async function fetchRss(
         timestamp:
           e.publishedAt ?? prevItems.find((p) => p.id === id)?.timestamp ?? Date.now(),
         ...(summary ? { summary } : {}),
+        ...(body ? { body } : {}),
         ...(e.image ? { image: e.image } : {}),
       });
     }
@@ -436,7 +446,14 @@ function isBoilerplateLine(line: string): boolean {
 
 /** 본문 영역 HTML → 마크다운. 인라인 서식·이미지·링크를 보존하고 나머지 태그는 제거한다. */
 function htmlToMarkdown(html: string, base: string, maxLen: number): string {
-  let s = html
+  // 일부 피드(요즘IT)는 원문 HTML 전체(CDATA 마커까지)가 통째로 한 번 더 엔티티 이스케이프되어
+  // 온다 — 실제 태그가 하나도 없이 &lt; 표기만 있으면 1회 복원한다(extractSummary/firstImage와
+  // 동일한 가드). 이걸 빼먹으면 태그 매칭이 전부 실패해 원문이 구조 없이 그대로 노출된다.
+  let s = html;
+  if (!/<[a-zA-Z!]/.test(s) && /&lt;[a-zA-Z!]/.test(s)) {
+    s = decodeEntities(s).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  }
+  s = s
     // 비본문 블록 제거
     .replace(/<(script|style|noscript|svg|iframe|form)\b[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
@@ -456,7 +473,15 @@ function htmlToMarkdown(html: string, base: string, maxLen: number): string {
     return t ? `\n\n${"#".repeat(Number(lvl))} ${t}\n\n` : "";
   });
   // 링크(인라인 서식 유지 위해 태그 제거 전에)
-  s = s.replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
+  // 일부 피드(요즘IT)는 본문 전체를 스퓨리어스한 <b>...</b> 하나로 통째로 감싸서 내려보낸다 —
+  // inner에 <p>/<h*> 등 블록 태그가 섞여 있으면(=인라인 태그가 아니라 문서 전체를 삼킨 것) 변환을
+  // 건너뛰고 원문 그대로 둔다. 그냥 stripTags를 적용하면 아직 안 변환된 문단 개행이 공백 정규화로
+  // 통째로 뭉개져 본문 전체가 한 줄로 붕괴되고, 그 한 줄이 저작권 문구 때문에 보일러플레이트로
+  // 걸러져 본문이 통째로 사라진다.
+  const BLOCK_TAG_RE =
+    /<\/?(p|div|section|article|ul|ol|li|table|tr|td|th|blockquote|figure|h[1-6])\b/i;
+  s = s.replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (m, href: string, inner: string) => {
+    if (BLOCK_TAG_RE.test(inner)) return m;
     const t = stripTags(inner);
     if (!t) return "";
     const u = absUrl(decodeEntities(href), base);
@@ -464,8 +489,12 @@ function htmlToMarkdown(html: string, base: string, maxLen: number): string {
   });
   // 강조
   s = s
-    .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => `**${stripTags(inner)}**`)
-    .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => `*${stripTags(inner)}*`);
+    .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (m, _t, inner: string) =>
+      BLOCK_TAG_RE.test(inner) ? m : `**${stripTags(inner)}**`,
+    )
+    .replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, (m, _t, inner: string) =>
+      BLOCK_TAG_RE.test(inner) ? m : `*${stripTags(inner)}*`,
+    );
   // 목록: <ul>/<ol> 시작 앞에도 빈 줄을 넣어 목록이 앞 문단에 붙어 파싱 실패하는 것을 막는다.
   s = s.replace(/<(ul|ol)\b[^>]*>/gi, "\n\n");
   s = s.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, inner: string) => `\n- ${stripTags(inner)}`);
@@ -626,7 +655,10 @@ export async function getNewsBody(id: string): Promise<{ body: string | null }> 
   // 피드에 없으면(즐겨찾기가 15개 상한에 밀려 빠짐) 저장된 스냅샷의 url/body로 fallback.
   const item = feed.items.find((i) => i.id === id) ?? (await getFavoriteItem(id));
   if (!item) return { body: null };
-  if (item.body) return { body: item.body }; // claude-code 패치노트(마크다운)
+  if (item.body) return { body: item.body }; // claude-code 패치노트 또는 yozm(content:encoded 변환) 마크다운
+  // yozm은 SPA라 원문 페이지 fetch가 무의미(JSON-LD flat text만 나와 줄글 버그 재발) —
+  // RSS content:encoded 변환이 실패/누락된 경우 요약으로만 fallback한다.
+  if (item.source === "yozm") return { body: null };
   const cached = bodyCache.get(id);
   if (cached !== undefined) return { body: cached || null };
   const body = await fetchArticleBody(item.url);

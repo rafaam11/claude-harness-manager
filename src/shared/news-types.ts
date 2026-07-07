@@ -17,7 +17,9 @@ export type NewsSource =
  * 아홉 소스를 시각 역순으로 병합하기 위한 정규화 항목.
  * - claude-code: GitHub 릴리스. body(패치노트 마크다운)를 앱 내에서 렌더.
  * - anthropic: 제목만, 원문은 OS 브라우저로 연다.
- * - geeknews / aitimes / yozm / etnews / zdnet / irobot / hankyung: 한국어 RSS. summary(평문 발췌)를 앱 내에서 표시.
+ * - yozm: RSS content:encoded(원문 HTML)를 body(마크다운)로 변환해 보유(원문 페이지가 SPA라
+ *   서버 렌더 본문이 없어 라이브 fetch 대신 RSS를 그대로 씀). 나머지 한국어 RSS도 summary는 공통.
+ * - geeknews / aitimes / etnews / zdnet / irobot / hankyung: 한국어 RSS. summary(평문 발췌)를 앱 내에서 표시.
  */
 export interface NewsItem {
   /**
@@ -31,7 +33,10 @@ export interface NewsItem {
   url: string;
   /** published_at/pubDate의 epoch ms(요즘IT는 pubDate 부재 → 최초 발견 시각). 병합 정렬 키. */
   timestamp: number;
-  /** claude-code 릴리스 패치노트 마크다운(앱 내 marked 렌더). 다른 소스는 없음. */
+  /**
+   * claude-code 릴리스 패치노트 마크다운, 또는 yozm의 RSS content:encoded를 변환한 원문
+   * 마크다운(둘 다 앱 내 marked 렌더). 나머지 소스는 없음.
+   */
   body?: string;
   /** RSS description 발췌 평문(태그 제거·줄바꿈 보존). 한국어 RSS 소스만. */
   summary?: string;

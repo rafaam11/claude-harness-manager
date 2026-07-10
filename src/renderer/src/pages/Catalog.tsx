@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { marked } from "marked";
 import { api, fmtSize, fmtDate } from "../api/client";
+import { renderMarkdownSafe } from "../markdown";
 import type { ProviderFilter, ProviderId } from "@shared/provider-types";
 import { providerLabel } from "./workspace-shared";
 import { groupRowsByProvider, providerGroupLabel, providerToneClass } from "../provider-ui";
 
 interface CatalogItem {
   name: string;
-  kind: "skill" | "agent" | "command";
+  kind: "skill" | "agent" | "command" | "instruction" | "memory";
   provider?: ProviderId;
   description: string;
   path: string;
@@ -45,12 +45,14 @@ interface CatalogContent {
 }
 
 // 좌측 종류 필터(세그먼트). skill/agent/command는 CatalogItem.kind, mcp/plugin은 별도 소스.
-type KindFilter = "all" | "skill" | "agent" | "command" | "mcp" | "plugin";
+type KindFilter = "all" | "skill" | "agent" | "command" | "instruction" | "memory" | "mcp" | "plugin";
 const SEGMENTS: { key: KindFilter; label: string }[] = [
   { key: "all", label: "전체" },
   { key: "skill", label: "Skill" },
   { key: "agent", label: "Agent" },
   { key: "command", label: "Command" },
+  { key: "instruction", label: "Instruction" },
+  { key: "memory", label: "Memory" },
   { key: "mcp", label: "MCP" },
   { key: "plugin", label: "Plugin" },
 ];
@@ -58,11 +60,15 @@ const ITEM_BADGE: Record<CatalogItem["kind"], string> = {
   skill: "SKILL",
   agent: "AGENT",
   command: "CMD",
+  instruction: "INSTR",
+  memory: "MEMORY",
 };
 const GROUP_LABEL: Record<Exclude<KindFilter, "all">, string> = {
   skill: "Skills",
   agent: "Agents",
   command: "Commands",
+  instruction: "Instructions",
+  memory: "Memories",
   mcp: "MCP Servers",
   plugin: "Plugins",
 };
@@ -177,11 +183,20 @@ export default function Catalog({ providerFilter }: Props) {
     skill: itemRows("skill").length,
     agent: itemRows("agent").length,
     command: itemRows("command").length,
+    instruction: itemRows("instruction").length,
+    memory: itemRows("memory").length,
     mcp: mcpRows.length,
     plugin: pluginRows.length,
     all: 0,
   };
-  counts.all = counts.skill + counts.agent + counts.command + counts.mcp + counts.plugin;
+  counts.all =
+    counts.skill +
+    counts.agent +
+    counts.command +
+    counts.instruction +
+    counts.memory +
+    counts.mcp +
+    counts.plugin;
 
   const showGroup = (g: Exclude<KindFilter, "all">) => kind === "all" || kind === g;
 
@@ -280,6 +295,8 @@ export default function Catalog({ providerFilter }: Props) {
             {itemGroup("skill")}
             {itemGroup("agent")}
             {itemGroup("command")}
+            {itemGroup("instruction")}
+            {itemGroup("memory")}
             {showGroup("mcp") && mcpRows.length > 0 && (
               <div>
                 {(catalogProviderFilter === "all"
@@ -449,7 +466,7 @@ function ItemDetail({ it, data }: { it: CatalogItem; data?: CatalogContent }) {
           <div className="sec-label">본문</div>
           <div
             className="md-body"
-            dangerouslySetInnerHTML={{ __html: marked.parse(data.raw) as string }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(data.raw) }}
           />
         </>
       )}

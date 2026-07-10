@@ -144,6 +144,65 @@ describe("provider workspace normalization", () => {
     expect(merged[0].board.status).toBe("보관");
   });
 
+  it("merges manual board fields deterministically instead of following the latest provider", () => {
+    const merged = mergeProviderProjectsByPath([
+      {
+        id: "codex:C--repo",
+        provider: "codex",
+        realPath: "C:\\repo",
+        gitBranch: null,
+        lastActivity: 30,
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: {
+          status: null,
+          memo: "",
+          nameOverride: "공유 이름",
+          tracks: [{ id: "codex-track", title: "Codex 작업", items: [] }],
+          hidden: false,
+          order: null,
+        },
+        repoRoot: "C:\\repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["codex:C--repo"],
+      },
+      {
+        id: "claude:C--repo",
+        provider: "claude",
+        realPath: "c:/repo",
+        gitBranch: null,
+        lastActivity: 20,
+        staleDays: 0,
+        recall: null,
+        todos: null,
+        board: {
+          status: null,
+          memo: "보존할 메모",
+          nameOverride: "",
+          tracks: [],
+          hidden: false,
+          order: 4,
+        },
+        repoRoot: "c:/repo",
+        isWorktree: false,
+        worktreeName: null,
+        worktrees: [],
+        memberIds: ["claude:C--repo"],
+      },
+    ]);
+
+    expect(merged[0].id).toBe("codex:C--repo");
+    expect(merged[0].board).toMatchObject({
+      memo: "보존할 메모",
+      nameOverride: "공유 이름",
+      tracks: [{ id: "codex-track" }],
+      order: 4,
+    });
+  });
+
   it("sorts projects by latest activity descending", () => {
     const projects = sortNormalizedProjects([
       {
@@ -189,6 +248,22 @@ describe("provider workspace normalization", () => {
     });
   });
 
+  it("carries board pin state into normalized timeline events", () => {
+    const events = toTimelineEvents(
+      [
+        {
+          id: "codex:pinned",
+          provider: "codex",
+          sessionKind: "main",
+          updatedAt: "2026-07-05T00:00:00.000Z",
+        },
+      ],
+      [],
+      { schemaVersion: 2, projects: {}, plans: {}, sessions: { "codex:pinned": { pinned: true } } },
+    );
+    expect(events[0]?.pinned).toBe(true);
+  });
+
   it("keeps only direct user-facing sessions for Codex timeline surfaces", () => {
     const sessions = filterUserFacingSessions([
       {
@@ -214,6 +289,14 @@ describe("provider workspace normalization", () => {
         sessionKind: "system",
         title: "injected context",
         updatedAt: "2026-07-05T01:02:00.000Z",
+      },
+      {
+        id: "codex:imported",
+        provider: "codex",
+        projectId: "codex:repo",
+        sessionKind: "imported",
+        title: "가져온 Claude 대화",
+        updatedAt: "2026-07-05T01:02:30.000Z",
       },
       {
         id: "claude:worker-kept",

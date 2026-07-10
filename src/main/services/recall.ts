@@ -19,7 +19,7 @@ import { normalizePathKey } from "../lib/path-normalize.js";
 import { getProjects, guessOriginalPath } from "./projects.js";
 import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
-import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
 import type { ProviderId, SessionKind } from "@shared/provider-types";
@@ -31,6 +31,7 @@ const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
 export interface SessionRecall {
   sessionId: string | null;
   sessionKind?: SessionKind;
+  pinned?: boolean;
   aiTitle: string | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
@@ -40,6 +41,8 @@ export interface SessionRecall {
   transcriptPath: string;
   transcriptMtime: number;
   truncatedScan: boolean; // tail만 읽었는지
+  startedAt?: number | null;
+  turnCount?: number | null;
 }
 
 export interface ProjectRecall {
@@ -68,6 +71,8 @@ export interface TimelineEvent {
   title: string;
   filename?: string;
   sessionId?: string; // 세션 이벤트에만. 상태 드롭다운 저장 키.
+  sessionKind?: SessionKind; // 세션 이벤트에만. 고정 가능 여부와 보조 활동 구분에 사용.
+  pinned?: boolean; // 세션 이벤트에만. 앱 수동 레이어의 고정 상태.
   status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
   // 행 클릭 펼침용 내용. 세션은 스니펫(이미 recall 보유), 계획은 본문을 프론트에서 lazy-fetch.
   lastPrompt?: string | null; // 세션
@@ -77,6 +82,8 @@ export interface TimelineEvent {
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
   worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 어느 워크트리인지 표시).
   provider?: ProviderId;
+  startedAt?: number | null;
+  turnCount?: number | null;
 }
 
 export interface WorkspaceProject extends ProjectRecall {
@@ -156,6 +163,23 @@ function getCompatEntry<T>(map: Record<string, T>, id: string): T | undefined {
   return undefined;
 }
 
+function isPinnedSession(board: BoardData, sessionId: string | null): boolean {
+  return !!sessionId && getCompatEntry(board.sessions, sessionId)?.pinned === true;
+}
+
+function withSessionBoardState(session: SessionRecall, board: BoardData): SessionRecall {
+  return { ...session, pinned: isPinnedSession(board, session.sessionId) };
+}
+
+/** 직접 대화가 아닌 보조 활동은 고정 영역에서 제외한다. */
+export function isDirectSessionRecall(session: Pick<SessionRecall, "sessionKind">): boolean {
+  return (
+    session.sessionKind !== "worker" &&
+    session.sessionKind !== "imported" &&
+    session.sessionKind !== "system"
+  );
+}
+
 // --- transcript 파싱 ---
 interface RecallAcc {
   sessionId: string | null;
@@ -231,6 +255,7 @@ function mergeSessionRecall(a: SessionRecall, b: SessionRecall): SessionRecall {
     transcriptPath: userFacing.transcriptPath,
     transcriptMtime: Math.max(a.transcriptMtime, b.transcriptMtime),
     truncatedScan: a.truncatedScan || b.truncatedScan,
+    pinned: a.pinned || b.pinned,
   };
 }
 
@@ -679,14 +704,29 @@ export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
  * 프로젝트 디렉토리당 최신 transcript 하나만 읽지만, 여기서는 그룹의 memberIds(워크트리·하위폴더
  * 포함) 전체 디렉토리에서 모든 transcript를 열거해 실제 세션 히스토리를 통째로 보여준다.
  */
-export async function getProjectSessions(projectId: string): Promise<SessionRecall[]> {
+async function getProjectMemberIds(projectId: string): Promise<string[]> {
   const localProjectId = fromMaybePrefixedClaudeId(projectId);
   const recalls = await getProjectRecalls();
   const groups = await computeRepoGroups(recalls);
   const group = groups.find(
     (g) => g.canonicalId === localProjectId || g.memberIds.includes(localProjectId),
   );
-  const memberIds = group ? group.memberIds : [localProjectId];
+  return group ? group.memberIds : [localProjectId];
+}
+
+/** live-session hook이 알려준 transcript 하나를 안전하게 보강한다. */
+export async function getSessionRecallByTranscriptPath(filePath: string): Promise<SessionRecall | null> {
+  const guarded = guardPath(filePath);
+  try {
+    const stat = await fs.stat(guarded);
+    return readSessionRecallFromFile(guarded, stat.size, stat.mtimeMs);
+  } catch {
+    return null;
+  }
+}
+
+export async function getProjectSessions(projectId: string): Promise<SessionRecall[]> {
+  const [memberIds, board] = await Promise.all([getProjectMemberIds(projectId), readBoard()]);
 
   const lists = await Promise.all(
     memberIds.map(async (id) => {
@@ -696,7 +736,35 @@ export async function getProjectSessions(projectId: string): Promise<SessionReca
       );
     }),
   );
-  return dedupeSessionRecallsByConversation(lists.flat());
+  return dedupeSessionRecallsByConversation(lists.flat()).map((session) => withSessionBoardState(session, board));
+}
+
+/** 개요 탭용 경량 조회: 프로젝트 안의 고정 transcript만 읽는다. */
+export async function getPinnedProjectSessions(projectId: string): Promise<SessionRecall[]> {
+  const [memberIds, board, sessionToPath] = await Promise.all([
+    getProjectMemberIds(projectId),
+    readBoard(),
+    getSessionToPathMap(),
+  ]);
+  const memberSet = new Set(memberIds);
+  const selected = [...sessionToPath.entries()].filter(
+    ([sessionId, entry]) => memberSet.has(entry.projectId) && isPinnedSession(board, sessionId),
+  );
+  const sessions = (
+    await Promise.all(
+      selected.map(async ([, entry]) => {
+        try {
+          const stat = await fs.stat(entry.filePath);
+          return readSessionRecallFromFile(entry.filePath, stat.size, stat.mtimeMs);
+        } catch {
+          return null;
+        }
+      }),
+    )
+  ).filter((session): session is SessionRecall => session !== null);
+  return dedupeSessionRecallsByConversation(sessions)
+    .map((session) => withSessionBoardState(session, board))
+    .filter((session) => session.pinned && isDirectSessionRecall(session));
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
@@ -727,9 +795,15 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   // (읽기 개수는 마커 계획 수에 비례하므로 가볍고, transcript 부재(agent-* 등)는 skip.)
   const loadedSessionIds = new Set<string>();
   for (const r of recalls) if (r.recall?.sessionId) loadedSessionIds.add(r.recall.sessionId);
-  const missingSessionIds = [
-    ...new Set(plans.map((p) => p.sessionId).filter((s): s is string => !!s)),
-  ].filter((sid) => !loadedSessionIds.has(sid) && sessionToPath.has(sid));
+  const requestedSessionIds = new Set(
+    plans.map((p) => p.sessionId).filter((s): s is string => !!s),
+  );
+  for (const [sessionId, entry] of Object.entries(board.sessions)) {
+    if (entry.pinned) requestedSessionIds.add(fromMaybePrefixedClaudeId(sessionId));
+  }
+  const missingSessionIds = [...requestedSessionIds].filter(
+    (sid) => !loadedSessionIds.has(sid) && sessionToPath.has(sid),
+  );
   const extraRecalls = (
     await Promise.all(
       missingSessionIds.map(async (sid) => {
@@ -762,6 +836,8 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
       realPath,
       title: recall.aiTitle ?? recall.lastPrompt ?? "(제목 없음)",
       sessionId: sid ?? undefined,
+      sessionKind: recall.sessionKind,
+      pinned: isPinnedSession(board, sid),
       status,
       lastPrompt: recall.lastPrompt,
       lastAssistantSnippet: recall.lastAssistantSnippet,

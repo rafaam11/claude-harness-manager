@@ -48,6 +48,8 @@ export interface ProjectBoardEntry {
 export interface SessionBoardEntry {
   status?: BoardStatus;
   memo?: string;
+  /** 타임라인과 Workspace 상단에 유지할 직접 대화 세션인지. */
+  pinned?: boolean;
 }
 export interface BoardData {
   schemaVersion: 2;
@@ -141,7 +143,7 @@ function sanitize(parsed: unknown): BoardData {
       board.projects[k] = toEntry(v, "project");
     }
   }
-  // 세션은 status/memo만 살린다(plan/project와 키가 달라 별도 정제).
+  // 세션은 status/memo/pinned만 살린다(plan/project와 키가 달라 별도 정제).
   if (p.sessions && typeof p.sessions === "object") {
     for (const [k, v] of Object.entries(p.sessions as Record<string, unknown>)) {
       const r = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
@@ -149,6 +151,7 @@ function sanitize(parsed: unknown): BoardData {
       const st = asStatus(r.status);
       if (st) e.status = st;
       if (typeof r.memo === "string" && r.memo) e.memo = r.memo;
+      if (r.pinned === true) e.pinned = true;
       board.sessions[k] = e;
     }
   }
@@ -290,57 +293,80 @@ export async function setPlanField(
   });
 }
 
+export interface ProjectBoardPatch {
+  status?: string;
+  memo?: string;
+  nameOverride?: string | null;
+  tracks?: ProjectTrack[];
+  repoPath?: string | null;
+  hidden?: boolean;
+  order?: number | null;
+}
+
+function applyProjectPatch(entry: ProjectBoardEntry, patch: ProjectBoardPatch): ProjectBoardEntry {
+  const next = { ...entry };
+  if (patch.status !== undefined) {
+    const st = asStatus(patch.status);
+    if (st) next.status = st;
+  }
+  if (patch.memo !== undefined) {
+    if (patch.memo) next.memo = patch.memo;
+    else delete next.memo;
+  }
+  if (patch.nameOverride !== undefined) {
+    // null/"" 이면 override 해제(기본 이름으로 복귀)
+    if (patch.nameOverride) next.nameOverride = patch.nameOverride;
+    else delete next.nameOverride;
+  }
+  if (patch.repoPath !== undefined) {
+    // null/"" 이면 override 해제(자동 해석으로 복귀)
+    if (patch.repoPath) next.repoPath = patch.repoPath;
+    else delete next.repoPath;
+  }
+  if (patch.hidden !== undefined) {
+    // false면 키 제거(기본=표시)
+    if (patch.hidden) next.hidden = true;
+    else delete next.hidden;
+  }
+  if (patch.order !== undefined) {
+    // null/비number면 키 제거(자동 정렬로 복귀)
+    if (typeof patch.order === "number" && Number.isFinite(patch.order)) next.order = patch.order;
+    else delete next.order;
+  }
+  if (patch.tracks !== undefined) {
+    // 전체 교체. 빈 배열이면 키 제거(빈 엔트리는 pruneIfEmpty가 정리)
+    const tracks = sanitizeTracks(patch.tracks);
+    if (tracks.length) next.tracks = tracks;
+    else delete next.tracks;
+  }
+  return next;
+}
+
 export async function setProjectField(
   id: string,
-  patch: {
-    status?: string;
-    memo?: string;
-    nameOverride?: string | null;
-    tracks?: ProjectTrack[];
-    repoPath?: string | null;
-    hidden?: boolean;
-    order?: number | null;
-  },
+  patch: ProjectBoardPatch,
 ): Promise<BoardData> {
   return withLock(async () => {
     const board = await readBoard();
-    const entry: ProjectBoardEntry = { ...board.projects[id] };
-    if (patch.status !== undefined) {
-      const st = asStatus(patch.status);
-      if (st) entry.status = st;
-    }
-    if (patch.memo !== undefined) {
-      if (patch.memo) entry.memo = patch.memo;
-      else delete entry.memo;
-    }
-    if (patch.nameOverride !== undefined) {
-      // null/"" 이면 override 해제(기본 이름으로 복귀)
-      if (patch.nameOverride) entry.nameOverride = patch.nameOverride;
-      else delete entry.nameOverride;
-    }
-    if (patch.repoPath !== undefined) {
-      // null/"" 이면 override 해제(자동 해석으로 복귀)
-      if (patch.repoPath) entry.repoPath = patch.repoPath;
-      else delete entry.repoPath;
-    }
-    if (patch.hidden !== undefined) {
-      // false면 키 제거(기본=표시)
-      if (patch.hidden) entry.hidden = true;
-      else delete entry.hidden;
-    }
-    if (patch.order !== undefined) {
-      // null/비number면 키 제거(자동 정렬로 복귀)
-      if (typeof patch.order === "number" && Number.isFinite(patch.order)) entry.order = patch.order;
-      else delete entry.order;
-    }
-    if (patch.tracks !== undefined) {
-      // 전체 교체. 빈 배열이면 키 제거(빈 엔트리는 pruneIfEmpty가 정리)
-      const tracks = sanitizeTracks(patch.tracks);
-      if (tracks.length) entry.tracks = tracks;
-      else delete entry.tracks;
-    }
+    const entry = applyProjectPatch(board.projects[id] ?? {}, patch);
     board.projects[id] = entry;
     pruneIfEmpty(board.projects, id);
+    await writeBoardAtomic(board);
+    return board;
+  });
+}
+
+/** 교차-provider 병합 카드의 모든 멤버에 같은 patch를 한 번의 atomic write로 반영한다. */
+export async function setProjectsField(
+  ids: string[],
+  patch: ProjectBoardPatch,
+): Promise<BoardData> {
+  return withLock(async () => {
+    const board = await readBoard();
+    for (const id of [...new Set(ids.filter(Boolean))]) {
+      board.projects[id] = applyProjectPatch(board.projects[id] ?? {}, patch);
+      pruneIfEmpty(board.projects, id);
+    }
     await writeBoardAtomic(board);
     return board;
   });
@@ -393,13 +419,28 @@ export async function setProjectsVisibility(
   });
 }
 
-export async function setSessionField(
-  sessionId: string,
-  patch: { status?: string; memo?: string },
-): Promise<BoardData> {
+function sessionWriteKeys(sessionId: string): { target: string; compatible: string[] } {
+  if (sessionId.startsWith("claude:")) {
+    const localId = sessionId.slice("claude:".length);
+    return { target: sessionId, compatible: [sessionId, localId] };
+  }
+  if (sessionId.startsWith("codex:")) return { target: sessionId, compatible: [sessionId] };
+  const target = `claude:${sessionId}`;
+  return { target, compatible: [target, sessionId] };
+}
+
+export interface SessionBoardPatch {
+  status?: string;
+  memo?: string;
+  pinned?: boolean;
+}
+
+export async function setSessionField(sessionId: string, patch: SessionBoardPatch): Promise<BoardData> {
   return withLock(async () => {
     const board = await readBoard();
-    const entry: SessionBoardEntry = { ...board.sessions[sessionId] };
+    const { target, compatible } = sessionWriteKeys(sessionId);
+    const entry: SessionBoardEntry = {};
+    for (const key of compatible) Object.assign(entry, board.sessions[key] ?? {});
     if (patch.status !== undefined) {
       const st = asStatus(patch.status);
       if (st) entry.status = st;
@@ -408,8 +449,15 @@ export async function setSessionField(
       if (patch.memo) entry.memo = patch.memo;
       else delete entry.memo;
     }
-    board.sessions[sessionId] = entry;
-    pruneIfEmpty(board.sessions, sessionId);
+    if (patch.pinned !== undefined) {
+      if (patch.pinned) entry.pinned = true;
+      else delete entry.pinned;
+    }
+    for (const key of compatible) {
+      if (key !== target) delete board.sessions[key];
+    }
+    board.sessions[target] = entry;
+    pruneIfEmpty(board.sessions, target);
     await writeBoardAtomic(board);
     return board;
   });

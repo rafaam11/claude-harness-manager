@@ -1,7 +1,7 @@
 export type ProviderId = "claude" | "codex";
 export type ProviderFilter = ProviderId | "all";
 export type EntityId = `${ProviderId}:${string}`;
-export type SessionKind = "main" | "worker" | "system" | "unknown";
+export type SessionKind = "main" | "worker" | "imported" | "system" | "unknown";
 
 export interface ProviderStatus {
   id: ProviderId;
@@ -30,6 +30,7 @@ export interface NormalizedSession {
   model?: string;
   startedAt?: string;
   updatedAt: string;
+  turnCount?: number;
   lastUserText?: string;
   lastAssistantText?: string;
   sourcePath?: string;
@@ -66,4 +67,28 @@ export interface NormalizedTimelineEvent {
   sourcePath?: string;
   lastUserText?: string;
   lastAssistantText?: string;
+  startedAt?: string;
+  turnCount?: number;
+  pinned?: boolean;
+}
+
+export type LiveSessionSource = "codex-rollout-lock" | "claude-hook";
+
+/** 실제 터미널 프로세스 생존을 검증해 얻은 실행 중 세션. 수동 board 상태와 무관하다. */
+export interface LiveSession {
+  id: EntityId;
+  provider: ProviderId;
+  projectId: EntityId | null;
+  sessionKind: SessionKind;
+  title: string;
+  cwd: string | null;
+  model: string | null;
+  updatedAt: string | null;
+  detectedAt: string;
+  source: LiveSessionSource;
+}
+
+export interface ClaudeLiveTrackingStatus {
+  installed: boolean;
+  hookPath: string;
 }

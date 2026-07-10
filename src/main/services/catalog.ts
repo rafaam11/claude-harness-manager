@@ -6,7 +6,7 @@ import { guardPath } from "../lib/path-guard.js";
 
 export interface CatalogItem {
   name: string;
-  kind: "skill" | "agent" | "command";
+  kind: "skill" | "agent" | "command" | "instruction" | "memory";
   description: string;
   path: string;
   size: number;

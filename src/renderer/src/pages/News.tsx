@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { marked } from "marked";
 import { api, fmtDay, fmtTime, fmtClock, fmtRelative } from "../api/client";
+import { renderMarkdownSafe } from "../markdown";
 import GitHubStars from "./GitHubStars";
 import type {
   NewsFeed,
@@ -884,7 +884,7 @@ function NewsDetail({
   }, [item.id]);
 
   const hasBody = item.source === "claude-code" && !!item.body;
-  const html = (md: string) => ({ __html: marked.parse(md) as string });
+  const html = (md: string) => ({ __html: renderMarkdownSafe(md) });
 
   return (
     <div className="cat-detail">

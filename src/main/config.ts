@@ -54,6 +54,10 @@ export const STAMP_PLAN_SESSION_HOOK_FILE = path.join(HOOKS_DIR, "stamp-plan-ses
 export const BOARD_FILE = path.join(CLAUDE_HOME, "harness-manager", "board.json");
 export const APP_BACKUP_DIR = path.join(APP_STATE_DIR, "backups");
 export const BOARD_FILE_V2 = path.join(APP_STATE_DIR, "board.json");
+// 실시간 실행 세션 추적은 앱 소유 상태만 사용한다. Claude hook도 이 경로에 설치된다.
+export const LIVE_SESSIONS_DIR = path.join(APP_STATE_DIR, "live-sessions");
+export const APP_HOOKS_DIR = path.join(APP_STATE_DIR, "hooks");
+export const CLAUDE_LIVE_SESSION_HOOK_FILE = path.join(APP_HOOKS_DIR, "claude-live-session.mjs");
 
 // --- News 탭 (라이브 뉴스 통합 피드) ---
 // 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).

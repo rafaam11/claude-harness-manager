@@ -158,3 +158,39 @@ describe("setPlanField", () => {
     expect(board.plans["old-plan.md"]).toBeUndefined();
   });
 });
+
+describe("setSessionField", () => {
+  it("stores a pin on the canonical Claude key and preserves other manual fields when unpinned", async () => {
+    const { setSessionField } = await loadBoardModule();
+
+    const pinned = await setSessionField("session-1", { status: "보류", memo: "다음 작업", pinned: true });
+    expect(pinned.sessions["claude:session-1"]).toEqual({
+      status: "보류",
+      memo: "다음 작업",
+      pinned: true,
+    });
+    expect(pinned.sessions["session-1"]).toBeUndefined();
+
+    const unpinned = await setSessionField("claude:session-1", { pinned: false });
+    expect(unpinned.sessions["claude:session-1"]).toEqual({ status: "보류", memo: "다음 작업" });
+  });
+});
+
+describe("setProjectsField", () => {
+  it("applies a merged-card patch to every provider member in one board write", async () => {
+    const { setProjectsField } = await loadBoardModule();
+
+    const board = await setProjectsField(["claude:C--repo", "codex:C--repo"], {
+      memo: "공유 메모",
+      nameOverride: "공유 이름",
+      tracks: [{ id: "track", title: "작업", items: [{ id: "item", text: "할 일", done: false }] }],
+    });
+
+    expect(board.projects["claude:C--repo"]).toMatchObject({
+      memo: "공유 메모",
+      nameOverride: "공유 이름",
+      tracks: [{ id: "track", title: "작업" }],
+    });
+    expect(board.projects["codex:C--repo"]).toEqual(board.projects["claude:C--repo"]);
+  });
+});

@@ -10,7 +10,6 @@ import type {
   SessionActivity,
 } from "@shared/provider-types";
 import { getProviders, prefixEntityId } from "../providers/registry.js";
-import { readCodexStateThreads, type CodexStateThread } from "../providers/codex-state.js";
 import { normalizePathKey } from "../lib/path-normalize.js";
 import {
   getProjectRecalls,
@@ -41,10 +40,6 @@ function decodeJson<T>(raw: string): T | null {
   } catch {
     return null;
   }
-}
-
-function isoFromEpoch(value: number): string {
-  return new Date(value < 1_000_000_000_000 ? value * 1000 : value).toISOString();
 }
 
 /** Windows FileShare.Read로 열리지 않는 rollout만 Codex CLI가 점유한 실행 중 파일로 본다. */
@@ -117,39 +112,38 @@ async function lockedRollouts(paths: string[]): Promise<Set<string>> {
 }
 
 async function liveCodexSessions(detectedAt: string): Promise<LiveSession[]> {
-  const threads = (await readCodexStateThreads()).filter(
-    (thread) => thread.source === "cli" && thread.threadSource === "user",
-  );
-  const locked = await lockedRollouts(threads.map((thread) => thread.rolloutPath));
-  if (!locked.size) return [];
   const provider = getProviders("codex")[0];
   const sessions = provider ? await provider.listSessions() : [];
-  const byId = new Map(sessions.map((session) => [session.id, session]));
-  return threads
-    .filter((thread) => locked.has(path.normalize(thread.rolloutPath)))
-    .map((thread) => codexLiveSession(thread, byId.get(`codex:${thread.id}`), detectedAt));
+  const candidates = sessions.filter(
+    (session): session is NormalizedSession & { sourcePath: string } =>
+      session.provider === "codex" && session.sessionKind === "main" && Boolean(session.sourcePath),
+  );
+  const locked = await lockedRollouts(candidates.map((session) => session.sourcePath));
+  if (!locked.size) return [];
+  return candidates
+    .filter((session) => locked.has(path.normalize(session.sourcePath)))
+    .map((session) => codexLiveSession(session, detectedAt));
 }
 
 function codexLiveSession(
-  thread: CodexStateThread,
-  session: NormalizedSession | undefined,
+  session: NormalizedSession,
   detectedAt: string,
 ): LiveSession {
   return {
-    id: (`codex:${thread.id}`) as LiveSession["id"],
+    id: session.id,
     provider: "codex",
-    projectId: session?.projectId ?? null,
-    sessionKind: session?.sessionKind ?? "main",
-    title: session?.title ?? thread.title ?? "(실행 중 Codex 세션)",
-    cwd: session?.cwd ?? thread.cwd,
-    model: session?.model ?? thread.model ?? null,
-    updatedAt: session?.updatedAt ?? isoFromEpoch(thread.updatedAt),
+    projectId: session.projectId ?? null,
+    sessionKind: session.sessionKind,
+    title: session.title ?? "(실행 중 Codex 세션)",
+    cwd: session.cwd ?? null,
+    model: session.model ?? null,
+    updatedAt: session.updatedAt,
     detectedAt,
     source: "codex-rollout-lock",
     activity: UNKNOWN_ACTIVITY,
     todos: null,
-    lastPrompt: session?.lastUserText ?? null,
-    lastAssistantSnippet: session?.lastAssistantText ?? null,
+    lastPrompt: session.lastUserText ?? null,
+    lastAssistantSnippet: session.lastAssistantText ?? null,
   };
 }
 

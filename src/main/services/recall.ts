@@ -23,6 +23,8 @@ import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { readBoardWithProjectRegistry } from "../lib/project-registry.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
+import { readClaudeLiveSessionRecords } from "./claude-live-tracking.js";
+import { runningProcessIds } from "../lib/process-liveness.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
 import type { ProviderId, SessionActivity, SessionKind, TranscriptMessage } from "@shared/provider-types";
 
@@ -960,11 +962,12 @@ export async function getPinnedProjectSessions(projectId: string): Promise<Sessi
 }
 
 export async function getTimeline(includeArchived = false): Promise<TimelineEvent[]> {
-  const [recalls, plans, board, sessionToPath] = await Promise.all([
+  const [recalls, plans, board, sessionToPath, liveRecords] = await Promise.all([
     getProjectRecalls(),
     getEnrichedPlans(includeArchived),
     readBoardWithProjectRegistry(),
     getSessionToPathMap(),
+    readClaudeLiveSessionRecords().then((records) => records.filter((record) => !record.endedAt)),
   ]);
   // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.
   // (없으면 plan 이벤트가 realPath:null로 떨어져 프론트 shortName이 다른 이름을 내는 버그가 난다.)
@@ -993,17 +996,42 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   for (const [sessionId, entry] of Object.entries(board.sessions)) {
     if (entry.pinned) requestedSessionIds.add(fromMaybePrefixedClaudeId(sessionId));
   }
+  // 실행 중 세션은 프로젝트의 "최신 transcript"가 아니어도 타임라인에 반드시 보인다 —
+  // 같은 프로젝트에서 동시 세션이 돌 때 덜 최근인 쪽이 실행 중 목록에만 뜨고 타임라인에서
+  // 빠지던 버그의 수정. PID 생존검증(재사용 오탐 방지)을 통과한 것만 강제 포함한다.
+  const liveTranscriptPaths = new Map<string, string>();
+  if (liveRecords.length) {
+    const running = await runningProcessIds(
+      liveRecords.map((record) => ({
+        id: record.sessionId,
+        pid: record.processPid,
+        startToken: record.processStartToken,
+      })),
+    );
+    for (const record of liveRecords) {
+      if (!running.has(record.sessionId)) continue;
+      requestedSessionIds.add(record.sessionId);
+      // sessionToPath 캐시(5s TTL)에 아직 없는 갓 시작한 세션은 레코드의 transcript 경로로 폴백.
+      // 손상된 레코드가 프로젝트 밖 경로를 가리키면 무시한다.
+      const rel = path.relative(PROJECTS_DIR, record.transcriptPath);
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+        liveTranscriptPaths.set(record.sessionId, record.transcriptPath);
+      }
+    }
+  }
   const missingSessionIds = [...requestedSessionIds].filter(
-    (sid) => !loadedSessionIds.has(sid) && sessionToPath.has(sid),
+    (sid) => !loadedSessionIds.has(sid) && (sessionToPath.has(sid) || liveTranscriptPaths.has(sid)),
   );
   const extraRecalls = (
     await Promise.all(
       missingSessionIds.map(async (sid) => {
-        const sp = sessionToPath.get(sid)!;
+        const sp = sessionToPath.get(sid);
+        const filePath = sp?.filePath ?? liveTranscriptPaths.get(sid)!;
+        const projectId = sp?.projectId ?? path.relative(PROJECTS_DIR, filePath).split(path.sep)[0];
         try {
-          const stat = await fs.stat(sp.filePath);
-          const recall = await readSessionRecallFromFile(sp.filePath, stat.size, stat.mtimeMs);
-          return { projectId: sp.projectId, recall };
+          const stat = await fs.stat(filePath);
+          const recall = await readSessionRecallFromFile(filePath, stat.size, stat.mtimeMs);
+          return { projectId, recall };
         } catch {
           return null; // 읽기 실패 — 계획은 기존 fallback(최근접 세션 or flat)으로
         }

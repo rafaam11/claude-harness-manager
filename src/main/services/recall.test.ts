@@ -3,6 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// getTimeline의 라이브 세션 강제 포함을 실제 OS 프로세스 없이 결정적으로 검증한다.
+vi.mock("../lib/process-liveness.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/process-liveness.js")>(
+    "../lib/process-liveness.js",
+  );
+  return {
+    ...actual,
+    runningProcessIds: async (identities: Array<{ id: string }>) =>
+      new Set(identities.map((identity) => identity.id)),
+  };
+});
+
 let homeDir = "";
 let previousHome = "";
 let previousUserProfile = "";
@@ -284,6 +296,47 @@ describe("recall provider-prefixed Claude ids", () => {
       expect.arrayContaining([
         expect.objectContaining({ sessionId: `claude:${pinnedSessionId}`, pinned: true }),
         expect.objectContaining({ sessionId: `claude:${latestSessionId}`, pinned: false }),
+      ]),
+    );
+  });
+
+  it("keeps an older live session on the timeline alongside the project's newest session", async () => {
+    const projectId = "D--repo";
+    const liveSessionId = "live-session";
+    const latestSessionId = "latest-session";
+    const transcript = (sessionId: string, prompt: string) =>
+      [
+        JSON.stringify({ type: "user", message: { content: prompt }, cwd: "C:/work/repo", sessionId }),
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: `${prompt} answer` }], model: "claude-sonnet-5" },
+          cwd: "C:/work/repo",
+          sessionId,
+        }),
+      ].join("\n");
+    const livePath = path.join(homeDir, ".claude", "projects", projectId, `${liveSessionId}.jsonl`);
+    const latestPath = path.join(homeDir, ".claude", "projects", projectId, `${latestSessionId}.jsonl`);
+    await writeText(livePath, transcript(liveSessionId, "live work"));
+    await writeText(latestPath, transcript(latestSessionId, "latest work"));
+    await fs.utimes(livePath, new Date("2026-07-01T00:00:00.000Z"), new Date("2026-07-01T00:00:00.000Z"));
+    await fs.utimes(latestPath, new Date("2026-07-02T00:00:00.000Z"), new Date("2026-07-02T00:00:00.000Z"));
+    await writeJson(path.join(homeDir, ".harness-manager", "live-sessions", "record.json"), {
+      sessionId: liveSessionId,
+      cwd: "C:/work/repo",
+      transcriptPath: livePath,
+      model: null,
+      processPid: 4242,
+      processStartToken: "token-4242",
+      startedAt: new Date().toISOString(),
+    });
+
+    const { getTimeline } = await loadRecallModule();
+    const timeline = await getTimeline();
+
+    expect(timeline.filter((event) => event.kind === "session")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionId: `claude:${liveSessionId}` }),
+        expect.objectContaining({ sessionId: `claude:${latestSessionId}` }),
       ]),
     );
   });

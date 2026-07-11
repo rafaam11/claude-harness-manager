@@ -22,6 +22,7 @@ import {
   type TimelineEvent,
   type WorkspaceProject,
 } from "./workspace-shared";
+import SessionTranscriptModal, { type SessionModalTarget } from "./SessionTranscriptModal";
 
 export const NONE_KEY = "__none__";
 interface Props {
@@ -39,6 +40,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [activeTab, setActiveTab] = useState<string>("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [modalTarget, setModalTarget] = useState<SessionModalTarget | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [hideMenu, setHideMenu] = useState<{ projectId: string; name: string; x: number; y: number } | null>(null);
@@ -329,7 +331,17 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     const live = e.kind === "session" && e.sessionId ? liveBySessionId.get(e.sessionId) : undefined;
     return (
       <div className={`timeline-row${isChild ? " timeline-row-child" : ""}${providerAccent}`} key={key}>
-        <div className="timeline-item" onClick={() => toggleExpand(key)}>
+        <div
+          className="timeline-item"
+          onClick={() => {
+            // 세션은 팝업으로 전체 대화, 계획은 기존 인라인 본문 펼침.
+            if (e.kind === "session") {
+              if (e.sessionId) setModalTarget({ sessionId: e.sessionId, title: e.title });
+            } else {
+              toggleExpand(key);
+            }
+          }}
+        >
           {e.kind === "plan" && <span className="bdg bdg-plan">PLAN</span>}
           {modelBadge && (
             <span className={`bdg ${modelBadge.className}`} title={modelBadge.title}>
@@ -365,9 +377,11 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
               {e.pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           )}
-          <span className="timeline-caret muted">{isOpen ? "▾" : "▸"}</span>
+          {e.kind === "plan" && <span className="timeline-caret muted">{isOpen ? "▾" : "▸"}</span>}
         </div>
-        {isOpen && <TimelineExpand e={e} />}
+        {isOpen && e.kind === "plan" && e.filename && (
+          <PlanBody filename={e.filename} archived={!!e.archived} />
+        )}
       </div>
     );
   };
@@ -507,8 +521,9 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
               session={session}
               projectName={liveProjectLabel(session)}
               projectKey={liveProjectKey(session)}
-              open={expanded.has(liveKey(session))}
-              onToggle={() => toggleExpand(liveKey(session))}
+              onOpen={() =>
+                setModalTarget({ sessionId: session.id, title: session.title, todos: session.todos })
+              }
             />
           ))}
         </section>
@@ -564,6 +579,7 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
           );
         })}
       </div>
+      <SessionTranscriptModal target={modalTarget} onClose={() => setModalTarget(null)} />
     </div>
   );
 }
@@ -699,10 +715,6 @@ export function elapsedLabel(since: string | null, now = Date.now()): string | n
   return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분째`;
 }
 
-function liveKey(session: LiveSession): string {
-  return `live:${session.id}`;
-}
-
 function ActivityBadge({ state }: { state: LiveActivityState }) {
   const meta = ACTIVITY_META[state] ?? ACTIVITY_META.unknown;
   return <span className={`bdg ${meta.className}`}>{meta.label}</span>;
@@ -721,14 +733,12 @@ function LiveSessionRow({
   session,
   projectName,
   projectKey,
-  open,
-  onToggle,
+  onOpen,
 }: {
   session: LiveSession;
   projectName: string;
   projectKey: string;
-  open: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
 }) {
   // 경과 시간이 계속 흐르도록 초 단위로 다시 그린다(폴링 응답은 상태가 안 바뀌면 동일하다).
   const [now, setNow] = useState(() => Date.now());
@@ -750,7 +760,7 @@ function LiveSessionRow({
 
   return (
     <div className={`timeline-row tl-provider-${session.provider}`}>
-      <div className="timeline-item timeline-live-item" onClick={onToggle}>
+      <div className="timeline-item timeline-live-item" onClick={onOpen}>
         <div className="tl-live-body">
           <div className="tl-live-line">
             <ActivityBadge state={session.activity.state} />
@@ -771,76 +781,13 @@ function LiveSessionRow({
             </div>
           )}
         </div>
-        <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
       </div>
-      {open && (
-        <>
-          <SnippetBody lastPrompt={session.lastPrompt} lastAssistantSnippet={session.lastAssistantSnippet} />
-          {todos && todos.items.length > 0 && <LiveTodoList items={todos.items} />}
-        </>
-      )}
     </div>
-  );
-}
-
-const TODO_MARK: Record<string, string> = { completed: "✓", in_progress: "▸", pending: "·" };
-
-function LiveTodoList({ items }: { items: NonNullable<LiveSession["todos"]>["items"] }) {
-  return (
-    <ul className="tl-live-todos">
-      {items.map((item) => (
-        <li key={item.id} className={`todo-${item.status}`}>
-          <span className="tl-todo-mark" aria-hidden="true">
-            {TODO_MARK[item.status] ?? "·"}
-          </span>
-          {item.status === "in_progress" ? item.activeForm ?? item.subject : item.subject}
-        </li>
-      ))}
-    </ul>
   );
 }
 
 function chipDotClass(status: BoardStatus | null): string {
   return status ? `st-${STATUSES.indexOf(status)}` : "st-none";
-}
-
-function SnippetBody({
-  lastPrompt,
-  lastAssistantSnippet,
-}: {
-  lastPrompt?: string | null;
-  lastAssistantSnippet?: string | null;
-}) {
-  if (!lastPrompt && !lastAssistantSnippet) {
-    return <div className="timeline-expand muted">표시할 내용이 없습니다.</div>;
-  }
-  return (
-    <div className="timeline-expand">
-      {lastPrompt && (
-        <p className="tl-prompt">
-          <span className="ws-line-k">마지막 입력</span> {lastPrompt}
-        </p>
-      )}
-      {lastAssistantSnippet && (
-        <div>
-          <span className="ws-line-k">마지막 응답</span>
-          <div
-            className="md-body ws-snippet-md"
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdownSafe(lastAssistantSnippet, { breaks: true }),
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TimelineExpand({ e }: { e: TimelineEvent }) {
-  if (e.kind === "plan" && e.filename) {
-    return <PlanBody filename={e.filename} archived={!!e.archived} />;
-  }
-  return <SnippetBody lastPrompt={e.lastPrompt} lastAssistantSnippet={e.lastAssistantSnippet} />;
 }
 
 function PlanBody({ filename, archived }: { filename: string; archived: boolean }) {

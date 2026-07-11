@@ -21,6 +21,7 @@ import {
   type SessionRecall,
   type WorkspaceProject,
 } from "./workspace-shared";
+import SessionTranscriptModal, { type SessionModalTarget } from "./SessionTranscriptModal";
 
 // 왼쪽 마스터 목록의 '미연결 계획' 가상 항목 식별자(프로젝트 id와 충돌 안 나는 센티넬)
 const UNASSIGNED = "__unassigned__";
@@ -613,6 +614,7 @@ function ProjectDetail({
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
   const [pinRevision, setPinRevision] = useState(0);
+  const [sessionModal, setSessionModal] = useState<SessionModalTarget | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const startEditName = () => {
@@ -626,6 +628,10 @@ function ProjectDetail({
   const writeSessionPin = async (sessionId: string, pinned: boolean) => {
     await api.post(`/api/workspace/board/session/${encodeURIComponent(sessionId)}`, { pinned });
     setPinRevision((revision) => revision + 1);
+  };
+  const openSession = (s: SessionRecall) => {
+    if (!s.sessionId) return;
+    setSessionModal({ sessionId: s.sessionId, title: s.aiTitle ?? s.lastPrompt ?? "(제목 없음)" });
   };
 
   return (
@@ -717,6 +723,7 @@ function ProjectDetail({
             refreshNonce={refreshNonce}
             pinRevision={pinRevision}
             onPinChange={writeSessionPin}
+            onOpenSession={openSession}
           />
           {hasClaudeMember && <MemorySection projectId={projectIds.find((id) => id.startsWith("claude:")) ?? p.id} />}
         </>
@@ -729,6 +736,7 @@ function ProjectDetail({
         refreshNonce={refreshNonce}
         pinRevision={pinRevision}
         onPinChange={writeSessionPin}
+        onOpenSession={openSession}
       />
 
       {r ? (
@@ -784,6 +792,7 @@ function ProjectDetail({
       <TrackEditor tracks={p.board.tracks} onSave={(tracks) => onPatch(p.id, { tracks })} />
         </>
       )}
+      <SessionTranscriptModal target={sessionModal} onClose={() => setSessionModal(null)} />
     </div>
   );
 }
@@ -812,15 +821,16 @@ function PinnedSessionsSection({
   refreshNonce,
   pinRevision,
   onPinChange,
+  onOpenSession,
 }: {
   projectIds: string[];
   refreshNonce: number;
   pinRevision: number;
   onPinChange: SessionPinWriter;
+  onOpenSession: (session: SessionRecall) => void;
 }) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const projectKey = projectIds.join("\n");
 
   useEffect(() => {
@@ -839,12 +849,6 @@ function PinnedSessionsSection({
     };
   }, [projectKey, refreshNonce, pinRevision]);
 
-  const toggle = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
   const togglePin = async (session: SessionRecall, pinned: boolean) => {
     if (!session.sessionId) return;
     setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned } : item)) ?? prev);
@@ -866,7 +870,7 @@ function PinnedSessionsSection({
         <Pin size={14} aria-hidden="true" /> 고정 세션 <span className="cat-count">{pinned.length}</span>
       </div>
       <div className="timeline">
-        <SessionRows sessions={pinned} expanded={expanded} onToggle={toggle} onPinChange={togglePin} />
+        <SessionRows sessions={pinned} onOpen={onOpenSession} onPinChange={togglePin} />
       </div>
     </section>
   );
@@ -877,15 +881,16 @@ function SessionsSection({
   refreshNonce,
   pinRevision,
   onPinChange,
+  onOpenSession,
 }: {
   projectIds: string[];
   refreshNonce: number;
   pinRevision: number;
   onPinChange: SessionPinWriter;
+  onOpenSession: (session: SessionRecall) => void;
 }) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [auxOpen, setAuxOpen] = useState(false);
   const projectKey = projectIds.join("\n");
   const prevKeyRef = useRef(projectKey);
@@ -910,12 +915,6 @@ function SessionsSection({
     };
   }, [projectKey, refreshNonce, pinRevision]);
 
-  const toggle = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
   const togglePin = async (session: SessionRecall, pinned: boolean) => {
     if (!session.sessionId) return;
     setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned } : item)) ?? prev);
@@ -936,8 +935,7 @@ function SessionsSection({
     <div className="timeline">
       <SessionRows
         sessions={sortWorkspaceSessionsPinnedFirst(primary)}
-        expanded={expanded}
-        onToggle={toggle}
+        onOpen={onOpenSession}
         onPinChange={togglePin}
       />
       {primary.length === 0 && <div className="muted">직접 대화 세션이 없습니다.</div>}
@@ -947,7 +945,7 @@ function SessionsSection({
             <span className="ws-plan-caret">{auxOpen ? "▾" : "▸"}</span>
             보조 활동 / worker 세션 <span className="cat-count">{auxiliary.length}</span>
           </button>
-          {auxOpen && <SessionRows sessions={auxiliary} expanded={expanded} onToggle={toggle} auxiliary />}
+          {auxOpen && <SessionRows sessions={auxiliary} onOpen={onOpenSession} auxiliary />}
         </>
       )}
     </div>
@@ -956,79 +954,49 @@ function SessionsSection({
 
 function SessionRows({
   sessions,
-  expanded,
-  onToggle,
+  onOpen,
   onPinChange,
   auxiliary = false,
 }: {
   sessions: SessionRecall[];
-  expanded: Set<string>;
-  onToggle: (key: string) => void;
+  onOpen: (session: SessionRecall) => void;
   onPinChange?: (session: SessionRecall, pinned: boolean) => void;
   auxiliary?: boolean;
 }) {
   return (
     <>
-      {sessions.map((s) => {
-        const key = s.transcriptPath;
-        const open = expanded.has(key);
-        return (
-          <div className={`timeline-row${auxiliary ? " timeline-row-child" : ""}`} key={key}>
-            <div className="timeline-item" onClick={() => onToggle(key)}>
-              {auxiliary && (
-                <span className="bdg bdg-model-missing">{auxiliarySessionLabel(s.sessionKind)}</span>
-              )}
-              {s.lastModel && (
-                <span className={`bdg ${modelBadgeClass(s.lastModel)}`} title={s.lastModel}>
-                  {modelDisplayName(s.lastModel)}
-                </span>
-              )}
-              <span className="timeline-time muted">
-                {fmtDay(s.transcriptMtime)} {s.pinned ? fmtClock(s.transcriptMtime) : fmtTime(s.transcriptMtime)}
+      {sessions.map((s) => (
+        <div className={`timeline-row${auxiliary ? " timeline-row-child" : ""}`} key={s.transcriptPath}>
+          <div className="timeline-item" onClick={() => onOpen(s)}>
+            {auxiliary && (
+              <span className="bdg bdg-model-missing">{auxiliarySessionLabel(s.sessionKind)}</span>
+            )}
+            {s.lastModel && (
+              <span className={`bdg ${modelBadgeClass(s.lastModel)}`} title={s.lastModel}>
+                {modelDisplayName(s.lastModel)}
               </span>
-              <span className="timeline-title">{s.aiTitle ?? s.lastPrompt ?? "(제목 없음)"}</span>
-              {s.turnCount != null && s.turnCount > 0 && <span className="t-tag">{s.turnCount}턴</span>}
-              {!auxiliary && onPinChange && isPinnableWorkspaceSession(s) && (
-                <button
-                  className={`ws-icon-btn timeline-pin-btn${s.pinned ? " active" : ""}`}
-                  aria-label={s.pinned ? "세션 고정 해제" : "세션 고정"}
-                  title={s.pinned ? "세션 고정 해제" : "세션 고정"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPinChange(s, !s.pinned);
-                  }}
-                >
-                  {s.pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                </button>
-              )}
-              <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
-            </div>
-            {open && (
-              <div className="timeline-expand">
-                {s.lastPrompt && (
-                  <p className="tl-prompt">
-                    <span className="ws-line-k">마지막 입력</span> {s.lastPrompt}
-                  </p>
-                )}
-                {s.lastAssistantSnippet && (
-                  <div>
-                    <span className="ws-line-k">마지막 응답</span>
-                    <div
-                      className="md-body ws-snippet-md"
-                      dangerouslySetInnerHTML={{
-                        __html: renderMarkdownSafe(s.lastAssistantSnippet, { breaks: true }),
-                      }}
-                    />
-                  </div>
-                )}
-                {!s.lastPrompt && !s.lastAssistantSnippet && (
-                  <div className="muted">표시할 내용이 없습니다.</div>
-                )}
-              </div>
+            )}
+            <span className="timeline-time muted">
+              {fmtDay(s.transcriptMtime)} {s.pinned ? fmtClock(s.transcriptMtime) : fmtTime(s.transcriptMtime)}
+            </span>
+            <span className="timeline-title">{s.aiTitle ?? s.lastPrompt ?? "(제목 없음)"}</span>
+            {s.turnCount != null && s.turnCount > 0 && <span className="t-tag">{s.turnCount}턴</span>}
+            {!auxiliary && onPinChange && isPinnableWorkspaceSession(s) && (
+              <button
+                className={`ws-icon-btn timeline-pin-btn${s.pinned ? " active" : ""}`}
+                aria-label={s.pinned ? "세션 고정 해제" : "세션 고정"}
+                title={s.pinned ? "세션 고정 해제" : "세션 고정"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPinChange(s, !s.pinned);
+                }}
+              >
+                {s.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+              </button>
             )}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </>
   );
 }

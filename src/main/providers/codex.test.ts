@@ -770,6 +770,72 @@ describe("codex provider", () => {
     });
   });
 
+  it("cleans a messy first prompt into a one-line title without touching lastUserText", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2messy-1111-7222-8333-444455556666";
+    const rawPrompt = "타임라인 탭이 느려.\n```\nError: boom at recall.ts:12\n```\n원인을 찾아서 고쳐줘.";
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T16-00-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T07:00:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T07:01:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: rawPrompt }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      title: "타임라인 탭이 느려.",
+      lastUserText: rawPrompt,
+    });
+  });
+
+  it("keeps explicit session_index thread names verbatim even when they look messy", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2named-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "session_index.jsonl"),
+      JSON.stringify({ id: sessionId, thread_name: "C:\\repo 정리. 그리고 배포", updated_at: "2026-07-05T08:01:00.000Z" }),
+    );
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T17-00-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T08:00:00.000Z",
+          type: "session_meta",
+          payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T08:01:00.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "긴 첫 프롬프트. 후속 문장." }],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]?.title).toBe("C:\\repo 정리. 그리고 배포");
+  });
+
   it("keeps warning-only Codex records out of the default session list", async () => {
     const codexHome = path.join(homeDir, ".codex");
     const sessionId = "019f2warn-1111-7222-8333-444455556666";
@@ -801,5 +867,64 @@ describe("codex provider", () => {
       lastUserText: undefined,
       sessionKind: "system",
     });
+  });
+});
+
+describe("heuristicCodexTitle", () => {
+  async function loadHeuristic() {
+    const { heuristicCodexTitle } = await loadCodexProvider();
+    return heuristicCodexTitle;
+  }
+
+  it("collapses newlines and extracts the first sentence", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("타임라인 탭을 고쳐줘.\n\n그리고   실행 중 세션도 개선해줘.")).toBe(
+      "타임라인 탭을 고쳐줘.",
+    );
+  });
+
+  it("strips fenced code blocks before picking the title", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("이 에러를 고쳐줘.\n```\nTypeError: x is not a function\n```")).toBe(
+      "이 에러를 고쳐줘.",
+    );
+  });
+
+  it("unwraps inline backticks", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("`recall.ts`의 버그를 수정해줘")).toBe("recall.ts의 버그를 수정해줘");
+  });
+
+  it("shortens absolute paths to their last segment", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("C:\\Users\\uiop3\\Desktop\\문서\\보고 자료를 요약해줘")).toBe(
+      "보고 자료를 요약해줘",
+    );
+    expect(heuristicCodexTitle("/home/user/proj/app.log 파일을 분석해줘")).toBe("app.log 파일을 분석해줘");
+  });
+
+  it("caps overlong prompts at 60 chars with an ellipsis", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    const result = heuristicCodexTitle("가나다라마바사아자차".repeat(10));
+    expect(result).toHaveLength(60);
+    expect(result?.endsWith("…")).toBe(true);
+  });
+
+  it("keeps short clean prompts unchanged", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("Provider UI를 고쳐줘")).toBe("Provider UI를 고쳐줘");
+    expect(heuristicCodexTitle("PR이 몇개 있는데 뭐지?")).toBe("PR이 몇개 있는데 뭐지?");
+  });
+
+  it("ignores sentence boundaries within the first few characters", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle("Dr. Kim의 코드를 리뷰해줘")).toBe("Dr. Kim의 코드를 리뷰해줘");
+  });
+
+  it("returns undefined for empty or code-only input", async () => {
+    const heuristicCodexTitle = await loadHeuristic();
+    expect(heuristicCodexTitle(undefined)).toBeUndefined();
+    expect(heuristicCodexTitle("   ")).toBeUndefined();
+    expect(heuristicCodexTitle("```\nconst x = 1;\n```")).toBeUndefined();
   });
 });

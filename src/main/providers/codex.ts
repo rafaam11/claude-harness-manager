@@ -125,6 +125,36 @@ function preferSessionKind(current: SessionKind, next: SessionKind): SessionKind
   return current;
 }
 
+const TITLE_MAX_CHARS = 60;
+/** 이 글자수 미만에서 나오는 마침표("Dr." 등)는 문장 경계로 보지 않는다. */
+const TITLE_MIN_SENTENCE_CHARS = 8;
+
+/**
+ * Codex 세션엔 CC의 ai-title 같은 요약 제목이 없어 첫 프롬프트 원문이 그대로 제목이 된다 —
+ * 코드펜스·경로 노이즈를 걷어내고 첫 문장만 남겨 한 줄 제목으로 정제한다(생성 요약은 아님).
+ * 정제 결과가 비면 undefined를 돌려 호출부가 원문으로 폴백하게 한다.
+ */
+export function heuristicCodexTitle(rawText: string | undefined): string | undefined {
+  if (!rawText) return undefined;
+  const text = rawText
+    .replace(/```[\s\S]*?(?:```|$)/g, " ") // 코드펜스는 미종결 꼬리까지 통째로 제거
+    .replace(/`([^`\n]*)`/g, "$1")
+    .replace(/\s+/g, " ")
+    // 절대경로는 마지막 세그먼트만 남긴다("C:\…\보고 에서" → "보고 에서" — 문장 구조 보존).
+    // 앞이 공백/문두일 때만 매치해 URL("https://…")을 드라이브 문자로 오인하지 않는다.
+    .replace(/(^|\s)[A-Za-z]:[\\/](?:[^\s\\/]+[\\/])*([^\s\\/]+)/g, "$1$2")
+    .replace(/(^|\s)\/(?:[^\s/]+\/)+([^\s/]+)/g, "$1$2")
+    .trim();
+  if (!text) return undefined;
+  const boundary = text.slice(TITLE_MIN_SENTENCE_CHARS - 1).match(/[.!?。](?=\s|$)/);
+  const sentence =
+    boundary?.index != null ? text.slice(0, TITLE_MIN_SENTENCE_CHARS + boundary.index).trim() : text;
+  if (sentence.length > TITLE_MAX_CHARS) {
+    return `${sentence.slice(0, TITLE_MAX_CHARS - 1).trimEnd()}…`;
+  }
+  return sentence || undefined;
+}
+
 function userTextFromContent(content: unknown): string | null {
   if (typeof content === "string") {
     const text = content.trim();
@@ -564,9 +594,11 @@ async function readCodexSessionsUncached(): Promise<CodexSessionSummary[]> {
         (value): value is string => Boolean(value),
       );
       const updatedAt = updateCandidates.sort((a, b) => parseTimeMs(b) - parseTimeMs(a))[0] ?? session.updatedAt;
+      // 사용자가 직접 붙인 thread_name은 그대로 쓰고, 프롬프트 유래 제목만 휴리스틱으로 정제한다.
+      const rawTitle = h?.firstText ?? session.firstUserText ?? session.title;
       const overlaid: CodexSessionSummary = {
         ...session,
-        title: indexed?.threadName ?? h?.firstText ?? session.firstUserText ?? session.title,
+        title: indexed?.threadName ?? heuristicCodexTitle(rawTitle) ?? rawTitle,
         firstUserText: h?.firstText ?? session.firstUserText,
         lastUserText: h?.lastText ?? session.lastUserText,
         startedAt: session.startedAt ?? h?.firstAt,
@@ -734,7 +766,11 @@ export const codexProvider: ProviderAdapter = {
       provider: "codex" as const,
       projectId: session.projectId,
       sessionKind: session.sessionKind,
-      title: session.title ?? session.lastUserText ?? path.basename(session.sourcePath),
+      title:
+        session.title ??
+        heuristicCodexTitle(session.lastUserText) ??
+        session.lastUserText ??
+        path.basename(session.sourcePath),
       cwd: session.cwd,
       model: session.model,
       startedAt: session.startedAt,

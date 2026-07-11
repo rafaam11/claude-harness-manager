@@ -110,21 +110,21 @@ describe("usage aggregation", () => {
 describe("Claude capture settings", () => {
   it("wraps an existing statusLine command and can restore it", () => {
     const current = {
-      statusLine: { type: "command", command: "node C:/Users/me/.claude/hud/omc-hud.mjs" },
+      statusLine: { type: "command", command: "node C:/Users/me/.claude/statusline/custom-status.mjs" },
     };
     const proxyCommand = 'node "C:\\Users\\me\\.harness-manager\\usage\\claude-usage-proxy.mjs"';
 
     const setup = buildClaudeCaptureSettings(current, proxyCommand);
 
     expect(setup.changed).toBe(true);
-    expect(setup.originalCommand).toBe("node C:/Users/me/.claude/hud/omc-hud.mjs");
+    expect(setup.originalCommand).toBe("node C:/Users/me/.claude/statusline/custom-status.mjs");
     expect(setup.next.statusLine).toEqual({ type: "command", command: proxyCommand });
 
     const restored = restoreClaudeCaptureSettings(setup.next, proxyCommand, setup.originalCommand);
     expect(restored.changed).toBe(true);
     expect(restored.next.statusLine).toEqual({
       type: "command",
-      command: "node C:/Users/me/.claude/hud/omc-hud.mjs",
+      command: "node C:/Users/me/.claude/statusline/custom-status.mjs",
     });
   });
 });

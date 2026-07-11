@@ -322,7 +322,7 @@ describe("codex provider", () => {
     expect(sessions.find((s) => s.id === `codex:${rolloutOnlySessionId}`)?.title).toBe("rollout only prompt");
   });
 
-  it("classifies direct user sessions separately from OMX/subagent worker sessions", async () => {
+  it("classifies direct user sessions separately from delegated worker sessions", async () => {
     const codexHome = path.join(homeDir, ".codex");
     const mainSessionId = "019f2main-1111-7222-8333-444455556666";
     const workerSessionId = "019f2work-1111-7222-8333-444455556666";

@@ -63,7 +63,7 @@ describe("provider workspace selection", () => {
     );
   });
 
-  it("keeps OMX/subagent worker sessions out of the default session list", () => {
+  it("keeps worker sessions out of the default session list", () => {
     const base = {
       sessionId: null,
       aiTitle: null,

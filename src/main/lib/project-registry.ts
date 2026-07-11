@@ -477,8 +477,10 @@ function applyDiscovery(
       candidate.updatedAt = now;
     }
     const refs = project.providerRefs[discovery.source];
+    // Manual/relink wins over discovery — shared registry contract with multi-cli-work.
     if (
       refs.includes(providerRef) &&
+      !project.sources.includes("manual") &&
       normalizeProjectPath(project.rootPath) !== normalizeProjectPath(discovery.rootPath)
     ) {
       project.rootPath = resolvedProjectPath(discovery.rootPath);

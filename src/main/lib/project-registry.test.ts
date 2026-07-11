@@ -304,6 +304,90 @@ describe("project path reconciliation", () => {
     expect(Object.keys(moved.projects)).toEqual([projectId]);
     expect(moved.projects[projectId].rootPath).toBe(path.resolve(movedRoot));
   });
+
+  it("keeps rootPath when a manual source claims the project, even if the provider alias moved", async () => {
+    const filePath = await temporaryRegistryPath();
+    const timestamp = "2026-07-11T12:00:00.000Z";
+    const projectId = "3b6c1a2d-9e4f-4a11-8c3d-2f5a6b7c8d9e";
+    const originalRoot = path.join(path.dirname(filePath), "original");
+    const movedRoot = path.join(path.dirname(filePath), "moved");
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: timestamp,
+        projects: {
+          [projectId]: {
+            id: projectId,
+            rootPath: originalRoot,
+            displayName: null,
+            sources: ["manual", "claude"],
+            providerRefs: { claude: ["C--repo"], codex: [] },
+            status: null,
+            memo: "",
+            tracks: [],
+            hidden: false,
+            order: null,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const reconciled = await reconcileDiscoveredProjects(
+      [{ rootPath: movedRoot, source: "claude", providerRef: "C--repo" }],
+      { filePath, now: () => new Date("2026-07-11T13:00:00.000Z") },
+    );
+
+    expect(Object.keys(reconciled.projects)).toEqual([projectId]);
+    expect(reconciled.projects[projectId].rootPath).toBe(originalRoot);
+    expect(reconciled.projects[projectId].providerRefs.claude).toEqual(["C--repo"]);
+    expect(reconciled.projects[projectId].sources).toEqual(["manual", "claude"]);
+    expect(reconciled.projects[projectId].updatedAt).toBe(timestamp);
+  });
+
+  it("still moves rootPath when only the provider alias matches and no manual source claims the project", async () => {
+    const filePath = await temporaryRegistryPath();
+    const timestamp = "2026-07-11T12:00:00.000Z";
+    const projectId = "7a1e4c2b-6d3f-4b22-9a1c-4e5f6a7b8c9d";
+    const originalRoot = path.join(path.dirname(filePath), "original");
+    const movedRoot = path.join(path.dirname(filePath), "moved");
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: timestamp,
+        projects: {
+          [projectId]: {
+            id: projectId,
+            rootPath: originalRoot,
+            displayName: null,
+            sources: ["claude", "codex"],
+            providerRefs: { claude: ["C--repo"], codex: [] },
+            status: null,
+            memo: "",
+            tracks: [],
+            hidden: false,
+            order: null,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const reconciled = await reconcileDiscoveredProjects(
+      [{ rootPath: movedRoot, source: "claude", providerRef: "C--repo" }],
+      { filePath, now: () => new Date("2026-07-11T13:00:00.000Z") },
+    );
+
+    expect(Object.keys(reconciled.projects)).toEqual([projectId]);
+    expect(reconciled.projects[projectId].rootPath).toBe(path.resolve(movedRoot));
+    expect(reconciled.projects[projectId].updatedAt).toBe("2026-07-11T13:00:00.000Z");
+  });
 });
 
 describe("project registry persistence", () => {

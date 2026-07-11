@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProjectRegistryV1 } from "@shared/project-registry";
 import {
   ProjectRegistryLockTimeoutError,
   migrateBoardProjectsToRegistry,
   overlayProjectRegistryOnBoard,
+  projectRegistryNeedsReconciliation,
   readProjectRegistry,
   reconcileDiscoveredProjects,
   setRegistryProjectsField,
@@ -387,6 +389,54 @@ describe("project path reconciliation", () => {
     expect(Object.keys(reconciled.projects)).toEqual([projectId]);
     expect(reconciled.projects[projectId].rootPath).toBe(path.resolve(movedRoot));
     expect(reconciled.projects[projectId].updatedAt).toBe("2026-07-11T13:00:00.000Z");
+  });
+});
+
+describe("projectRegistryNeedsReconciliation", () => {
+  const timestamp = "2026-07-11T12:00:00.000Z";
+  const projectId = "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
+
+  function makeRegistry(sources: Array<"manual" | "claude" | "codex">): ProjectRegistryV1 {
+    return {
+      schemaVersion: 1,
+      updatedAt: timestamp,
+      projects: {
+        [projectId]: {
+          id: projectId,
+          rootPath: "C:\\work\\original",
+          displayName: "Existing name",
+          sources,
+          providerRefs: { claude: ["C--repo"], codex: [] },
+          status: null,
+          memo: "",
+          tracks: [],
+          hidden: false,
+          order: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    };
+  }
+
+  it("is false for a manual project even when the discovered rootPath differs", () => {
+    const registry = makeRegistry(["manual", "claude"]);
+
+    expect(
+      projectRegistryNeedsReconciliation(registry, [
+        { rootPath: "C:\\work\\moved", source: "claude", providerRef: "C--repo" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is true when the discovered rootPath differs and no manual source claims the project", () => {
+    const registry = makeRegistry(["claude", "codex"]);
+
+    expect(
+      projectRegistryNeedsReconciliation(registry, [
+        { rootPath: "C:\\work\\moved", source: "claude", providerRef: "C--repo" },
+      ]),
+    ).toBe(true);
   });
 });
 

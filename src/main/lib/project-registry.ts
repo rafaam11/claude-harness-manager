@@ -516,7 +516,14 @@ export function projectRegistryNeedsReconciliation(
   return discoveries.some((discovery) => {
     const project = findProjectForDiscovery(registry, discovery);
     if (!project || !project.sources.includes(discovery.source)) return true;
-    if (normalizeProjectPath(project.rootPath) !== normalizeProjectPath(discovery.rootPath)) return true;
+    // Mirrors applyDiscovery's manual/relink guard: a resolved rootPath mismatch on a manual
+    // project isn't a reconciliation trigger, it's the durable state.
+    if (
+      !project.sources.includes("manual") &&
+      normalizeProjectPath(project.rootPath) !== normalizeProjectPath(discovery.rootPath)
+    ) {
+      return true;
+    }
     if (discovery.source !== "manual" && discovery.providerRef) {
       const providerRef = canonicalProviderRef(discovery.source, discovery.providerRef);
       if (!project.providerRefs[discovery.source].includes(providerRef)) return true;

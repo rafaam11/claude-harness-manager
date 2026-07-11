@@ -622,8 +622,6 @@ pre.viewer {
 }
 .timeline-time { font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .timeline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timeline-proj { font-size: 11px; flex-shrink: 0; }
-.timeline-item .ws-select { flex-shrink: 0; }
 .timeline-pin-btn {
   display: inline-grid;
   place-items: center;
@@ -655,6 +653,96 @@ pre.viewer {
 .bdg-model-missing { background: #6b7280; opacity: 0.82; }
 .bdg-model-missing-claude { background: #d97706; }
 .bdg-model-missing-codex { background: #14b8a6; }
+
+/* 실행 중 세션의 활동 상태. await(주황)는 "내가 움직여야 진행된다"는 뜻이라 눈에 띄어야 한다. */
+.bdg-act-working { background: #16a34a; }
+.bdg-act-working::before {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: tl-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .bdg-act-working::before { animation: none; }
+}
+.bdg-act-idle { background: #6b7280; }
+.bdg-act-await { background: #f59e0b; }
+
+/* 프로젝트 색: id 해시로 고정(이름을 바꿔도 색이 안 바뀐다) */
+.pt-0 { --pt-tone: #6366f1; }
+.pt-1 { --pt-tone: #10b981; }
+.pt-2 { --pt-tone: #f59e0b; }
+.pt-3 { --pt-tone: #ec4899; }
+.pt-4 { --pt-tone: #06b6d4; }
+.pt-5 { --pt-tone: #a855f7; }
+.pt-6 { --pt-tone: #ef4444; }
+.pt-7 { --pt-tone: #84cc16; }
+.tl-tone-dot {
+  flex-shrink: 0;
+  width: 7px; height: 7px;
+  border-radius: 999px;
+  background: var(--pt-tone, var(--muted));
+}
+.timeline-proj-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--pt-tone, var(--muted)) 55%, var(--text));
+}
+
+/* 날짜 안의 프로젝트 하위 그룹 */
+.tl-proj-group { margin: 2px 0 8px; }
+.tl-proj-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  margin-bottom: 1px;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 3px solid var(--pt-tone, var(--border));
+  background: color-mix(in srgb, var(--pt-tone, transparent) 6%, transparent);
+}
+.tl-proj-head:hover { background: color-mix(in srgb, var(--pt-tone, transparent) 14%, var(--active-bg)); }
+.tl-proj-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--pt-tone) 45%, var(--text));
+}
+.tl-proj-group .timeline-row { margin-left: 10px; }
+
+/* 실행 중 세션 카드: 상태줄 / 제목줄 / 상세줄 3단 */
+.timeline-live-item { align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+.tl-live-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.tl-live-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tl-live-since { font-size: 11px; font-variant-numeric: tabular-nums; }
+.tl-live-sub {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-live-todos {
+  margin: 0 0 10px;
+  padding: 2px 0 0 39px;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tl-live-todos li { display: flex; gap: 6px; padding: 1px 0; }
+.tl-live-todos .tl-todo-mark { flex-shrink: 0; width: 10px; text-align: center; }
+.tl-live-todos .todo-completed { opacity: 0.55; text-decoration: line-through; }
+.tl-live-todos .todo-in_progress { color: var(--text); font-weight: 600; }
 
 .ws-pinned-sessions { margin: 12px 0; }
 .ws-pinned-sessions .timeline { margin-top: 4px; }

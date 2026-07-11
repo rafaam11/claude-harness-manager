@@ -24,7 +24,7 @@ export interface SessionRecall {
 export interface SessionTodos {
   total: number;
   done: number;
-  items: { id: string; subject: string; status: string }[];
+  items: { id: string; subject: string; status: string; activeForm?: string }[];
 }
 
 // 프로젝트 트랙(작업 갈래)과 그 안의 할 일. CC 세션과 무관한 앱 소유 데이터.
@@ -160,6 +160,18 @@ export function buildProjNameMap(projects: WorkspaceProject[]): Map<string, stri
   const m = new Map<string, string>();
   for (const p of projects) m.set(p.id, displayName(p));
   return m;
+}
+
+/**
+ * 프로젝트 식별자 → 고정 색 클래스(`pt-0`…`pt-7`). 같은 프로젝트는 어느 화면에서든 같은 색이 나오도록
+ * 이름이 아니라 id를 해싱한다(이름 변경으로 색이 바뀌면 눈이 다시 학습해야 한다).
+ */
+export const PROJECT_TONES = 8;
+
+export function projectTone(key: string): string {
+  let hash = 5381;
+  for (let i = 0; i < key.length; i += 1) hash = ((hash << 5) + hash + key.charCodeAt(i)) | 0;
+  return `pt-${Math.abs(hash) % PROJECT_TONES}`;
 }
 
 /** 이름 첫 글자 대문자화("sonnet" → "Sonnet") */

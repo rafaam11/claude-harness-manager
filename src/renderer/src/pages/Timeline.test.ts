@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  NONE_KEY,
+  activityDetailText,
   canHideTimelineProjectTab,
+  elapsedLabel,
   filterTimelineEventsForVisibleProjects,
+  groupTimelineByDayAndProject,
   isPinnableTimelineSession,
   isTopLevelTimelineEvent,
   timelineModelBadge,
 } from "./Timeline";
+import type { LiveSession } from "@shared/provider-types";
 import type { TimelineEvent } from "./workspace-shared";
 
 const base = {
@@ -103,5 +108,65 @@ describe("timeline top-level filtering", () => {
     expect(
       isPinnableTimelineSession({ ...base, kind: "session", sessionId: "claude:worker", provider: "claude", sessionKind: "worker" }),
     ).toBe(false);
+  });
+});
+
+describe("날짜 → 프로젝트 2단 그룹", () => {
+  const day = (ts: number) => (ts >= 200 ? "2026-07-11" : "2026-07-10");
+  const key = (e: TimelineEvent) => e.projectId ?? NONE_KEY;
+  const name = (e: TimelineEvent) => e.projectId ?? "프로젝트 없음";
+  const ev = (ts: number, projectId: `claude:${string}` | null): TimelineEvent => ({
+    ...base,
+    ts,
+    projectId,
+    kind: "session",
+    sessionId: `claude:s-${ts}`,
+  });
+
+  it("하루 안에서 프로젝트별로 접고, 최근 활동이 있는 프로젝트를 위로 올린다", () => {
+    // 최신순 입력(서버가 이미 내림차순으로 준다). alpha가 220으로 더 최근이므로 beta보다 위여야 한다.
+    const days = groupTimelineByDayAndProject(
+      [ev(220, "claude:alpha"), ev(210, "claude:beta"), ev(205, "claude:alpha"), ev(150, "claude:beta")],
+      key,
+      name,
+      day,
+    );
+
+    expect(days.map((d) => d.day)).toEqual(["2026-07-11", "2026-07-10"]);
+    expect(days[0].projects.map((p) => ({ key: p.key, count: p.items.length }))).toEqual([
+      { key: "claude:alpha", count: 2 },
+      { key: "claude:beta", count: 1 },
+    ]);
+    expect(days[1].projects.map((p) => p.key)).toEqual(["claude:beta"]);
+    // 같은 프로젝트는 어느 날짜에서든 같은 색을 받아야 눈이 색으로 프로젝트를 기억할 수 있다.
+    expect(days[0].projects[1].tone).toBe(days[1].projects[0].tone);
+  });
+
+  it("프로젝트 없는 이벤트는 하루의 맨 뒤로 민다", () => {
+    const days = groupTimelineByDayAndProject([ev(230, null), ev(210, "claude:alpha")], key, name, day);
+
+    expect(days[0].projects.map((p) => p.key)).toEqual(["claude:alpha", NONE_KEY]);
+  });
+});
+
+describe("실행 중 세션 상태 문구", () => {
+  const live = (activity: LiveSession["activity"]): LiveSession =>
+    ({ activity }) as LiveSession;
+
+  it("사용자 액션을 기다리는 상태를 작업 중과 다르게 설명한다", () => {
+    expect(activityDetailText(live({ state: "working", since: null, tool: "Bash" }))).toBe("Bash 실행 중");
+    expect(activityDetailText(live({ state: "working", since: null, tool: null }))).toBe("응답 생성 중");
+    expect(activityDetailText(live({ state: "awaiting-approval", since: null, tool: "ExitPlanMode" }))).toBe(
+      "계획을 제출하고 승인을 기다리는 중",
+    );
+    expect(activityDetailText(live({ state: "unknown", since: null, tool: null }))).toBeNull();
+  });
+
+  it("상태 지속 시간을 사람이 읽는 단위로 준다", () => {
+    const now = Date.parse("2026-07-11T10:00:00.000Z");
+    expect(elapsedLabel("2026-07-11T09:59:30.000Z", now)).toBe("30초째");
+    expect(elapsedLabel("2026-07-11T09:56:00.000Z", now)).toBe("4분째");
+    expect(elapsedLabel("2026-07-11T08:35:00.000Z", now)).toBe("1시간 25분째");
+    expect(elapsedLabel(null, now)).toBeNull();
   });
 });

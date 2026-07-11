@@ -22,7 +22,7 @@ import { getSessionTodos, type SessionTodos } from "./tasks.js";
 import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
-import type { ProviderId, SessionKind } from "@shared/provider-types";
+import type { ProviderId, SessionActivity, SessionKind } from "@shared/provider-types";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -43,6 +43,8 @@ export interface SessionRecall {
   truncatedScan: boolean; // tail만 읽었는지
   startedAt?: number | null;
   turnCount?: number | null;
+  /** 살아있는 세션의 현재 상태(작업 중/대기 중/승인 대기). transcript에서만 얻으므로 Claude 세션에만 있다. */
+  activity?: SessionActivity;
 }
 
 export interface ProjectRecall {
@@ -181,6 +183,26 @@ export function isDirectSessionRecall(session: Pick<SessionRecall, "sessionKind"
 }
 
 // --- transcript 파싱 ---
+
+/**
+ * 활동 상태 판별에 쓰는 "마지막 의미 있는 줄". 순방향 스캔이라 마지막에 남는 값이 곧 마지막 줄이다.
+ * turn-end는 CC가 턴을 끝낼 때 스스로 붙이는 system 줄(turn_duration / stop_hook_summary).
+ */
+export interface ActivityMark {
+  kind: "assistant" | "user" | "turn-end";
+  ts: string | null;
+  tool: string | null; // assistant 줄의 마지막 tool_use 이름
+  endTurn: boolean; // assistant 줄의 stop_reason === "end_turn"
+}
+
+/** 턴을 끝냈다고 CC가 직접 남기는 system 줄. 다른 subtype(hook 출력 등)은 턴 중간에도 나오므로 무시한다. */
+const TURN_END_SUBTYPES = new Set(["turn_duration", "stop_hook_summary"]);
+/** 호출해 놓고 사용자 응답을 기다리며 멈추는 도구들. tool_result가 붙으면 자연히 다음 줄로 밀린다. */
+const BLOCKING_TOOLS: Record<string, "awaiting-approval" | "awaiting-input"> = {
+  ExitPlanMode: "awaiting-approval",
+  AskUserQuestion: "awaiting-input",
+};
+
 interface RecallAcc {
   sessionId: string | null;
   sessionKind: SessionKind;
@@ -190,6 +212,28 @@ interface RecallAcc {
   cwd: string | null;
   gitBranch: string | null;
   lastModel: string | null;
+  activity: ActivityMark | null;
+}
+
+function lastToolUseName(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  let name: string | null = null;
+  for (const c of content) {
+    if (c?.type === "tool_use" && typeof c.name === "string") name = c.name;
+  }
+  return name;
+}
+
+/** 마지막 줄의 모양만으로 세션이 지금 일하는 중인지 나를 기다리는 중인지 정한다. */
+export function resolveSessionActivity(mark: ActivityMark | null): SessionActivity {
+  if (!mark) return { state: "unknown", since: null, tool: null };
+  if (mark.kind === "turn-end") return { state: "idle", since: mark.ts, tool: null };
+  if (mark.kind === "user") return { state: "working", since: mark.ts, tool: null };
+
+  const blocking = mark.tool ? BLOCKING_TOOLS[mark.tool] : undefined;
+  if (blocking) return { state: blocking, since: mark.ts, tool: mark.tool };
+  if (mark.endTurn) return { state: "idle", since: mark.ts, tool: null };
+  return { state: "working", since: mark.ts, tool: mark.tool };
 }
 
 function firstNonEmptyText(content: unknown): string | null {
@@ -278,9 +322,27 @@ function applyLine(line: string, acc: RecallAcc) {
   } catch {
     return;
   }
+  // 서브에이전트(sidechain) 줄은 메인 대화의 진행 상태가 아니다.
+  const marksActivity = o?.isSidechain !== true;
+  const ts = typeof o?.timestamp === "string" ? o.timestamp : null;
+
   switch (o?.type) {
     case "ai-title":
       if (typeof o.aiTitle === "string" && o.aiTitle.trim()) acc.aiTitle = o.aiTitle;
+      break;
+    case "last-prompt":
+      // CC가 턴 끝에 붙이는 합성 줄. 보통 아래 user 줄과 중복이지만, 도구 출력이 커서 tail이
+      // 사용자 프롬프트까지 못 닿은 세션(실행 중 세션에서 흔하다)에선 이게 유일한 단서다.
+      if (typeof o.lastPrompt === "string") {
+        const t = o.lastPrompt.trim();
+        if (t && !isInjectedClaudeText(t)) acc.lastPrompt = t;
+      }
+      break;
+    case "system":
+      // CC가 턴을 끝내며 스스로 붙이는 줄. 이게 마지막이면 사용자 입력을 기다리는 중이다.
+      if (marksActivity && typeof o.subtype === "string" && TURN_END_SUBTYPES.has(o.subtype)) {
+        acc.activity = { kind: "turn-end", ts, tool: null, endTurn: true };
+      }
       break;
     case "assistant": {
       const text = firstNonEmptyText(o.message?.content);
@@ -289,12 +351,22 @@ function applyLine(line: string, acc: RecallAcc) {
       if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
       if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
       if (typeof o.message?.model === "string") acc.lastModel = o.message.model;
+      if (marksActivity) {
+        acc.activity = {
+          kind: "assistant",
+          ts,
+          tool: lastToolUseName(o.message?.content),
+          endTurn: o.message?.stop_reason === "end_turn",
+        };
+      }
       break;
     }
     case "user":
       if (typeof o.cwd === "string") acc.cwd = o.cwd;
       if (typeof o.gitBranch === "string") acc.gitBranch = o.gitBranch;
       if (typeof o.sessionId === "string") acc.sessionId = o.sessionId;
+      // 사용자 프롬프트든 tool_result든, user 줄이 마지막이면 모델이 곧 응답할 차례다.
+      if (marksActivity) acc.activity = { kind: "user", ts, tool: null, endTurn: false };
       // 실제 사용자가 타이핑한 프롬프트만(문자열 content). tool_result·interrupt 알림 등은
       // content가 배열이라 자연히 제외되고, 커맨드/시스템 wrapper(`<...>`)도 collectUserPrompts와
       // 동일한 기준으로 걸러낸다. ai-title/last-prompt 합성 라인이 없는(오래됐거나 훅 미발동)
@@ -382,6 +454,7 @@ async function readSessionRecallFromFile(
     cwd: null,
     gitBranch: null,
     lastModel: null,
+    activity: null,
   };
 
   const { text, truncated } = await readTail(filePath, size);
@@ -412,6 +485,7 @@ async function readSessionRecallFromFile(
     transcriptPath: filePath,
     transcriptMtime: mtime,
     truncatedScan: truncated,
+    activity: resolveSessionActivity(acc.activity),
   };
 }
 
@@ -714,12 +788,29 @@ async function getProjectMemberIds(projectId: string): Promise<string[]> {
   return group ? group.memberIds : [localProjectId];
 }
 
-/** live-session hook이 알려준 transcript 하나를 안전하게 보강한다. */
+/**
+ * live-session hook이 알려준 transcript 하나를 안전하게 보강한다.
+ * 실행 중 세션 폴링(2초)이 이 경로를 계속 두드리므로, 파일이 그대로면 stat만 하고 끝낸다
+ * (캐시가 없으면 매 폴링마다 tail 512KB를 다시 읽는다).
+ */
+const RECALL_BY_PATH_CACHE_MAX = 32;
+const recallByPath = new Map<string, { key: string; recall: SessionRecall }>();
+
 export async function getSessionRecallByTranscriptPath(filePath: string): Promise<SessionRecall | null> {
   const guarded = guardPath(filePath);
   try {
     const stat = await fs.stat(guarded);
-    return readSessionRecallFromFile(guarded, stat.size, stat.mtimeMs);
+    const key = `${stat.mtimeMs}:${stat.size}`;
+    const hit = recallByPath.get(guarded);
+    if (hit?.key === key) return hit.recall;
+
+    const recall = await readSessionRecallFromFile(guarded, stat.size, stat.mtimeMs);
+    recallByPath.set(guarded, { key, recall });
+    if (recallByPath.size > RECALL_BY_PATH_CACHE_MAX) {
+      const oldest = recallByPath.keys().next().value;
+      if (oldest !== undefined) recallByPath.delete(oldest);
+    }
+    return recall;
   } catch {
     return null;
   }

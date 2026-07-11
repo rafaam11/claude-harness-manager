@@ -2,7 +2,13 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { LiveSession, NormalizedSession, ProviderFilter } from "@shared/provider-types";
+import type {
+  LiveSession,
+  LiveSessionTodos,
+  NormalizedSession,
+  ProviderFilter,
+  SessionActivity,
+} from "@shared/provider-types";
 import { getProviders, prefixEntityId } from "../providers/registry.js";
 import { readCodexStateThreads, type CodexStateThread } from "../providers/codex-state.js";
 import { normalizePathKey } from "../lib/path-normalize.js";
@@ -11,7 +17,11 @@ import {
   getSessionRecallByTranscriptPath,
   isDirectSessionRecall,
 } from "./recall.js";
+import { getSessionTodos } from "./tasks.js";
 import { readClaudeLiveSessionRecords, type ClaudeLiveSessionRecord } from "./claude-live-tracking.js";
+
+/** Codex rollout에는 상태 신호가 없다 — 프로세스가 살아있다는 것만 안다. */
+const UNKNOWN_ACTIVITY: SessionActivity = { state: "unknown", since: null, tool: null };
 
 const execFileAsync = promisify(execFile);
 
@@ -48,14 +58,26 @@ export function parseWindowsLockProbe(raw: string): Set<string> {
   );
 }
 
+/**
+ * powershell.exe -Command "<스크립트>" <인자> 는 $args를 채우지 않는다 — 인자가 스크립트 뒤에 그대로
+ * 이어붙어 구문 오류를 낸다. 입력은 환경변수(base64 JSON)로 넘긴다.
+ */
+const PS_PAYLOAD_ENV = "HARNESS_MANAGER_PS_PAYLOAD";
+
+function psEnv(payload: unknown): NodeJS.ProcessEnv {
+  return { ...process.env, [PS_PAYLOAD_ENV]: encodeJson(payload) };
+}
+
+const PS_DECODE = `$payload=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:${PS_PAYLOAD_ENV}))|ConvertFrom-Json;`;
+
 async function windowsLockedPaths(paths: string[]): Promise<Set<string>> {
   if (!paths.length) return new Set();
-  const script = "$paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0]))|ConvertFrom-Json;$out=foreach($p in $paths){$locked=$false;if(Test-Path -LiteralPath $p){try{$s=[IO.File]::Open($p,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);$s.Dispose()}catch{$locked=$true}};[pscustomobject]@{path=$p;locked=$locked}};$out|ConvertTo-Json -Compress";
+  const script = `${PS_DECODE}$out=foreach($p in $payload){$locked=$false;if(Test-Path -LiteralPath $p){try{$s=[IO.File]::Open($p,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);$s.Dispose()}catch{$locked=$true}};[pscustomobject]@{path=$p;locked=$locked}};ConvertTo-Json -InputObject @($out) -Compress`;
   try {
     const { stdout } = await execFileAsync(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", script, encodeJson(paths)],
-      { windowsHide: true, timeout: 2_000, maxBuffer: 1_024 * 1_024 },
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: 2_000, maxBuffer: 1_024 * 1_024, env: psEnv(paths) },
     );
     return parseWindowsLockProbe(stdout);
   } catch {
@@ -124,6 +146,10 @@ function codexLiveSession(
     updatedAt: session?.updatedAt ?? isoFromEpoch(thread.updatedAt),
     detectedAt,
     source: "codex-rollout-lock",
+    activity: UNKNOWN_ACTIVITY,
+    todos: null,
+    lastPrompt: session?.lastUserText ?? null,
+    lastAssistantSnippet: session?.lastAssistantText ?? null,
   };
 }
 
@@ -135,12 +161,12 @@ export function parseWindowsProcessProbe(raw: string): Set<string> {
 
 async function windowsRunningProcessIds(identities: ProcessIdentity[]): Promise<Set<string>> {
   if (!identities.length) return new Set();
-  const script = "$items=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[0]))|ConvertFrom-Json;$out=foreach($item in $items){$p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [int]$item.pid) -ErrorAction SilentlyContinue;$running=$null -ne $p -and [string]$p.CreationDate -eq [string]$item.startToken;[pscustomobject]@{id=$item.id;running=$running}};$out|ConvertTo-Json -Compress";
+  const script = `${PS_DECODE}$out=foreach($item in $payload){$p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [int]$item.pid) -ErrorAction SilentlyContinue;$running=$null -ne $p -and [string]$p.CreationDate -eq [string]$item.startToken;[pscustomobject]@{id=$item.id;running=$running}};ConvertTo-Json -InputObject @($out) -Compress`;
   try {
     const { stdout } = await execFileAsync(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", script, encodeJson(identities)],
-      { windowsHide: true, timeout: 2_000, maxBuffer: 256 * 1024 },
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: 2_000, maxBuffer: 256 * 1024, env: psEnv(identities) },
     );
     return parseWindowsProcessProbe(stdout);
   } catch {
@@ -164,7 +190,8 @@ async function unixRunningProcessIds(identities: ProcessIdentity[]): Promise<Set
   return running;
 }
 
-async function runningProcessIds(identities: ProcessIdentity[]): Promise<Set<string>> {
+/** PID가 "기록된 시각에 시작한 바로 그 프로세스"로 살아있는 것만 남긴다(PID 재사용 오탐 방지). */
+export async function runningProcessIds(identities: ProcessIdentity[]): Promise<Set<string>> {
   return process.platform === "win32"
     ? windowsRunningProcessIds(identities)
     : unixRunningProcessIds(identities);
@@ -183,6 +210,18 @@ async function liveClaudeSessions(detectedAt: string): Promise<LiveSession[]> {
   return sessions.filter((session): session is LiveSession => session !== null);
 }
 
+/** TodoWrite 항목을 "3/7 · 지금 하는 일" 한 줄로 압축한다. */
+function liveTodos(todos: Awaited<ReturnType<typeof getSessionTodos>>): LiveSessionTodos | null {
+  if (!todos) return null;
+  const active = todos.items.find((item) => item.status === "in_progress");
+  return {
+    total: todos.total,
+    done: todos.done,
+    active: active ? active.activeForm ?? active.subject : null,
+    items: todos.items,
+  };
+}
+
 async function claudeLiveSession(
   record: ClaudeLiveSessionRecord,
   projects: Awaited<ReturnType<typeof getProjectRecalls>>,
@@ -193,6 +232,7 @@ async function claudeLiveSession(
   const cwd = recall?.cwd ?? record.cwd;
   const project = cwd ? projects.find((candidate) => candidate.realPath && normalizePathKey(candidate.realPath) === normalizePathKey(cwd)) : undefined;
   const sessionId = recall?.sessionId ?? record.sessionId;
+  const todos = await getSessionTodos(sessionId);
   return {
     id: prefixEntityId("claude", sessionId),
     provider: "claude",
@@ -204,6 +244,10 @@ async function claudeLiveSession(
     updatedAt: recall ? new Date(recall.transcriptMtime).toISOString() : null,
     detectedAt,
     source: "claude-hook",
+    activity: recall?.activity ?? UNKNOWN_ACTIVITY,
+    todos: liveTodos(todos),
+    lastPrompt: recall?.lastPrompt ?? null,
+    lastAssistantSnippet: recall?.lastAssistantSnippet ?? null,
   };
 }
 

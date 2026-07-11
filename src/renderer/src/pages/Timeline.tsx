@@ -2,13 +2,19 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Link2, Pin, PinOff, Unplug } from "lucide-react";
 import { api, fmtClock, fmtDay, fmtTime } from "../api/client";
 import { renderMarkdownSafe } from "../markdown";
-import type { ClaudeLiveTrackingStatus, LiveSession, ProviderFilter } from "@shared/provider-types";
+import type {
+  ClaudeLiveTrackingStatus,
+  LiveActivityState,
+  LiveSession,
+  ProviderFilter,
+} from "@shared/provider-types";
 import {
   STATUSES,
   buildProjNameMap,
   displayName,
   modelBadgeClass,
   modelDisplayName,
+  projectTone,
   projectVisibilityWrite,
   providerLabel,
   shortName,
@@ -17,7 +23,7 @@ import {
   type WorkspaceProject,
 } from "./workspace-shared";
 
-const NONE_KEY = "__none__";
+export const NONE_KEY = "__none__";
 interface Props {
   providerFilter: ProviderFilter;
 }
@@ -121,6 +127,8 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     const grouped = projectByMemberId.get(e.projectId);
     return grouped ? displayName(grouped) : projName.get(e.projectId) ?? shortName(e.realPath, e.projectId);
   };
+  const liveProjectKey = (session: LiveSession) =>
+    session.projectId ? projectByMemberId.get(session.projectId)?.id ?? session.projectId : NONE_KEY;
   const liveProjectLabel = (session: LiveSession) => {
     if (!session.projectId) return "프로젝트 없음";
     const grouped = projectByMemberId.get(session.projectId);
@@ -201,20 +209,6 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     });
 
   const totalShownCount = projectTabs.reduce((sum, t) => sum + t.count, 0);
-
-  async function patchStatus(e: TimelineEvent, status: BoardStatus) {
-    setEvents((prev) => (prev ? prev.map((x) => (sameEvent(x, e) ? { ...x, status } : x)) : prev));
-    const url =
-      e.kind === "plan"
-        ? `/api/workspace/board/plan/${encodeURIComponent(e.filename!)}`
-        : `/api/workspace/board/session/${encodeURIComponent(e.sessionId!)}`;
-    try {
-      await api.post(url, { status });
-    } catch (err) {
-      setError((err as Error).message);
-      reload();
-    }
-  }
 
   async function patchPinned(e: TimelineEvent, pinned: boolean) {
     if (!e.sessionId) return;
@@ -311,26 +305,28 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     (e) => e.kind === "session" && e.pinned === true && isPinnableTimelineSession(e),
   );
   const pinnedSessionIds = new Set(pinnedSessions.map((e) => e.sessionId!));
-  const runningSessionIds = new Set((liveSessions ?? []).map((session) => session.id));
+  const liveBySessionId = new Map((liveSessions ?? []).map((session) => [session.id, session]));
   const unpinnedTopLevel = topLevel.filter(
     (e) => !(e.kind === "session" && e.sessionId && pinnedSessionIds.has(e.sessionId)),
   );
 
-  const groups: { day: string; items: TimelineEvent[] }[] = [];
-  for (const e of unpinnedTopLevel) {
-    const day = fmtDay(e.ts);
-    const last = groups[groups.length - 1];
-    if (last && last.day === day) last.items.push(e);
-    else groups.push({ day, items: [e] });
-  }
+  // "전체" 탭에서만 프로젝트로 한 번 더 접는다(프로젝트 탭은 이미 한 프로젝트뿐이라 헤더가 소음이다).
+  const groupByProject = activeTab === "all";
+  const days = groupTimelineByDayAndProject(unpinnedTopLevel, projectKey, (e) => label(e) || "프로젝트 없음", fmtDay);
 
-  const renderRow = (e: TimelineEvent, isChild: boolean, parentDay?: string, exactTimestamp = false) => {
+  const renderRow = (
+    e: TimelineEvent,
+    isChild: boolean,
+    parentDay?: string,
+    exactTimestamp = false,
+    showProject = false,
+  ) => {
     const key = eventKey(e);
     const isOpen = expanded.has(key);
     const showDay = isChild && parentDay !== undefined && fmtDay(e.ts) !== parentDay;
     const providerAccent = e.provider ? ` tl-provider-${e.provider}` : "";
     const modelBadge = e.kind === "session" ? timelineModelBadge(e) : null;
-    const running = e.kind === "session" && !!e.sessionId && runningSessionIds.has(e.sessionId);
+    const live = e.kind === "session" && e.sessionId ? liveBySessionId.get(e.sessionId) : undefined;
     return (
       <div className={`timeline-row${isChild ? " timeline-row-child" : ""}${providerAccent}`} key={key}>
         <div className="timeline-item" onClick={() => toggleExpand(key)}>
@@ -340,10 +336,13 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
               {modelBadge.label}
             </span>
           )}
-          {running && <span className="bdg bdg-live">RUNNING</span>}
+          {live && <ActivityBadge state={live.activity.state} />}
           <span className="timeline-time muted">
             {exactTimestamp ? `${fmtDay(e.ts)} ${fmtClock(e.ts)}` : showDay ? `${fmtDay(e.ts)} ${fmtTime(e.ts)}` : fmtTime(e.ts)}
           </span>
+          {showProject && e.projectId && (
+            <ProjectChip name={label(e) || "프로젝트 없음"} toneKey={projectKey(e)} />
+          )}
           <span className="timeline-title">{e.title}</span>
           {e.kind === "session" && e.turnCount != null && e.turnCount > 0 && (
             <span className="t-tag">{e.turnCount}턴</span>
@@ -353,7 +352,6 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
               ⑂ {e.worktreeName}
             </span>
           )}
-          {activeTab === "all" && <span className="timeline-proj muted">{label(e)}</span>}
           {isPinnableTimelineSession(e) && (
             <button
               className={`ws-icon-btn timeline-pin-btn${e.pinned ? " active" : ""}`}
@@ -367,24 +365,20 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
               {e.pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           )}
-          <select
-            className="ws-select"
-            value={e.status}
-            disabled={e.kind === "session" && !e.sessionId}
-            onClick={(ev) => ev.stopPropagation()}
-            onChange={(ev) => patchStatus(e, ev.target.value as BoardStatus)}
-            title="상태 (자동추정 기본값 · 수동 변경 시 저장)"
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
           <span className="timeline-caret muted">{isOpen ? "▾" : "▸"}</span>
         </div>
         {isOpen && <TimelineExpand e={e} />}
       </div>
+    );
+  };
+
+  const renderRowWithChildren = (e: TimelineEvent, day: string, exactTimestamp = false, showProject = false) => {
+    const children = e.kind === "session" && e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
+    return (
+      <Fragment key={eventKey(e)}>
+        {renderRow(e, false, undefined, exactTimestamp, showProject)}
+        {children?.map((child) => renderRow(child, true, day))}
+      </Fragment>
     );
   };
 
@@ -401,7 +395,16 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
       )}
       {providerFilter !== "codex" && liveTracking?.installed && (
         <div className="timeline-live-setup installed">
-          <span>Claude 실시간 세션 추적 연결됨</span>
+          <span>
+            {liveTracking.outdated
+              ? "Claude 실시간 세션 추적이 예전 방식으로 연결돼 있습니다 — 업데이트하면 이미 실행 중인 세션도 잡힙니다"
+              : "Claude 실시간 세션 추적 연결됨"}
+          </span>
+          {liveTracking.outdated && (
+            <button onClick={() => void installClaudeTracking()} title="Claude hook 업데이트">
+              <Link2 size={14} /> 업데이트
+            </button>
+          )}
           <button onClick={() => void uninstallClaudeTracking()} title="Claude hook 연결 해제">
             <Unplug size={14} /> 해제
           </button>
@@ -498,23 +501,16 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
           <div className="timeline-live-head">
             <Activity size={14} aria-hidden="true" /> 실행 중 세션 <span className="cat-count">{liveSessions!.length}</span>
           </div>
-          {liveSessions!.map((session) => {
-            const timestamp = Date.parse(session.updatedAt ?? session.detectedAt);
-            const modelBadge = session.model
-              ? { label: modelDisplayName(session.model), className: modelBadgeClass(session.model), title: session.model }
-              : { label: providerLabel(session.provider), className: `bdg-model-missing bdg-model-missing-${session.provider}`, title: "모델 정보 없음" };
-            return (
-              <div className={`timeline-row tl-provider-${session.provider}`} key={session.id}>
-                <div className="timeline-item timeline-live-item">
-                  <span className={`bdg ${modelBadge.className}`} title={modelBadge.title}>{modelBadge.label}</span>
-                  <span className="bdg bdg-live">RUNNING</span>
-                  <span className="timeline-time muted">{fmtDay(timestamp)} {fmtClock(timestamp)}</span>
-                  <span className="timeline-title">{session.title}</span>
-                  <span className="timeline-proj muted">{liveProjectLabel(session)}</span>
-                </div>
-              </div>
-            );
-          })}
+          {liveSessions!.map((session) => (
+            <LiveSessionRow
+              key={session.id}
+              session={session}
+              projectName={liveProjectLabel(session)}
+              projectKey={liveProjectKey(session)}
+              open={expanded.has(liveKey(session))}
+              onToggle={() => toggleExpand(liveKey(session))}
+            />
+          ))}
         </section>
       )}
       {pinnedSessions.length > 0 && (
@@ -522,23 +518,15 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
           <div className="timeline-pinned-head">
             <Pin size={14} aria-hidden="true" /> 고정 세션 <span className="cat-count">{pinnedSessions.length}</span>
           </div>
-          {pinnedSessions.map((e) => {
-            const children = e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
-            return (
-              <Fragment key={eventKey(e)}>
-                {renderRow(e, false, undefined, true)}
-                {children?.map((child) => renderRow(child, true, fmtDay(e.ts)))}
-              </Fragment>
-            );
-          })}
+          {pinnedSessions.map((e) => renderRowWithChildren(e, fmtDay(e.ts), true, true))}
         </section>
       )}
       <div className="timeline">
-        {groups.length === 0 && pinnedSessions.length === 0 && (liveSessions?.length ?? 0) === 0 && (
+        {days.length === 0 && pinnedSessions.length === 0 && (liveSessions?.length ?? 0) === 0 && (
           <div className="muted tl-empty">표시할 활동이 없습니다.</div>
         )}
-        {groups.map((g, i) => {
-          const prev = groups[i - 1];
+        {days.map((g, i) => {
+          const prev = days[i - 1];
           const gapDays = prev
             ? Math.round((new Date(prev.day).getTime() - new Date(g.day).getTime()) / 86400000)
             : 0;
@@ -546,15 +534,32 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
             <div key={g.day}>
               {gapDays > 1 && <div className="timeline-gap">· {gapDays - 1}일 공백 ·</div>}
               <div className="timeline-day">{g.day}</div>
-              {g.items.map((e) => {
-                const children = e.kind === "session" && e.sessionId ? childrenBySession.get(e.sessionId) : undefined;
-                return (
-                  <Fragment key={eventKey(e)}>
-                    {renderRow(e, false)}
-                    {children?.map((c) => renderRow(c, true, g.day))}
-                  </Fragment>
-                );
-              })}
+              {groupByProject
+                ? g.projects.map((p) => (
+                    <div className="tl-proj-group" key={p.key}>
+                      <div
+                        className={`tl-proj-head ${p.tone}`}
+                        role="button"
+                        tabIndex={0}
+                        title="클릭하면 이 프로젝트만 봅니다"
+                        onClick={() => canHideTimelineProjectTab(p.key) && setActiveTab(p.key)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter" && canHideTimelineProjectTab(p.key)) setActiveTab(p.key);
+                        }}
+                        onContextMenu={(ev) => {
+                          if (!canHideTimelineProjectTab(p.key)) return;
+                          ev.preventDefault();
+                          setHideMenu({ projectId: p.key, name: p.name, x: ev.clientX, y: ev.clientY });
+                        }}
+                      >
+                        <span className="tl-tone-dot" aria-hidden="true" />
+                        <span className="tl-proj-name">{p.name}</span>
+                        <span className="tl-tab-count">{p.items.length}건</span>
+                      </div>
+                      {p.items.map((e) => renderRowWithChildren(e, g.day))}
+                    </div>
+                  ))
+                : g.projects.flatMap((p) => p.items).map((e) => renderRowWithChildren(e, g.day))}
             </div>
           );
         })}
@@ -580,6 +585,53 @@ export function filterTimelineEventsForVisibleProjects(
     if (activeTab === "all") return true;
     return getProjectKey(e) === activeTab;
   });
+}
+
+export interface TimelineProjectGroup {
+  key: string;
+  name: string;
+  tone: string;
+  items: TimelineEvent[];
+}
+export interface TimelineDayGroup {
+  day: string;
+  projects: TimelineProjectGroup[];
+}
+
+/**
+ * 날짜 → 프로젝트 2단 그룹. events는 최신순이어야 한다(그래야 각 그룹의 첫 항목이 그 그룹의 최신 활동).
+ * "프로젝트 없음"은 하루 안에서 언제나 맨 뒤로 민다.
+ */
+export function groupTimelineByDayAndProject(
+  events: TimelineEvent[],
+  getProjectKey: (e: TimelineEvent) => string,
+  getProjectName: (e: TimelineEvent) => string,
+  getDay: (ts: number) => string,
+): TimelineDayGroup[] {
+  const days: TimelineDayGroup[] = [];
+  for (const e of events) {
+    const day = getDay(e.ts);
+    let dayGroup = days[days.length - 1];
+    if (!dayGroup || dayGroup.day !== day) {
+      dayGroup = { day, projects: [] };
+      days.push(dayGroup);
+    }
+    const key = getProjectKey(e);
+    let group = dayGroup.projects.find((p) => p.key === key);
+    if (!group) {
+      group = { key, name: getProjectName(e), tone: projectTone(key), items: [] };
+      dayGroup.projects.push(group);
+    }
+    group.items.push(e);
+  }
+  for (const day of days) {
+    day.projects.sort((a, b) => {
+      if (a.key === NONE_KEY) return 1;
+      if (b.key === NONE_KEY) return -1;
+      return b.items[0].ts - a.items[0].ts;
+    });
+  }
+  return days;
 }
 
 export function canHideTimelineProjectTab(tabKey: string): boolean {
@@ -610,37 +662,185 @@ export function timelineModelBadge(e: TimelineEvent): { label: string; className
   return { label: "Model ?", className: "bdg-model-missing", title: "모델 정보 없음" };
 }
 
+// --- 실행 중 세션 ---
+
+const ACTIVITY_META: Record<LiveActivityState, { label: string; className: string }> = {
+  working: { label: "작업 중", className: "bdg-act-working" },
+  idle: { label: "대기 중", className: "bdg-act-idle" },
+  "awaiting-approval": { label: "계획 승인 대기", className: "bdg-act-await" },
+  "awaiting-input": { label: "질문 대기", className: "bdg-act-await" },
+  unknown: { label: "RUNNING", className: "bdg-live" },
+};
+
+export function activityDetailText(session: LiveSession): string | null {
+  switch (session.activity.state) {
+    case "awaiting-approval":
+      return "계획을 제출하고 승인을 기다리는 중";
+    case "awaiting-input":
+      return "질문을 던지고 답을 기다리는 중";
+    case "idle":
+      return "응답을 마치고 다음 지시를 기다리는 중";
+    case "working":
+      return session.activity.tool ? `${session.activity.tool} 실행 중` : "응답 생성 중";
+    default:
+      return null;
+  }
+}
+
+/** "4분째" — 상태가 얼마나 지속되고 있는지. 승인 대기가 길어지는 걸 눈치채라고 있는 값이다. */
+export function elapsedLabel(since: string | null, now = Date.now()): string | null {
+  if (!since) return null;
+  const started = Date.parse(since);
+  if (!Number.isFinite(started)) return null;
+  const seconds = Math.max(0, Math.round((now - started) / 1000));
+  if (seconds < 60) return `${seconds}초째`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}분째`;
+  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분째`;
+}
+
+function liveKey(session: LiveSession): string {
+  return `live:${session.id}`;
+}
+
+function ActivityBadge({ state }: { state: LiveActivityState }) {
+  const meta = ACTIVITY_META[state] ?? ACTIVITY_META.unknown;
+  return <span className={`bdg ${meta.className}`}>{meta.label}</span>;
+}
+
+function ProjectChip({ name, toneKey }: { name: string; toneKey: string }) {
+  return (
+    <span className={`timeline-proj-chip ${projectTone(toneKey)}`} title={name}>
+      <span className="tl-tone-dot" aria-hidden="true" />
+      {name}
+    </span>
+  );
+}
+
+function LiveSessionRow({
+  session,
+  projectName,
+  projectKey,
+  open,
+  onToggle,
+}: {
+  session: LiveSession;
+  projectName: string;
+  projectKey: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  // 경과 시간이 계속 흐르도록 초 단위로 다시 그린다(폴링 응답은 상태가 안 바뀌면 동일하다).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const modelBadge = session.model
+    ? { label: modelDisplayName(session.model), className: modelBadgeClass(session.model), title: session.model }
+    : {
+        label: providerLabel(session.provider),
+        className: `bdg-model-missing bdg-model-missing-${session.provider}`,
+        title: "모델 정보 없음",
+      };
+  const elapsed = elapsedLabel(session.activity.since, now);
+  const detail = activityDetailText(session);
+  const todos = session.todos;
+
+  return (
+    <div className={`timeline-row tl-provider-${session.provider}`}>
+      <div className="timeline-item timeline-live-item" onClick={onToggle}>
+        <div className="tl-live-body">
+          <div className="tl-live-line">
+            <ActivityBadge state={session.activity.state} />
+            {elapsed && <span className="muted tl-live-since">{elapsed}</span>}
+            <ProjectChip name={projectName} toneKey={projectKey} />
+          </div>
+          <div className="tl-live-line">
+            <span className={`bdg ${modelBadge.className}`} title={modelBadge.title}>
+              {modelBadge.label}
+            </span>
+            <span className="timeline-title">{session.title}</span>
+          </div>
+          {(detail || todos) && (
+            <div className="tl-live-sub muted">
+              ↳ {detail}
+              {todos && ` · 할 일 ${todos.done}/${todos.total}`}
+              {todos?.active && ` · “${todos.active}”`}
+            </div>
+          )}
+        </div>
+        <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <>
+          <SnippetBody lastPrompt={session.lastPrompt} lastAssistantSnippet={session.lastAssistantSnippet} />
+          {todos && todos.items.length > 0 && <LiveTodoList items={todos.items} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+const TODO_MARK: Record<string, string> = { completed: "✓", in_progress: "▸", pending: "·" };
+
+function LiveTodoList({ items }: { items: NonNullable<LiveSession["todos"]>["items"] }) {
+  return (
+    <ul className="tl-live-todos">
+      {items.map((item) => (
+        <li key={item.id} className={`todo-${item.status}`}>
+          <span className="tl-todo-mark" aria-hidden="true">
+            {TODO_MARK[item.status] ?? "·"}
+          </span>
+          {item.status === "in_progress" ? item.activeForm ?? item.subject : item.subject}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function chipDotClass(status: BoardStatus | null): string {
   return status ? `st-${STATUSES.indexOf(status)}` : "st-none";
 }
 
-function TimelineExpand({ e }: { e: TimelineEvent }) {
-  if (e.kind === "plan" && e.filename) {
-    return <PlanBody filename={e.filename} archived={!!e.archived} />;
-  }
-  if (!e.lastPrompt && !e.lastAssistantSnippet) {
+function SnippetBody({
+  lastPrompt,
+  lastAssistantSnippet,
+}: {
+  lastPrompt?: string | null;
+  lastAssistantSnippet?: string | null;
+}) {
+  if (!lastPrompt && !lastAssistantSnippet) {
     return <div className="timeline-expand muted">표시할 내용이 없습니다.</div>;
   }
   return (
     <div className="timeline-expand">
-      {e.lastPrompt && (
+      {lastPrompt && (
         <p className="tl-prompt">
-          <span className="ws-line-k">마지막 입력</span> {e.lastPrompt}
+          <span className="ws-line-k">마지막 입력</span> {lastPrompt}
         </p>
       )}
-      {e.lastAssistantSnippet && (
+      {lastAssistantSnippet && (
         <div>
           <span className="ws-line-k">마지막 응답</span>
           <div
             className="md-body ws-snippet-md"
             dangerouslySetInnerHTML={{
-              __html: renderMarkdownSafe(e.lastAssistantSnippet, { breaks: true }),
+              __html: renderMarkdownSafe(lastAssistantSnippet, { breaks: true }),
             }}
           />
         </div>
       )}
     </div>
   );
+}
+
+function TimelineExpand({ e }: { e: TimelineEvent }) {
+  if (e.kind === "plan" && e.filename) {
+    return <PlanBody filename={e.filename} archived={!!e.archived} />;
+  }
+  return <SnippetBody lastPrompt={e.lastPrompt} lastAssistantSnippet={e.lastAssistantSnippet} />;
 }
 
 function PlanBody({ filename, archived }: { filename: string; archived: boolean }) {

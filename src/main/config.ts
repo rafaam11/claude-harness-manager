@@ -58,6 +58,8 @@ export const BOARD_FILE_V2 = path.join(APP_STATE_DIR, "board.json");
 export const LIVE_SESSIONS_DIR = path.join(APP_STATE_DIR, "live-sessions");
 export const APP_HOOKS_DIR = path.join(APP_STATE_DIR, "hooks");
 export const CLAUDE_LIVE_SESSION_HOOK_FILE = path.join(APP_HOOKS_DIR, "claude-live-session.mjs");
+// 종료된 세션 레코드 보관 기간. 지나면 조회할 때 걷어낸다(SessionEnd를 놓친 것도 결국 여기서 정리).
+export const LIVE_SESSION_RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // --- News 탭 (라이브 뉴스 통합 피드) ---
 // 앱 소유 라이브 뉴스 캐시. board.json과 같은 harness-manager 디렉토리(allowlist 통과).

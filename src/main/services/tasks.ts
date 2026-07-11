@@ -11,6 +11,7 @@ export interface TodoLite {
   id: string;
   subject: string;
   status: string;
+  activeForm?: string; // "…하는 중" 형태. 실행 중 세션의 "지금 하는 일" 표시에 쓴다.
 }
 export interface SessionTodos {
   total: number;
@@ -36,6 +37,7 @@ export async function getSessionTodos(sessionId: string): Promise<SessionTodos |
           id: String(o.id ?? e.name.replace(/\.json$/, "")),
           subject: o.subject,
           status: String(o.status ?? "pending"),
+          ...(typeof o.activeForm === "string" && o.activeForm ? { activeForm: o.activeForm } : {}),
         });
       }
     } catch {

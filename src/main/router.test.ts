@@ -186,6 +186,16 @@ describe("Codex workspace sessions", () => {
     ]);
   });
 
+  it("requires id for the session transcript route", async () => {
+    const error = await routeRequest({
+      method: "GET",
+      url: "app://local/api/workspace/session/transcript",
+    } as never).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({ statusCode: 400, message: "id 필요" });
+  });
+
   it("validates pinned session query and write values", async () => {
     const invalidQuery = await routeRequest({
       method: "GET",

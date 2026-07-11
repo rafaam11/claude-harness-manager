@@ -180,6 +180,9 @@ export const TRANSLATION_GLOSSARY: readonly string[] = [
 export const RECALL_TAIL_BYTES = 512 * 1024;
 // tail에 신호가 전무할 때만 readline 스트리밍 폴백을 허용하는 상한.
 export const RECALL_MAX_FULL_SCAN_BYTES = 8 * 1024 * 1024;
+// 세션 팝업(전체 대화 보기): RECALL_MAX_FULL_SCAN_BYTES 이하면 파일 전체를 파싱하고,
+// 그보다 크면 끝에서 이만큼만 읽어 최신 대화를 보존한다(앞부분은 truncated로 생략).
+export const TRANSCRIPT_TAIL_BYTES = 3 * 1024 * 1024;
 // 무거운 스캔(recall/plans/history) 결과 캐시 수명.
 export const WORKSPACE_CACHE_TTL_MS = 5000;
 // repo-group의 git 토폴로지(rev-parse) 캐시 수명. 사실상 안정적이라 WORKSPACE_CACHE_TTL_MS보다

@@ -5,8 +5,10 @@ import type {
   NormalizedTimelineEvent,
   ProviderFilter,
   ProviderId,
+  SessionTranscript,
 } from "@shared/provider-types";
-import { getProviders, splitEntityId } from "../providers/registry.js";
+import { getProviders, prefixEntityId, splitEntityId } from "../providers/registry.js";
+import { readCodexTranscriptMessages } from "../providers/codex.js";
 import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import {
   findProjectRegistryProject,
@@ -23,8 +25,10 @@ import {
   getEnrichedPlans,
   getPinnedProjectSessions,
   getProjectSessions,
+  getSessionToPathMap,
   getTimeline,
   getWorkspaceProjects,
+  readClaudeTranscriptMessages,
   type EnrichedPlan,
   type SessionRecall,
   type TimelineEvent,
@@ -394,6 +398,29 @@ export async function getProviderProjectSessions(
       .sort((a, b) => b.transcriptMtime - a.transcriptMtime);
   }
   return options.pinnedOnly ? getPinnedProjectSessions(projectId) : getProjectSessions(projectId);
+}
+
+/**
+ * 세션 하나의 전체 대화(팝업용). `codex:` 접두 EntityId와 raw Claude uuid를 모두 받는다
+ * (splitEntityId가 raw id를 claude로 폴백하는 기존 관례 그대로).
+ */
+export async function getSessionTranscript(rawId: string): Promise<SessionTranscript> {
+  const { provider, localId } = splitEntityId(rawId);
+  if (provider === "codex") {
+    const codex = getProviders("codex")[0];
+    const found = (await codex.listSessions()).find(
+      (session) => session.id === prefixEntityId("codex", localId),
+    );
+    if (!found?.sourcePath) {
+      throw Object.assign(new Error("세션을 찾을 수 없습니다"), { statusCode: 404 });
+    }
+    const { messages, truncated } = await readCodexTranscriptMessages(found.sourcePath);
+    return { provider: "codex", sessionId: found.id, messages, truncated };
+  }
+  const entry = (await getSessionToPathMap()).get(localId);
+  if (!entry) throw Object.assign(new Error("세션을 찾을 수 없습니다"), { statusCode: 404 });
+  const { messages, truncated } = await readClaudeTranscriptMessages(entry.filePath);
+  return { provider: "claude", sessionId: prefixEntityId("claude", localId), messages, truncated };
 }
 
 export async function getProviderEnrichedPlans(

@@ -870,6 +870,180 @@ describe("codex provider", () => {
   });
 });
 
+// 세션 팝업용 전체 대화 재구성 — event_msg/response_item에 같은 내용이 중복 기록되는 rollout 특성을
+// 텍스트 dedup으로 흡수하고, 도구 호출은 인접 어시스턴트 버블의 배지로 접는다.
+describe("readCodexTranscriptMessages", () => {
+  const sessionId = "019f2conv-1111-7222-8333-444455556666";
+
+  async function writeRollout(lines: unknown[]): Promise<string> {
+    const filePath = path.join(
+      homeDir,
+      ".codex",
+      "sessions",
+      "2026",
+      "07",
+      "05",
+      `rollout-2026-07-05T18-00-00-${sessionId}.jsonl`,
+    );
+    await writeText(filePath, lines.map((line) => JSON.stringify(line)).join("\n"));
+    return filePath;
+  }
+
+  it("reconstructs the conversation, folding tool calls and deduping event_msg mirrors", async () => {
+    const filePath = await writeRollout([
+      { timestamp: "2026-07-05T09:00:00.000Z", type: "session_meta", payload: { session_id: sessionId, cwd: "C:\\repo" } },
+      { timestamp: "2026-07-05T09:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "타임라인 버그를 고쳐줘" } },
+      {
+        timestamp: "2026-07-05T09:00:01.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "타임라인 버그를 고쳐줘" }] },
+      },
+      { timestamp: "2026-07-05T09:00:02.000Z", type: "response_item", payload: { type: "reasoning", summary: [] } },
+      {
+        timestamp: "2026-07-05T09:00:03.000Z",
+        type: "response_item",
+        payload: { type: "function_call", name: "shell", arguments: "{}" },
+      },
+      {
+        timestamp: "2026-07-05T09:00:04.000Z",
+        type: "response_item",
+        payload: { type: "function_call_output", output: "..." },
+      },
+      {
+        timestamp: "2026-07-05T09:00:05.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "commentary",
+          content: [{ type: "output_text", text: "원인을 찾았습니다." }],
+        },
+      },
+      {
+        timestamp: "2026-07-05T09:00:06.000Z",
+        type: "response_item",
+        payload: { type: "custom_tool_call", name: "apply_patch", input: "..." },
+      },
+      {
+        timestamp: "2026-07-05T09:00:07.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "final_answer",
+          content: [{ type: "output_text", text: "고쳤습니다." }],
+        },
+      },
+      {
+        timestamp: "2026-07-05T09:00:07.500Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "고쳤습니다.", phase: "final_answer" },
+      },
+      {
+        timestamp: "2026-07-05T09:00:08.000Z",
+        type: "event_msg",
+        payload: { type: "task_complete", turn_id: "turn-1", last_agent_message: "고쳤습니다." },
+      },
+    ]);
+
+    const { readCodexTranscriptMessages } = await loadCodexProvider();
+    const { messages, truncated } = await readCodexTranscriptMessages(filePath);
+
+    expect(truncated).toBe(false);
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", text: "타임라인 버그를 고쳐줘", toolUses: [] }),
+      expect.objectContaining({ role: "assistant", text: "원인을 찾았습니다.", toolUses: ["shell", "apply_patch"] }),
+      expect.objectContaining({ role: "assistant", text: "고쳤습니다.", toolUses: [] }),
+    ]);
+  });
+
+  it("falls back to task_complete texts when a rollout only carries event_msg lines", async () => {
+    const filePath = await writeRollout([
+      { timestamp: "2026-07-05T09:00:00.000Z", type: "session_meta", payload: { session_id: sessionId, cwd: "C:\\repo" } },
+      { timestamp: "2026-07-05T09:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "첫 요청" } },
+      {
+        timestamp: "2026-07-05T09:00:02.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "진행 중입니다." }] },
+      },
+      { timestamp: "2026-07-05T09:00:03.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "t1", last_agent_message: "첫 응답" } },
+      { timestamp: "2026-07-05T09:01:00.000Z", type: "event_msg", payload: { type: "user_message", message: "후속 요청" } },
+      { timestamp: "2026-07-05T09:01:10.000Z", type: "event_msg", payload: { type: "task_complete", turn_id: "t2", last_agent_message: "최종 응답" } },
+    ]);
+
+    const { readCodexTranscriptMessages } = await loadCodexProvider();
+    const { messages } = await readCodexTranscriptMessages(filePath);
+
+    expect(messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "첫 요청"],
+      ["assistant", "진행 중입니다."],
+      ["assistant", "첫 응답"],
+      ["user", "후속 요청"],
+      ["assistant", "최종 응답"],
+    ]);
+  });
+
+  it("skips injected user payloads entirely", async () => {
+    const filePath = await writeRollout([
+      { timestamp: "2026-07-05T09:00:00.000Z", type: "session_meta", payload: { session_id: sessionId, cwd: "C:\\repo" } },
+      {
+        timestamp: "2026-07-05T09:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "# AGENTS.md instructions for C:\\repo\n..." }],
+        },
+      },
+      { timestamp: "2026-07-05T09:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "실제 질문" } },
+    ]);
+
+    const { readCodexTranscriptMessages } = await loadCodexProvider();
+    const { messages } = await readCodexTranscriptMessages(filePath);
+
+    expect(messages).toEqual([expect.objectContaining({ role: "user", text: "실제 질문" })]);
+  });
+
+  it("reads only the newest tail of oversized rollouts and flags truncation", async () => {
+    const filler = { type: "event_msg", payload: { type: "user_message", message: `채움 ${"x".repeat(1024)}` } };
+    const filePath = await writeRollout([
+      { timestamp: "2026-07-05T09:00:00.000Z", type: "session_meta", payload: { session_id: sessionId, cwd: "C:\\repo" } },
+      { timestamp: "2026-07-05T09:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "맨 처음 질문" } },
+      ...Array.from({ length: 9000 }, () => filler),
+      { timestamp: "2026-07-05T09:59:00.000Z", type: "event_msg", payload: { type: "user_message", message: "마지막 질문" } },
+    ]);
+
+    const { readCodexTranscriptMessages } = await loadCodexProvider();
+    const { messages, truncated } = await readCodexTranscriptMessages(filePath);
+
+    expect(truncated).toBe(true);
+    expect(messages.at(-1)).toMatchObject({ role: "user", text: "마지막 질문" });
+    expect(messages.some((m) => m.text === "맨 처음 질문")).toBe(false);
+  });
+
+  it("serves the codex branch of getSessionTranscript by session id", async () => {
+    await writeRollout([
+      { timestamp: "2026-07-05T09:00:00.000Z", type: "session_meta", payload: { session_id: sessionId, cwd: "C:\\repo", thread_source: "user" } },
+      { timestamp: "2026-07-05T09:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "코덱스 질문" } },
+      {
+        timestamp: "2026-07-05T09:00:02.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "코덱스 답변" }] },
+      },
+    ]);
+
+    const { getSessionTranscript } = await import("../services/provider-workspace.js");
+    const transcript = await getSessionTranscript(`codex:${sessionId}`);
+
+    expect(transcript).toMatchObject({ provider: "codex", sessionId: `codex:${sessionId}` });
+    expect(transcript.messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "코덱스 질문"],
+      ["assistant", "코덱스 답변"],
+    ]);
+    await expect(getSessionTranscript("codex:missing-session")).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
 describe("heuristicCodexTitle", () => {
   async function loadHeuristic() {
     const { heuristicCodexTitle } = await loadCodexProvider();

@@ -289,6 +289,138 @@ describe("recall provider-prefixed Claude ids", () => {
   });
 });
 
+// 세션 팝업용 전체 대화 재구성 — applyLine(마지막 값만)과 달리 메시지를 순서대로 쌓는다.
+describe("readClaudeTranscriptMessages", () => {
+  const T1 = "2026-07-11T01:00:00.000Z";
+  const T2 = "2026-07-11T01:00:10.000Z";
+  const T3 = "2026-07-11T01:00:20.000Z";
+
+  it("reconstructs ordered turns, merging one turn's assistant lines into a single bubble", async () => {
+    const filePath = path.join(homeDir, ".claude", "projects", "D--repo", "full-session.jsonl");
+    await writeText(
+      filePath,
+      [
+        JSON.stringify({ type: "ai-title", aiTitle: "세션 제목" }),
+        JSON.stringify({ type: "user", message: { role: "user", content: "버그를 고쳐줘" }, timestamp: T1 }),
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "..." },
+              { type: "text", text: "원인을 찾았습니다." },
+              { type: "tool_use", name: "Edit", input: {} },
+            ],
+            model: "claude-fable-5",
+          },
+          timestamp: T2,
+        }),
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: [{ type: "tool_result", content: "ok" }] },
+          timestamp: T2,
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "고쳤습니다." }], model: "claude-fable-5" },
+          timestamp: T3,
+        }),
+        JSON.stringify({ type: "user", message: { role: "user", content: "고마워" }, timestamp: T3 }),
+      ].join("\n"),
+    );
+
+    const { readClaudeTranscriptMessages } = await loadRecallModule();
+    const { messages, truncated } = await readClaudeTranscriptMessages(filePath);
+
+    expect(truncated).toBe(false);
+    expect(messages).toEqual([
+      { role: "user", text: "버그를 고쳐줘", toolUses: [], ts: T1 },
+      { role: "assistant", text: "원인을 찾았습니다.\n\n고쳤습니다.", toolUses: ["Edit"], ts: T2 },
+      { role: "user", text: "고마워", toolUses: [], ts: T3 },
+    ]);
+  });
+
+  it("skips sidechain, meta, injected, and thinking-only lines", async () => {
+    const filePath = path.join(homeDir, ".claude", "projects", "D--repo", "noisy-session.jsonl");
+    await writeText(
+      filePath,
+      [
+        JSON.stringify({ type: "user", message: { role: "user", content: "<local-command-stdout>...</local-command-stdout>" }, timestamp: T1 }),
+        JSON.stringify({ type: "user", isMeta: true, message: { role: "user", content: "메타 줄" }, timestamp: T1 }),
+        JSON.stringify({
+          type: "assistant",
+          isSidechain: true,
+          message: { role: "assistant", content: [{ type: "text", text: "사이드체인 응답" }] },
+          timestamp: T1,
+        }),
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "thinking", thinking: "생각만" }] },
+          timestamp: T1,
+        }),
+        JSON.stringify({ type: "user", message: { role: "user", content: "실제 질문" }, timestamp: T2 }),
+      ].join("\n"),
+    );
+
+    const { readClaudeTranscriptMessages } = await loadRecallModule();
+    const { messages } = await readClaudeTranscriptMessages(filePath);
+
+    expect(messages).toEqual([{ role: "user", text: "실제 질문", toolUses: [], ts: T2 }]);
+  });
+
+  it("keeps only the newest tail and flags truncation for oversized transcripts", async () => {
+    const filePath = path.join(homeDir, ".claude", "projects", "D--repo", "huge-session.jsonl");
+    const filler = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: `앞부분 채움 ${"x".repeat(1024)}` },
+    });
+    const lines = [
+      JSON.stringify({ type: "user", message: { role: "user", content: "맨 처음 질문" }, timestamp: T1 }),
+      ...Array.from({ length: 9000 }, () => filler),
+      JSON.stringify({ type: "user", message: { role: "user", content: "마지막 질문" }, timestamp: T3 }),
+    ];
+    await writeText(filePath, lines.join("\n"));
+
+    const { readClaudeTranscriptMessages } = await loadRecallModule();
+    const { messages, truncated } = await readClaudeTranscriptMessages(filePath);
+
+    expect(truncated).toBe(true);
+    expect(messages.at(-1)).toMatchObject({ role: "user", text: "마지막 질문" });
+    expect(messages.some((m) => m.text === "맨 처음 질문")).toBe(false);
+  });
+});
+
+describe("getSessionTranscript (claude)", () => {
+  it("resolves a session id to its transcript and 404s for unknown ids", async () => {
+    const filePath = path.join(homeDir, ".claude", "projects", "D--repo", "full-session.jsonl");
+    await writeText(
+      filePath,
+      [
+        JSON.stringify({ type: "user", message: { role: "user", content: "질문" }, timestamp: "2026-07-11T01:00:00.000Z" }),
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "답변" }], model: "claude-fable-5" },
+          timestamp: "2026-07-11T01:00:10.000Z",
+        }),
+      ].join("\n"),
+    );
+
+    const { getSessionTranscript } = await import("./provider-workspace.js");
+    const transcript = await getSessionTranscript("claude:full-session");
+
+    expect(transcript).toMatchObject({
+      provider: "claude",
+      sessionId: "claude:full-session",
+      truncated: false,
+    });
+    expect(transcript.messages).toEqual([
+      { role: "user", text: "질문", toolUses: [], ts: "2026-07-11T01:00:00.000Z" },
+      { role: "assistant", text: "답변", toolUses: [], ts: "2026-07-11T01:00:10.000Z" },
+    ]);
+    await expect(getSessionTranscript("claude:missing-session")).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
 // 실행 중 세션이 "일하는 중"인지 "나를 기다리는 중"인지는 transcript 마지막 줄 모양만으로 정해진다.
 // 실제 .jsonl에서 관찰한 줄 형태를 그대로 재현해 파싱과 판정을 함께 검증한다.
 describe("세션 활동 상태 판별", () => {

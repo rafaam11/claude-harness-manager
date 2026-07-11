@@ -72,6 +72,21 @@ export interface NormalizedTimelineEvent {
   pinned?: boolean;
 }
 
+/** 세션 팝업용 재구성 메시지 — 도구 호출은 이름만 배지로 요약한다. */
+export interface TranscriptMessage {
+  role: "user" | "assistant";
+  text: string | null; // 도구 호출만 있고 텍스트가 없으면 null
+  toolUses: string[]; // 이 버블 주변에서 호출된 도구 이름(순서 보존)
+  ts: string | null; // ISO
+}
+
+export interface SessionTranscript {
+  provider: ProviderId;
+  sessionId: EntityId;
+  messages: TranscriptMessage[];
+  truncated: boolean; // 대용량이라 최근 부분만 읽었는지
+}
+
 export type LiveSessionSource = "codex-rollout-lock" | "claude-hook";
 
 /**

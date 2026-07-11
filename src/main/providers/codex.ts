@@ -1,13 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
-import { CODEX_HOME, WORKSPACE_CACHE_TTL_MS } from "../config.js";
+import {
+  CODEX_HOME,
+  RECALL_MAX_FULL_SCAN_BYTES,
+  TRANSCRIPT_TAIL_BYTES,
+  WORKSPACE_CACHE_TTL_MS,
+} from "../config.js";
 import { detectProcess } from "../lib/process-detect.js";
 import { parseTimeMs } from "../lib/time.js";
 import { readCodexMcpServersFromToml } from "../lib/toml-validate.js";
 import { readCodexStateThreads, type CodexStateThread } from "./codex-state.js";
 import type { ProviderAdapter } from "./types.js";
-import type { SessionKind } from "@shared/provider-types";
+import type { SessionKind, TranscriptMessage } from "@shared/provider-types";
 
 export { CODEX_HOME };
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
@@ -386,6 +391,95 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     acc.lastAssistantFallbackText = text;
     if (payload.phase === "final_answer") acc.lastFinalAnswerText = text;
   }
+}
+
+// --- 세션 팝업용 전체 대화 재구성 ---
+// rollout은 같은 내용이 event_msg(user_message/agent_message/task_complete)와 response_item에
+// 중복 기록된다 — 인접 동일 텍스트 dedup으로 흡수하고, 도구 호출은 어시스턴트 버블 배지로 접는다.
+
+function pushCodexUserText(text: string, ts: string | null, messages: TranscriptMessage[]) {
+  const trimmed = text.trim();
+  if (!trimmed || isInjectedCodexText(trimmed)) return;
+  const last = messages.at(-1);
+  if (last?.role === "user" && last.text === trimmed) return; // event_msg/response_item 중복
+  messages.push({ role: "user", text: trimmed, toolUses: [], ts });
+}
+
+function pushCodexAssistantText(text: string, ts: string | null, messages: TranscriptMessage[]) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const last = messages.at(-1);
+  if (last?.role === "assistant") {
+    if (last.text === trimmed) return; // final_answer가 event_msg로 한 번 더 기록된 경우
+    if (last.text == null) {
+      last.text = trimmed; // 도구 호출만 있던 버블에 본문 채움
+      return;
+    }
+  }
+  messages.push({ role: "assistant", text: trimmed, toolUses: [], ts });
+}
+
+function applyCodexTranscriptLine(line: string, messages: TranscriptMessage[]) {
+  if (!line.trim()) return;
+  let o: any;
+  try {
+    o = JSON.parse(line);
+  } catch {
+    return;
+  }
+  const ts = isoFromTimestamp(o?.timestamp ?? o?.payload?.timestamp);
+  const payload = o?.payload;
+
+  if (o?.type === "event_msg") {
+    if (payload?.type === "user_message" && typeof payload.message === "string") {
+      pushCodexUserText(payload.message, ts, messages);
+    } else if (payload?.type === "agent_message" && typeof payload.message === "string") {
+      pushCodexAssistantText(payload.message, ts, messages);
+    } else if (payload?.type === "task_complete" && typeof payload.last_agent_message === "string") {
+      // response_item 없이 event_msg만 남는 rollout 폴백 — 있으면 dedup으로 흡수된다.
+      pushCodexAssistantText(payload.last_agent_message, ts, messages);
+    }
+    return;
+  }
+
+  if (o?.type !== "response_item") return;
+  if (payload?.type === "message") {
+    if (payload.role === "user") {
+      const text = userTextFromContent(payload.content);
+      if (text) pushCodexUserText(text, ts, messages);
+    } else if (payload.role === "assistant") {
+      const text = textFromContent(payload.content);
+      if (text) pushCodexAssistantText(text, ts, messages);
+    }
+    return;
+  }
+  // function_call/custom_tool_call/web_search_call 등 — *_call_output은 결과라 제외.
+  if (typeof payload?.type === "string" && payload.type.endsWith("_call")) {
+    const name =
+      typeof payload.name === "string" && payload.name ? payload.name : payload.type.replace(/_call$/, "");
+    const last = messages.at(-1);
+    if (last?.role === "assistant") last.toolUses.push(name);
+    else messages.push({ role: "assistant", text: null, toolUses: [name], ts });
+  }
+}
+
+/**
+ * rollout 전체를 대화 메시지 리스트로 재구성한다(세션 팝업용).
+ * RECALL_MAX_FULL_SCAN_BYTES 이하는 전체 파싱, 초과는 끝 TRANSCRIPT_TAIL_BYTES만(truncated).
+ */
+export async function readCodexTranscriptMessages(
+  filePath: string,
+): Promise<{ messages: TranscriptMessage[]; truncated: boolean }> {
+  const stat = await fs.stat(filePath);
+  const messages: TranscriptMessage[] = [];
+  if (stat.size <= RECALL_MAX_FULL_SCAN_BYTES) {
+    const raw = await fs.readFile(filePath, "utf8");
+    for (const line of raw.split(/\r?\n/)) applyCodexTranscriptLine(line, messages);
+    return { messages, truncated: false };
+  }
+  const tail = await readRange(filePath, stat.size - TRANSCRIPT_TAIL_BYTES, TRANSCRIPT_TAIL_BYTES);
+  for (const line of tail.split(/\r?\n/).slice(1)) applyCodexTranscriptLine(line, messages); // 잘린 첫 줄 폐기
+  return { messages, truncated: true };
 }
 
 interface CodexSessionFileCacheEntry {

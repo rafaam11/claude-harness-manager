@@ -7,6 +7,7 @@ import {
   HISTORY_FILE,
   RECALL_TAIL_BYTES,
   RECALL_MAX_FULL_SCAN_BYTES,
+  TRANSCRIPT_TAIL_BYTES,
   WORKSPACE_CACHE_TTL_MS,
   PLAN_GUESS_WINDOW_MS,
   GLOSSARY_CORPUS_MAX_PROJECTS,
@@ -23,7 +24,7 @@ import { type BoardData, type BoardStatus, type ProjectTrack } from "../lib/boar
 import { readBoardWithProjectRegistry } from "../lib/project-registry.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
-import type { ProviderId, SessionActivity, SessionKind } from "@shared/provider-types";
+import type { ProviderId, SessionActivity, SessionKind, TranscriptMessage } from "@shared/provider-types";
 
 const PROMPT_MAX = 2000; // 마지막 입력: 웬만하면 전부(아주 긴 경우만 컷)
 const ASSISTANT_MAX = 800; // 마지막 응답: 적당히 넉넉하게
@@ -414,14 +415,18 @@ async function findNewestTranscript(dir: string): Promise<TranscriptRef | null> 
   return all.reduce<TranscriptRef | null>((best, r) => (!best || r.mtime > best.mtime ? r : best), null);
 }
 
-async function readTail(p: string, size: number): Promise<{ text: string; truncated: boolean }> {
-  if (size <= RECALL_TAIL_BYTES) {
+async function readTail(
+  p: string,
+  size: number,
+  tailBytes = RECALL_TAIL_BYTES,
+): Promise<{ text: string; truncated: boolean }> {
+  if (size <= tailBytes) {
     return { text: await fs.readFile(p, "utf8"), truncated: false };
   }
   const fh = await fs.open(p, "r");
   try {
-    const buf = Buffer.alloc(RECALL_TAIL_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, RECALL_TAIL_BYTES, size - RECALL_TAIL_BYTES);
+    const buf = Buffer.alloc(tailBytes);
+    const { bytesRead } = await fh.read(buf, 0, tailBytes, size - tailBytes);
     return { text: buf.toString("utf8", 0, bytesRead), truncated: true };
   } finally {
     await fh.close();
@@ -490,6 +495,96 @@ async function readSessionRecallFromFile(
     truncatedScan: truncated,
     activity: resolveSessionActivity(acc.activity),
   };
+}
+
+// --- 세션 팝업용 전체 대화 재구성 ---
+
+/** 어시스턴트 content 배열의 모든 text 블록을 이어붙인다(firstNonEmptyText의 전체판). */
+function allNonEmptyText(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  const chunks: string[] = [];
+  for (const c of content) {
+    if (c && c.type === "text" && typeof c.text === "string" && c.text.trim()) chunks.push(c.text.trim());
+  }
+  return chunks.length ? chunks.join("\n\n") : null;
+}
+
+/** content 배열의 tool_use 이름 전부(lastToolUseName의 전체판). */
+function toolUseNames(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const names: string[] = [];
+  for (const c of content) {
+    if (c?.type === "tool_use" && typeof c.name === "string") names.push(c.name);
+  }
+  return names;
+}
+
+function hasToolResult(content: unknown): boolean {
+  return Array.isArray(content) && content.some((c) => c?.type === "tool_result");
+}
+
+/** 한 줄을 메시지 리스트에 반영. applyLine과 달리 값을 덮지 않고 순서대로 쌓는다. */
+function applyTranscriptLine(line: string, messages: TranscriptMessage[]) {
+  if (!line.trim()) return;
+  let o: any;
+  try {
+    o = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (o?.isSidechain === true || o?.isMeta === true) return;
+  const ts = typeof o?.timestamp === "string" ? o.timestamp : null;
+
+  if (o?.type === "assistant") {
+    const text = allNonEmptyText(o.message?.content);
+    const toolUses = toolUseNames(o.message?.content);
+    if (!text && !toolUses.length) return; // 순수 thinking 줄
+    const last = messages.at(-1);
+    if (last?.role === "assistant") {
+      // CC는 한 턴의 응답을 여러 assistant 줄로 쪼개 쓴다(중간의 tool_result user 줄은
+      // 스킵됨) — 사용자 프롬프트 사이의 연속 assistant 줄을 턴 단위 한 버블로 합친다.
+      last.text = last.text && text ? `${last.text}\n\n${text}` : (last.text ?? text);
+      last.toolUses.push(...toolUses);
+      return;
+    }
+    messages.push({ role: "assistant", text, toolUses, ts });
+    return;
+  }
+
+  if (o?.type !== "user") return;
+  const content = o.message?.content;
+  let text: string | null = null;
+  if (typeof content === "string") {
+    text = content.trim() || null;
+  } else {
+    if (hasToolResult(content)) return; // 도구 결과 — 어시스턴트 버블의 배지로 이미 표현됨
+    text = allNonEmptyText(content);
+  }
+  if (!text || isInjectedClaudeText(text)) return;
+  messages.push({ role: "user", text, toolUses: [], ts });
+}
+
+/**
+ * transcript 전체를 대화 메시지 리스트로 재구성한다(세션 팝업용).
+ * RECALL_MAX_FULL_SCAN_BYTES 이하는 전체 스트리밍, 초과는 끝 TRANSCRIPT_TAIL_BYTES만(truncated).
+ */
+export async function readClaudeTranscriptMessages(
+  filePath: string,
+): Promise<{ messages: TranscriptMessage[]; truncated: boolean }> {
+  guardPath(filePath);
+  const stat = await fs.stat(filePath);
+  const messages: TranscriptMessage[] = [];
+  if (stat.size <= RECALL_MAX_FULL_SCAN_BYTES) {
+    const rl = readline.createInterface({
+      input: createReadStream(filePath, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    });
+    for await (const line of rl) applyTranscriptLine(line, messages);
+    return { messages, truncated: false };
+  }
+  const { text } = await readTail(filePath, stat.size, TRANSCRIPT_TAIL_BYTES);
+  for (const line of text.split("\n").slice(1)) applyTranscriptLine(line, messages); // 잘린 첫 줄 폐기
+  return { messages, truncated: true };
 }
 
 export async function readNewestSessionRecall(projectDir: string): Promise<SessionRecall | null> {

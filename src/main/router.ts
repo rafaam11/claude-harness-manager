@@ -27,6 +27,7 @@ import {
   getProviderWorkspaceProjects,
   getNormalizedTimeline,
   getNormalizedWorkspaceProjects,
+  getSessionTranscript,
 } from "./services/provider-workspace.js";
 import { readCustomGlossary } from "./lib/glossary-custom.js";
 import { readPlanContent } from "./services/plans.js";
@@ -530,6 +531,14 @@ const routes: Route[] = [
     handler: async ({ query }) => {
       if (!query.filename) throw new HttpError(400, "filename 필요");
       return readPlanContent(query.filename, query.archived === "1");
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/workspace/session/transcript",
+    handler: async ({ query }) => {
+      if (!query.id) throw new HttpError(400, "id 필요");
+      return getSessionTranscript(query.id);
     },
   },
   {

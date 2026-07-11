@@ -54,6 +54,8 @@ export interface WorktreeMember {
 
 export interface WorkspaceProject {
   id: EntityId;
+  /** Stable UUID from ~/.harness-manager/projects.json. */
+  registryId?: string;
   realPath: string | null;
   gitBranch: string | null;
   lastActivity: number;

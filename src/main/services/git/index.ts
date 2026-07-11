@@ -1,6 +1,6 @@
 // Git facade. router는 projectId만 받고, 여기서 repoPath를 해석·검증한 뒤 서비스를 호출한다.
 // renderer는 실제 repo 경로를 들고 다니지 않는다(보안 + 단순화): 항상 projectId로만 요청한다.
-import { readBoard } from "../../lib/board.js";
+import { readBoardWithProjectRegistry } from "../../lib/project-registry.js";
 import { splitEntityId } from "../../providers/registry.js";
 import { codexProvider } from "../../providers/codex.js";
 import { guessOriginalPath } from "../projects.js";
@@ -55,7 +55,7 @@ function projectIdCandidates(projectId: string): string[] {
  * 각 후보는 assertGitRepo(rev-parse)로 검증한다. 못 찾으면 null.
  */
 export async function resolveRepoPath(projectId: string): Promise<RepoResolution | null> {
-  const board = await readBoard();
+  const board = await readBoardWithProjectRegistry();
   const boardRepoPath = projectIdCandidates(projectId)
     .map((id) => board.projects[id]?.repoPath)
     .find((value): value is string => typeof value === "string" && value.length > 0);

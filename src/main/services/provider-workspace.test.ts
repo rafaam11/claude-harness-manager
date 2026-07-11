@@ -2,17 +2,118 @@ import { describe, expect, it } from "vitest";
 import { HttpError, routeRequest } from "../router.js";
 import type { ApiRequest } from "@shared/types";
 import {
+  applyProjectRegistryMetadata,
+  collectProjectRegistryDiscoveries,
   filterUserFacingSessions,
   mergeProviderProjectsByPath,
   sortNormalizedProjects,
   toTimelineEvents,
 } from "./provider-workspace.js";
+import { validateProjectRegistry } from "../lib/project-registry.js";
 
 function req(url: string): ApiRequest {
   return { method: "GET", url };
 }
 
 describe("provider workspace normalization", () => {
+  it("overlays shared registry metadata while preserving provider ids and member ids", () => {
+    const projectId = "61d98fcb-9c8d-4f8b-9e6f-723555a24a71";
+    const timestamp = "2026-07-11T12:00:00.000Z";
+    const registry = validateProjectRegistry({
+      schemaVersion: 1,
+      updatedAt: timestamp,
+      projects: {
+        [projectId]: {
+          id: projectId,
+          rootPath: "C:\\repo",
+          displayName: "Shared repo",
+          sources: ["claude"],
+          providerRefs: { claude: ["C--repo"], codex: [] },
+          status: "보류",
+          memo: "shared memo",
+          tracks: [{ id: "track", title: "Next", items: [] }],
+          hidden: true,
+          order: 5,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    });
+    const projects = applyProjectRegistryMetadata(
+      [
+        {
+          id: "claude:C--repo",
+          provider: "claude",
+          realPath: "c:/repo",
+          gitBranch: "main",
+          lastActivity: 10,
+          staleDays: 0,
+          recall: null,
+          todos: null,
+          board: { status: null, memo: "stale", nameOverride: "", tracks: [], hidden: false, order: null },
+          repoRoot: "c:/repo",
+          isWorktree: false,
+          worktreeName: null,
+          worktrees: [],
+          memberIds: ["claude:C--repo"],
+        },
+      ],
+      registry,
+    );
+
+    expect(projects[0]).toMatchObject({
+      id: "claude:C--repo",
+      registryId: projectId,
+      memberIds: ["claude:C--repo"],
+      board: {
+        status: "보류",
+        memo: "shared memo",
+        nameOverride: "Shared repo",
+        tracks: [{ id: "track" }],
+        hidden: true,
+        order: 5,
+      },
+    });
+  });
+
+  it("discovers canonical provider aliases without changing provider-facing ids", () => {
+    const base = {
+      gitBranch: null,
+      lastActivity: 1,
+      staleDays: 0,
+      recall: null,
+      todos: null,
+      board: { status: null, memo: "", nameOverride: "", tracks: [], hidden: false, order: null },
+      repoRoot: "C:\\repo",
+      isWorktree: false,
+      worktreeName: null,
+      worktrees: [],
+    };
+    const discoveries = collectProjectRegistryDiscoveries([
+      {
+        ...base,
+        id: "claude:C--repo",
+        provider: "claude",
+        realPath: "C:\\repo",
+        memberIds: ["claude:C--repo", "claude:C--repo-worktree"],
+      },
+      {
+        ...base,
+        id: "codex:C--repo",
+        provider: "codex",
+        realPath: "c:/repo",
+        memberIds: ["codex:C--repo"],
+      },
+    ]);
+
+    expect(discoveries).toEqual([
+      { rootPath: "C:\\repo", source: "claude", providerRef: "C--repo" },
+      { rootPath: "C:\\repo", source: "claude", providerRef: "C--repo-worktree" },
+      { rootPath: "C:\\repo", source: "codex", providerRef: "codex:C--repo" },
+    ]);
+  });
+
+
   it("merges Claude and Codex projects that point at the same real path", () => {
     const merged = mergeProviderProjectsByPath([
       {

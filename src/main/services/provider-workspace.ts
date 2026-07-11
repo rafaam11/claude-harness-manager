@@ -6,8 +6,17 @@ import type {
   ProviderFilter,
   ProviderId,
 } from "@shared/provider-types";
-import { getProviders } from "../providers/registry.js";
+import { getProviders, splitEntityId } from "../providers/registry.js";
 import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import {
+  findProjectRegistryProject,
+  migrateBoardProjectsToRegistry,
+  projectRegistryNeedsReconciliation,
+  readBoardWithProjectRegistry,
+  readProjectRegistry,
+  type DiscoveredProject,
+  type ProjectRegistryV1,
+} from "../lib/project-registry.js";
 import { normalizePathKey } from "../lib/path-normalize.js";
 import { parseTimeMs } from "../lib/time.js";
 import {
@@ -21,8 +30,72 @@ import {
   type TimelineEvent,
   type WorkspaceProject,
 } from "./recall.js";
+import { guessOriginalPath } from "./projects.js";
 
 type ProviderWorkspaceProject = WorkspaceProject & { provider?: ProviderId };
+
+export function applyProjectRegistryMetadata(
+  projects: readonly ProviderWorkspaceProject[],
+  registry: ProjectRegistryV1,
+): ProviderWorkspaceProject[] {
+  return projects.map((project) => {
+    const shared = findProjectRegistryProject(
+      registry,
+      [project.id, ...(project.memberIds ?? [])],
+      project.repoRoot ?? project.realPath,
+    );
+    if (!shared) return project;
+    return {
+      ...project,
+      registryId: shared.id,
+      board: {
+        status: shared.status,
+        memo: shared.memo,
+        nameOverride: shared.displayName ?? "",
+        tracks: structuredClone(shared.tracks),
+        hidden: shared.hidden,
+        order: shared.order,
+      },
+    };
+  });
+}
+
+export function collectProjectRegistryDiscoveries(
+  projects: readonly ProviderWorkspaceProject[],
+): DiscoveredProject[] {
+  const discoveries: DiscoveredProject[] = [];
+  const seen = new Set<string>();
+  for (const project of projects) {
+    if (!project.provider) continue;
+    const rootPath = project.repoRoot ?? project.realPath;
+    if (!rootPath) continue;
+    const identifiers = project.memberIds?.length ? project.memberIds : [project.id];
+    for (const identifier of identifiers) {
+      const split = splitEntityId(identifier);
+      const providerRef = project.provider === "claude" ? split.localId : `codex:${split.localId}`;
+      const key = `${project.provider}\0${providerRef}\0${normalizePathKey(rootPath)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      discoveries.push({ rootPath, source: project.provider, providerRef });
+    }
+  }
+  return discoveries;
+}
+
+function collectLegacyBoardDiscoveries(board: BoardData): DiscoveredProject[] {
+  const discoveries: DiscoveredProject[] = [];
+  for (const [identifier, entry] of Object.entries(board.projects)) {
+    const split = splitEntityId(identifier);
+    const rootPath = entry.repoPath ?? guessOriginalPath(split.localId);
+    if (!rootPath) continue;
+    discoveries.push({
+      rootPath,
+      source: split.provider,
+      providerRef: split.provider === "claude" ? split.localId : `codex:${split.localId}`,
+    });
+  }
+  return discoveries;
+}
 
 export function sortNormalizedProjects(projects: NormalizedProject[]): NormalizedProject[] {
   return [...projects].sort((a, b) => {
@@ -166,7 +239,11 @@ export async function getNormalizedTimeline(
     Promise.all(providers.map((p) => p.listSessions())),
     Promise.all(providers.map((p) => p.listPlans())),
   ]);
-  return toTimelineEvents(filterUserFacingSessions(sessions.flat()), plans.flat(), await readBoard());
+  return toTimelineEvents(
+    filterUserFacingSessions(sessions.flat()),
+    plans.flat(),
+    await readBoardWithProjectRegistry(),
+  );
 }
 
 const EMPTY_BOARD: WorkspaceProject["board"] = {
@@ -218,7 +295,7 @@ function normalizedSessionToRecall(session: NormalizedSession, board?: BoardData
 
 async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
   const provider = getProviders("codex")[0];
-  const [sessions, board] = await Promise.all([provider.listSessions(), readBoard()]);
+  const [sessions, board] = await Promise.all([provider.listSessions(), readBoardWithProjectRegistry()]);
   const projects = new Map<string, { id: string; realPath: string | null }>();
   for (const session of sessions) {
     if (!session.projectId) continue;
@@ -261,12 +338,41 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
 export async function getProviderWorkspaceProjects(
   filter: ProviderFilter = "all",
 ): Promise<WorkspaceProject[]> {
-  const lists: ProviderWorkspaceProject[][] = [];
-  if (filter === "all" || filter === "claude") {
-    lists.push((await getWorkspaceProjects()).map((p) => ({ ...p, provider: "claude" as const })));
+  let registry: ProjectRegistryV1 | null;
+  try {
+    registry = await readProjectRegistry();
+  } catch {
+    registry = null;
   }
-  if (filter === "all" || filter === "codex") lists.push(await codexWorkspaceProjects());
-  const projects = lists.flat().sort((a, b) => b.lastActivity - a.lastActivity);
+  const needsMigration = registry !== null && !registry.migratedFromBoardAt;
+  const loadClaude = needsMigration || filter === "all" || filter === "claude";
+  const loadCodex = needsMigration || filter === "all" || filter === "codex";
+  const [claudeProjects, codexProjects] = await Promise.all([
+    loadClaude
+      ? getWorkspaceProjects().then((projects) =>
+          projects.map((project) => ({ ...project, provider: "claude" as const })),
+        )
+      : Promise.resolve([]),
+    loadCodex ? codexWorkspaceProjects() : Promise.resolve([]),
+  ]);
+  let projects: ProviderWorkspaceProject[] = [...claudeProjects, ...codexProjects];
+  if (registry) {
+    projects = applyProjectRegistryMetadata(projects, registry);
+    const board = await readBoard();
+    const discoveries = collectProjectRegistryDiscoveries(projects);
+    if (needsMigration) discoveries.unshift(...collectLegacyBoardDiscoveries(board));
+    if (needsMigration || projectRegistryNeedsReconciliation(registry, discoveries)) {
+      try {
+        registry = await migrateBoardProjectsToRegistry(board.projects, discoveries);
+        projects = applyProjectRegistryMetadata(projects, registry);
+      } catch {
+        // Fail closed on malformed/locked shared state while preserving the last valid Workspace view.
+      }
+    }
+  }
+  projects = projects
+    .filter((project) => filter === "all" || project.provider === filter)
+    .sort((a, b) => b.lastActivity - a.lastActivity);
   const merged = filter === "all" ? mergeProviderProjectsByPath(projects) : projects;
   return merged.filter(
     (project) => !(project.provider === "codex" && project.lastActivity === 0 && !project.recall),
@@ -279,7 +385,7 @@ export async function getProviderProjectSessions(
 ): Promise<SessionRecall[]> {
   if (projectId.startsWith("codex:")) {
     const provider = getProviders("codex")[0];
-    const board = await readBoard();
+    const board = await readBoardWithProjectRegistry();
     const sessions = (await provider.listSessions())
       .filter((session) => session.projectId === projectId)
       .map((session) => normalizedSessionToRecall(session, board));
@@ -329,7 +435,7 @@ export async function getProviderTimeline(
   }
   if (filter === "all" || filter === "codex") {
     const provider = getProviders("codex")[0];
-    const board = await readBoard();
+    const board = await readBoardWithProjectRegistry();
     events.push(...filterUserFacingSessions(await provider.listSessions()).map((session) => codexSessionToTimelineEvent(session, board)));
   }
   const sessionIds = new Set(events.filter((event) => event.kind === "session" && event.sessionId).map((event) => event.sessionId!));

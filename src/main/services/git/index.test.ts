@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const readBoard = vi.fn();
+const readBoardWithProjectRegistry = vi.fn();
 const guessOriginalPath = vi.fn();
 const getProjectRecalls = vi.fn();
 const resolveRepoTopology = vi.fn();
 const assertGitRepo = vi.fn();
 const listCodexProjects = vi.fn();
 
-vi.mock("../../lib/board.js", () => ({
-  readBoard,
+vi.mock("../../lib/project-registry.js", () => ({
+  readBoardWithProjectRegistry,
 }));
 
 vi.mock("../projects.js", () => ({
@@ -83,7 +83,7 @@ async function loadGitModule() {
 
 beforeEach(() => {
   vi.resetModules();
-  readBoard.mockReset();
+  readBoardWithProjectRegistry.mockReset();
   guessOriginalPath.mockReset();
   getProjectRecalls.mockReset();
   resolveRepoTopology.mockReset();
@@ -97,7 +97,7 @@ afterEach(() => {
 
 describe("git facade Claude id compatibility", () => {
   it("uses prefixed board keys and strips Claude ids for recall and path guessing", async () => {
-    readBoard.mockResolvedValue({
+    readBoardWithProjectRegistry.mockResolvedValue({
       schemaVersion: 2,
       projects: {
         "claude:D--repo": { repoPath: "C:/repos/from-board" },
@@ -117,7 +117,7 @@ describe("git facade Claude id compatibility", () => {
   });
 
   it("falls back through local Claude ids for recall lookup and guessOriginalPath", async () => {
-    readBoard.mockResolvedValue({
+    readBoardWithProjectRegistry.mockResolvedValue({
       schemaVersion: 2,
       projects: {},
       plans: {},
@@ -148,7 +148,7 @@ describe("git facade Claude id compatibility", () => {
   });
 
   it("uses Codex project realPath so Codex projects expose the same Git tab behavior", async () => {
-    readBoard.mockResolvedValue({
+    readBoardWithProjectRegistry.mockResolvedValue({
       schemaVersion: 2,
       projects: {},
       plans: {},
@@ -179,7 +179,7 @@ describe("git facade Claude id compatibility", () => {
 
 describe("git facade worktree authority", () => {
   it("does not accept a worktreePath when the base project repo cannot be resolved", async () => {
-    readBoard.mockResolvedValue({
+    readBoardWithProjectRegistry.mockResolvedValue({
       schemaVersion: 2,
       projects: {},
       plans: {},

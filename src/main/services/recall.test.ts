@@ -87,6 +87,59 @@ describe("recall provider-prefixed Claude ids", () => {
     expect(projects[0].board.status).toBe("보류");
   });
 
+  it("prefers shared registry metadata over stale board project fields", async () => {
+    const projectId = "D--repo";
+    const sessionId = "session-registry";
+    const transcript = [
+      JSON.stringify({ type: "user", message: { content: "shared project" }, cwd: "C:/work/repo", sessionId }),
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "text", text: "shared answer" }], model: "claude-sonnet-5" },
+        cwd: "C:/work/repo",
+        sessionId,
+      }),
+    ].join("\n");
+    await writeText(path.join(homeDir, ".claude", "projects", projectId, `${sessionId}.jsonl`), transcript);
+    await writeJson(path.join(homeDir, ".harness-manager", "board.json"), {
+      schemaVersion: 2,
+      projects: { "claude:D--repo": { memo: "stale board memo", status: "보관" } },
+      plans: {},
+      sessions: {},
+    });
+    const registryId = "61d98fcb-9c8d-4f8b-9e6f-723555a24a71";
+    const timestamp = "2026-07-11T12:00:00.000Z";
+    await writeJson(path.join(homeDir, ".harness-manager", "projects.json"), {
+      schemaVersion: 1,
+      updatedAt: timestamp,
+      migratedFromBoardAt: timestamp,
+      projects: {
+        [registryId]: {
+          id: registryId,
+          rootPath: "C:/work/repo",
+          displayName: "Shared name",
+          sources: ["claude"],
+          providerRefs: { claude: [projectId], codex: [] },
+          status: "보류",
+          memo: "shared memo",
+          tracks: [],
+          hidden: false,
+          order: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    });
+
+    const { getWorkspaceProjects } = await loadRecallModule();
+    const projects = await getWorkspaceProjects();
+
+    expect(projects[0].board).toMatchObject({
+      status: "보류",
+      memo: "shared memo",
+      nameOverride: "Shared name",
+    });
+  });
+
   it("accepts prefixed project ids for session lookup and prefixes timeline ids", async () => {
     const projectId = "D--repo";
     const sessionId = "session-a";

@@ -19,7 +19,8 @@ import { normalizePathKey } from "../lib/path-normalize.js";
 import { getProjects, guessOriginalPath } from "./projects.js";
 import { getPlans, type PlanInfo } from "./plans.js";
 import { getSessionTodos, type SessionTodos } from "./tasks.js";
-import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { readBoardWithProjectRegistry } from "../lib/project-registry.js";
 import { computeRepoGroups, type WorktreeMember } from "./repo-group.js";
 import { prefixEntityId, splitEntityId } from "../providers/registry.js";
 import type { ProviderId, SessionActivity, SessionKind } from "@shared/provider-types";
@@ -89,6 +90,8 @@ export interface TimelineEvent {
 }
 
 export interface WorkspaceProject extends ProjectRecall {
+  /** Shared projects.json UUID. Provider ids remain the runtime/session compatibility key. */
+  registryId?: string;
   board: {
     status: BoardStatus | null;
     memo: string;
@@ -684,7 +687,7 @@ function matchPlanToSession(
 export async function getEnrichedPlans(includeArchived = false): Promise<EnrichedPlan[]> {
   const [plans, board, recalls, history, sessionToPath] = await Promise.all([
     getPlans(includeArchived),
-    readBoard(),
+    readBoardWithProjectRegistry(),
     getProjectRecalls(),
     getHistoryIndex(),
     getSessionToPathMap(),
@@ -723,7 +726,7 @@ export async function getEnrichedPlans(includeArchived = false): Promise<Enriche
 }
 
 export async function getWorkspaceProjects(): Promise<WorkspaceProject[]> {
-  const [recalls, board] = await Promise.all([getProjectRecalls(), readBoard()]);
+  const [recalls, board] = await Promise.all([getProjectRecalls(), readBoardWithProjectRegistry()]);
   // 워크트리·하위폴더를 같은 git 저장소(공유 .git)로 접어 대표 카드 하나로 만든다.
   const groups = await computeRepoGroups(recalls);
 
@@ -817,7 +820,10 @@ export async function getSessionRecallByTranscriptPath(filePath: string): Promis
 }
 
 export async function getProjectSessions(projectId: string): Promise<SessionRecall[]> {
-  const [memberIds, board] = await Promise.all([getProjectMemberIds(projectId), readBoard()]);
+  const [memberIds, board] = await Promise.all([
+    getProjectMemberIds(projectId),
+    readBoardWithProjectRegistry(),
+  ]);
 
   const lists = await Promise.all(
     memberIds.map(async (id) => {
@@ -834,7 +840,7 @@ export async function getProjectSessions(projectId: string): Promise<SessionReca
 export async function getPinnedProjectSessions(projectId: string): Promise<SessionRecall[]> {
   const [memberIds, board, sessionToPath] = await Promise.all([
     getProjectMemberIds(projectId),
-    readBoard(),
+    readBoardWithProjectRegistry(),
     getSessionToPathMap(),
   ]);
   const memberSet = new Set(memberIds);
@@ -862,7 +868,7 @@ export async function getTimeline(includeArchived = false): Promise<TimelineEven
   const [recalls, plans, board, sessionToPath] = await Promise.all([
     getProjectRecalls(),
     getEnrichedPlans(includeArchived),
-    readBoard(),
+    readBoardWithProjectRegistry(),
     getSessionToPathMap(),
   ]);
   // session/plan 이벤트가 같은 프로젝트면 동일한 realPath를 쓰도록 id→realPath 맵을 만든다.

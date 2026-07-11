@@ -54,13 +54,15 @@ import {
 } from "./services/usage.js";
 import {
   setPlanField,
-  setProjectField,
-  setProjectsField,
-  setProjectsOrder,
-  setProjectsVisibility,
   setSessionField,
   type ProjectTrack,
 } from "./lib/board.js";
+import {
+  setRegistryProjectField as setProjectField,
+  setRegistryProjectsField as setProjectsField,
+  setRegistryProjectsOrder as setProjectsOrder,
+  setRegistryProjectsVisibility as setProjectsVisibility,
+} from "./lib/project-registry.js";
 import * as git from "./services/git/index.js";
 import { getProviders, parseProviderFilter } from "./providers/registry.js";
 import type {

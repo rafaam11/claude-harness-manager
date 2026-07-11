@@ -8,6 +8,7 @@ export const STATUSES: BoardStatus[] = ["진행중", "보류", "완료", "보관
 export interface SessionRecall {
   sessionId: string | null;
   sessionKind?: SessionKind;
+  pinned?: boolean;
   aiTitle: string | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
@@ -17,6 +18,8 @@ export interface SessionRecall {
   transcriptPath: string; // 세션 목록에서 고유 key로 쓴다(sessionId는 재개된 세션끼리 겹칠 수 있음)
   transcriptMtime: number;
   truncatedScan: boolean;
+  startedAt?: number | null;
+  turnCount?: number | null;
 }
 export interface SessionTodos {
   total: number;
@@ -93,6 +96,8 @@ export interface TimelineEvent {
   title: string;
   filename?: string;
   sessionId?: EntityId; // 세션 이벤트에만. 상태 드롭다운 저장 키.
+  sessionKind?: SessionKind;
+  pinned?: boolean;
   status: BoardStatus; // 드롭다운 현재값(자동추정 or 사용자 override)
   // 행 클릭 펼침용 내용(서버 recall.ts와 1:1). 세션은 스니펫, 계획은 본문 lazy-fetch용 archived.
   lastPrompt?: string | null;
@@ -102,6 +107,8 @@ export interface TimelineEvent {
   lastModel?: string | null; // 세션 이벤트에만. 마지막 사용 모델 ID.
   worktreeName?: string | null; // 워크트리 세션이면 그 이름(대표 repo로 귀속된 뒤 표시).
   provider?: ProviderId;
+  startedAt?: number | null;
+  turnCount?: number | null;
 }
 
 export function providerLabel(provider: ProviderId): string {
@@ -177,8 +184,14 @@ export function modelDisplayName(modelId: string): string {
 
 /** 모델 ID → 배지 색 클래스(모델 계열별) */
 export function modelBadgeClass(modelId: string): string {
+  const normalized = modelId.toLowerCase();
   for (const name of ["opus", "sonnet", "haiku", "fable"]) {
-    if (modelId.includes(name)) return `bdg-model-${name}`;
+    if (normalized.includes(name)) return `bdg-model-${name}`;
   }
+  if (/^gpt-5[.-]4-mini(?:[.-]|$)/.test(normalized)) return "bdg-model-gpt-mini";
+  if (/^gpt-5[.-]5(?:[.-]|$)/.test(normalized)) return "bdg-model-gpt-55";
+  if (/^gpt-5[.-]6-sol(?:[.-]|$)/.test(normalized)) return "bdg-model-gpt-sol";
+  if (/^gpt-5[.-]6-terra(?:[.-]|$)/.test(normalized)) return "bdg-model-gpt-terra";
+  if (normalized.startsWith("gpt-")) return "bdg-model-gpt";
   return "bdg-model-unknown";
 }

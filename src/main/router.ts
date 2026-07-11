@@ -8,6 +8,12 @@ import { archiveItems, restoreItem, listManifests } from "./lib/archive.js";
 import { readCatalogContent } from "./services/catalog.js";
 import { readStampPlanSessionHook } from "./services/hooks.js";
 import { getPlugins } from "./services/plugins.js";
+import {
+  getClaudeLiveTrackingStatus,
+  installClaudeLiveTracking,
+  uninstallClaudeLiveTracking,
+} from "./services/claude-live-tracking.js";
+import { getLiveSessions } from "./services/live-sessions.js";
 import { getProjects, listProjectFiles, readProjectFile } from "./services/projects.js";
 import { scanCandidates } from "./services/scan.js";
 import {
@@ -49,6 +55,7 @@ import {
 import {
   setPlanField,
   setProjectField,
+  setProjectsField,
   setProjectsOrder,
   setProjectsVisibility,
   setSessionField,
@@ -499,7 +506,12 @@ const routes: Route[] = [
   {
     method: "GET",
     pattern: "/api/workspace/projects/:id/sessions",
-    handler: async ({ params }) => getProviderProjectSessions(params.id),
+    handler: async ({ params, query }) => {
+      if (query.pinned !== undefined && query.pinned !== "1") {
+        throw new HttpError(400, "pinned는 1이어야 합니다");
+      }
+      return getProviderProjectSessions(params.id, { pinnedOnly: query.pinned === "1" });
+    },
   },
   {
     method: "GET",
@@ -581,6 +593,48 @@ const routes: Route[] = [
     },
   },
   {
+    method: "GET",
+    pattern: "/api/workspace/live-sessions",
+    handler: async ({ query }) => {
+      const provider = resolveProviderFilter(query.provider);
+      if (!provider) throw new HttpError(400, "invalid provider filter");
+      return getLiveSessions(provider);
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/workspace/live-tracking/claude",
+    handler: async () => getClaudeLiveTrackingStatus(),
+  },
+  {
+    method: "POST",
+    pattern: "/api/workspace/live-tracking/claude/install",
+    handler: async () => installClaudeLiveTracking(),
+  },
+  {
+    method: "POST",
+    pattern: "/api/workspace/live-tracking/claude/uninstall",
+    handler: async () => uninstallClaudeLiveTracking(),
+  },
+  {
+    // 교차-provider 병합 카드의 수동 필드를 모든 멤버에 한 번의 atomic write로 반영.
+    method: "POST",
+    pattern: "/api/workspace/board/projects",
+    handler: async ({ body }) => {
+      const { ids, status, memo, nameOverride, tracks, hidden, order } = body as {
+        ids?: string[];
+        status?: string;
+        memo?: string;
+        nameOverride?: string | null;
+        tracks?: ProjectTrack[];
+        hidden?: boolean;
+        order?: number | null;
+      };
+      if (!Array.isArray(ids) || ids.length === 0) throw new HttpError(400, "ids 필요");
+      return setProjectsField(ids, { status, memo, nameOverride, tracks, hidden, order });
+    },
+  },
+  {
     // 교차-provider 병합 카드의 hidden/status를 모든 멤버에 일괄 적용(팬아웃).
     method: "POST",
     pattern: "/api/workspace/board/projects/visibility",
@@ -598,8 +652,11 @@ const routes: Route[] = [
     method: "POST",
     pattern: "/api/workspace/board/session/:sessionId",
     handler: async ({ params, body }) => {
-      const { status, memo } = body as { status?: string; memo?: string };
-      return setSessionField(params.sessionId, { status, memo });
+      const { status, memo, pinned } = body as { status?: string; memo?: string; pinned?: unknown };
+      if (pinned !== undefined && typeof pinned !== "boolean") {
+        throw new HttpError(400, "pinned는 boolean이어야 합니다");
+      }
+      return setSessionField(params.sessionId, { status, memo, pinned });
     },
   },
 

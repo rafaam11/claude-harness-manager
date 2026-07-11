@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canHideTimelineProjectTab,
   filterTimelineEventsForVisibleProjects,
+  isPinnableTimelineSession,
   isTopLevelTimelineEvent,
   timelineModelBadge,
 } from "./Timeline";
@@ -74,10 +75,33 @@ describe("timeline top-level filtering", () => {
     });
   });
 
+  it.each([
+    ["gpt-5.4-mini", "bdg-model-gpt-mini"],
+    ["gpt-5.5", "bdg-model-gpt-55"],
+    ["gpt-5.6-sol", "bdg-model-gpt-sol"],
+    ["gpt-5.6-terra", "bdg-model-gpt-terra"],
+  ])("assigns %s a distinct Codex model badge", (lastModel, className) => {
+    expect(
+      timelineModelBadge({ ...base, kind: "session", sessionId: "codex:s", provider: "codex", lastModel }),
+    ).toMatchObject({ className, title: lastModel });
+  });
+
   it("allows right-click hide actions only for real project tabs", () => {
     expect(canHideTimelineProjectTab("claude:C--repo")).toBe(true);
     expect(canHideTimelineProjectTab("codex:C--repo")).toBe(true);
     expect(canHideTimelineProjectTab("all")).toBe(false);
     expect(canHideTimelineProjectTab("__none__")).toBe(false);
+  });
+
+  it("allows pins only for direct timeline sessions", () => {
+    expect(
+      isPinnableTimelineSession({ ...base, kind: "session", sessionId: "codex:main", provider: "codex", sessionKind: "main" }),
+    ).toBe(true);
+    expect(
+      isPinnableTimelineSession({ ...base, kind: "session", sessionId: "codex:worker", provider: "codex", sessionKind: "worker" }),
+    ).toBe(false);
+    expect(
+      isPinnableTimelineSession({ ...base, kind: "session", sessionId: "claude:worker", provider: "claude", sessionKind: "worker" }),
+    ).toBe(false);
   });
 });

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  isPinnableWorkspaceSession,
   initialWorkspaceSortMode,
   mergeWorkspaceSessionLists,
   partitionWorkspaceSessions,
+  projectBoardWrite,
   resolveWorkspaceSelection,
+  sortWorkspaceSessionsPinnedFirst,
   workspaceProjectMetricLabels,
   workspaceProviderToneClass,
 } from "./Workspace";
@@ -63,7 +66,7 @@ describe("provider workspace selection", () => {
     );
   });
 
-  it("keeps worker sessions out of the default session list", () => {
+  it("keeps imported, worker, and unknown Codex sessions out of the default session list", () => {
     const base = {
       sessionId: null,
       aiTitle: null,
@@ -79,12 +82,73 @@ describe("provider workspace selection", () => {
     const sessions: SessionRecall[] = [
       { ...base, sessionId: "codex:main", transcriptPath: "main", sessionKind: "main" },
       { ...base, sessionId: "codex:worker", transcriptPath: "worker", sessionKind: "worker" },
+      { ...base, sessionId: "codex:imported", transcriptPath: "imported", sessionKind: "imported" },
       { ...base, sessionId: "codex:unknown", transcriptPath: "unknown", sessionKind: "unknown" },
+      { ...base, sessionId: "claude:unknown", transcriptPath: "claude-unknown", sessionKind: "unknown" },
     ];
 
     expect(partitionWorkspaceSessions(sessions)).toEqual({
-      primary: [sessions[0], sessions[2]],
-      auxiliary: [sessions[1]],
+      primary: [sessions[0], sessions[4]],
+      auxiliary: [sessions[1], sessions[2], sessions[3]],
+    });
+  });
+
+  it("allows pins for direct sessions and sorts pinned sessions before newer activity", () => {
+    const base = {
+      aiTitle: null,
+      lastPrompt: null,
+      lastAssistantSnippet: null,
+      cwd: null,
+      gitBranch: null,
+      lastModel: null,
+      truncatedScan: false,
+    };
+    const pinned = {
+      ...base,
+      sessionId: "codex:pinned",
+      sessionKind: "main" as const,
+      transcriptPath: "pinned",
+      transcriptMtime: 1,
+      pinned: true,
+    } satisfies SessionRecall;
+    const newer = {
+      ...base,
+      sessionId: "codex:newer",
+      sessionKind: "main" as const,
+      transcriptPath: "newer",
+      transcriptMtime: 2,
+    } satisfies SessionRecall;
+    const worker = { ...newer, sessionId: "codex:worker", sessionKind: "worker" as const };
+
+    expect(isPinnableWorkspaceSession(pinned)).toBe(true);
+    expect(isPinnableWorkspaceSession(worker)).toBe(false);
+    expect(sortWorkspaceSessionsPinnedFirst([newer, pinned]).map((session) => session.sessionId)).toEqual([
+      "codex:pinned",
+      "codex:newer",
+    ]);
+  });
+
+  it("fans every merged-card board field out to all provider member ids", () => {
+    const project = {
+      id: "claude:C--repo",
+      provider: undefined,
+      realPath: "C:/repo",
+      gitBranch: null,
+      lastActivity: 1,
+      staleDays: 0,
+      recall: null,
+      todos: null,
+      board: { status: null, memo: "", nameOverride: "", tracks: [], hidden: false, order: null },
+      repoRoot: "C:/repo",
+      isWorktree: false,
+      worktreeName: null,
+      worktrees: [],
+      memberIds: ["claude:C--repo", "codex:C--repo"],
+    } satisfies WorkspaceProject;
+
+    expect(projectBoardWrite(project, project.id, { memo: "공유" })).toEqual({
+      url: "/api/workspace/board/projects",
+      body: { ids: ["claude:C--repo", "codex:C--repo"], memo: "공유" },
     });
   });
 

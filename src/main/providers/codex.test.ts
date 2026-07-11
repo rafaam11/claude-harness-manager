@@ -2,6 +2,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CodexStateThread } from "./codex-state.js";
+
+const { readCodexStateThreadsMock } = vi.hoisted(() => ({
+  readCodexStateThreadsMock: vi.fn<() => Promise<CodexStateThread[]>>(async () => []),
+}));
+
+vi.mock("./codex-state.js", () => ({
+  readCodexStateThreads: readCodexStateThreadsMock,
+}));
 
 let homeDir = "";
 let previousHome = "";
@@ -28,6 +37,7 @@ beforeEach(async () => {
   process.env.USERPROFILE = homeDir;
   process.env.HOMEDRIVE = "";
   process.env.HOMEPATH = "";
+  readCodexStateThreadsMock.mockResolvedValue([]);
   vi.resetModules();
 });
 
@@ -56,6 +66,10 @@ describe("codex provider", () => {
     await writeText(path.join(codexHome, "AGENTS.override.md"), "# Override\n");
     await writeText(path.join(codexHome, "memories", "memory_summary.md"), "# Summary\n");
     await writeText(path.join(codexHome, "memories", "MEMORY.md"), "# Memory\n");
+    await writeText(
+      path.join(codexHome, "skills", ".system", "imagegen", "SKILL.md"),
+      "---\ndescription: Generate images\n---\n# Imagegen\n",
+    );
 
     const { codexProvider } = await loadCodexProvider();
     const files = await codexProvider.listConfigFiles();
@@ -85,23 +99,28 @@ describe("codex provider", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "AGENTS.md",
-          kind: "command",
+          kind: "instruction",
           description: "Codex instruction file",
         }),
         expect.objectContaining({
           name: "AGENTS.override.md",
-          kind: "command",
+          kind: "instruction",
           description: "Codex instruction file",
         }),
         expect.objectContaining({
           name: "memory_summary.md",
-          kind: "skill",
+          kind: "memory",
           description: "Codex memory file",
         }),
         expect.objectContaining({
           name: "MEMORY.md",
-          kind: "skill",
+          kind: "memory",
           description: "Codex memory file",
+        }),
+        expect.objectContaining({
+          name: ".system/imagegen",
+          kind: "skill",
+          description: "Generate images",
         }),
       ]),
     );
@@ -226,7 +245,7 @@ describe("codex provider", () => {
     });
   });
 
-  it("aggregates duplicate rollout files into one user-facing session using history", async () => {
+  it("aggregates duplicate rollout files into one session while keeping the first history prompt as its title", async () => {
     const codexHome = path.join(homeDir, ".codex");
     const sessionId = "019f2a84-a3f8-73e3-a3ea-3cca10a8fcbd";
     await writeText(
@@ -272,8 +291,9 @@ describe("codex provider", () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
       id: `codex:${sessionId}`,
-      title: "최신 요청",
+      title: "이전 요청",
       lastUserText: "최신 요청",
+      turnCount: 2,
     });
   });
 
@@ -320,6 +340,197 @@ describe("codex provider", () => {
     ]);
     expect(sessions.find((s) => s.id === `codex:${indexedSessionId}`)?.title).toBe("history title");
     expect(sessions.find((s) => s.id === `codex:${rolloutOnlySessionId}`)?.title).toBe("rollout only prompt");
+  });
+
+  it("parses a multi-turn Codex rollout as one session with stable title and final response", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2turn-1111-7222-8333-444455556666";
+    const sessionPath = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "07",
+      "05",
+      `rollout-2026-07-05T13-00-00-${sessionId}.jsonl`,
+    );
+    await writeText(
+      path.join(codexHome, "history.jsonl"),
+      [
+        JSON.stringify({ session_id: sessionId, ts: 1783227600, text: "첫 요청" }),
+        JSON.stringify({ session_id: sessionId, ts: 1783227720, text: "후속 요청" }),
+      ].join("\n"),
+    );
+    await writeText(
+      sessionPath,
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T04:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            session_id: sessionId,
+            timestamp: "2026-07-05T04:00:00.000Z",
+            cwd: "C:\\repo",
+            originator: "codex-tui",
+            source: "cli",
+            thread_source: "user",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:00:01.000Z",
+          type: "event_msg",
+          payload: { type: "task_started", turn_id: "turn-1", started_at: "2026-07-05T04:00:01.000Z" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:00:02.000Z",
+          type: "event_msg",
+          payload: { type: "user_message", message: "첫 요청" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:00:03.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            phase: "commentary",
+            content: [{ type: "output_text", text: "진행 중입니다." }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:00:04.000Z",
+          type: "event_msg",
+          payload: {
+            type: "task_complete",
+            turn_id: "turn-1",
+            last_agent_message: "첫 응답",
+            completed_at: "2026-07-05T04:00:04.000Z",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:02:00.000Z",
+          type: "event_msg",
+          payload: { type: "task_started", turn_id: "turn-2", started_at: "2026-07-05T04:02:00.000Z" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:02:01.000Z",
+          type: "event_msg",
+          payload: { type: "user_message", message: "후속 요청" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T04:02:02.000Z",
+          type: "event_msg",
+          payload: {
+            type: "task_complete",
+            turn_id: "turn-2",
+            last_agent_message: "최종 응답",
+            completed_at: "2026-07-05T04:02:02.000Z",
+          },
+        }),
+      ].join("\n"),
+    );
+    await fs.utimes(sessionPath, new Date("2026-07-05T04:02:02.000Z"), new Date("2026-07-05T04:02:02.000Z"));
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        id: `codex:${sessionId}`,
+        sessionKind: "main",
+        title: "첫 요청",
+        lastUserText: "후속 요청",
+        lastAssistantText: "최종 응답",
+        startedAt: "2026-07-05T04:00:00.000Z",
+        turnCount: 2,
+      }),
+    ]);
+  });
+
+  it("uses session_index thread names and classifies Claude Code rollouts as imported", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2impt-1111-7222-8333-444455556666";
+    await writeText(
+      path.join(codexHome, "session_index.jsonl"),
+      JSON.stringify({ id: sessionId, thread_name: "공식 세션 이름", updated_at: "2026-07-05T05:01:00.000Z" }),
+    );
+    await writeText(
+      path.join(codexHome, "sessions", "2026", "07", "05", `rollout-2026-07-05T14-00-00-${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: "2026-07-05T05:00:00.000Z",
+          type: "session_meta",
+          payload: {
+            session_id: sessionId,
+            cwd: "C:\\repo",
+            originator: "Claude Code",
+            source: "vscode",
+          },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-05T05:00:01.000Z",
+          type: "event_msg",
+          payload: { type: "user_message", message: "위임된 단일 요청" },
+        }),
+      ].join("\n"),
+    );
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions[0]).toMatchObject({
+      id: `codex:${sessionId}`,
+      sessionKind: "imported",
+      title: "공식 세션 이름",
+      lastUserText: "위임된 단일 요청",
+    });
+  });
+
+  it("surfaces an active session from state metadata when its rollout file is locked", async () => {
+    const codexHome = path.join(homeDir, ".codex");
+    const sessionId = "019f2live-1111-7222-8333-444455556666";
+    const rolloutPath = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "07",
+      "05",
+      `rollout-2026-07-05T15-00-00-${sessionId}.jsonl`,
+    );
+    await writeText(
+      path.join(codexHome, "history.jsonl"),
+      [
+        JSON.stringify({ session_id: sessionId, ts: 1783231200, text: "현재 세션의 첫 요청" }),
+        JSON.stringify({ session_id: sessionId, ts: 1783231320, text: "현재 세션의 마지막 요청" }),
+      ].join("\n"),
+    );
+    readCodexStateThreadsMock.mockResolvedValue([
+      {
+        id: sessionId,
+        rolloutPath,
+        createdAt: 1783231200,
+        updatedAt: 1783231320,
+        source: "cli",
+        modelProvider: "openai",
+        cwd: "C:\\repo",
+        title: "state title",
+        model: "gpt-5.6-sol",
+        threadSource: "user",
+      },
+    ]);
+
+    const { codexProvider } = await loadCodexProvider();
+    const sessions = await codexProvider.listSessions();
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        id: `codex:${sessionId}`,
+        projectId: "codex:C--repo",
+        sessionKind: "main",
+        title: "현재 세션의 첫 요청",
+        lastUserText: "현재 세션의 마지막 요청",
+        model: "gpt-5.6-sol",
+        turnCount: 2,
+      }),
+    ]);
   });
 
   it("classifies direct user sessions separately from delegated worker sessions", async () => {
@@ -406,7 +617,7 @@ describe("codex provider", () => {
       JSON.stringify({
         timestamp: "2026-07-05T02:00:00.000Z",
         type: "session_meta",
-        payload: { session_id: sessionId, cwd: "C:\\repo", model: "gpt-5.5" },
+        payload: { session_id: sessionId, cwd: "C:/repo", model: "gpt-5.5" },
       }),
     );
 

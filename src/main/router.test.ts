@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { NormalizedConfigFile } from "@shared/provider-types";
+import type { NormalizedConfigFile, NormalizedSession } from "@shared/provider-types";
 
 const {
   getProvidersMock,
@@ -19,7 +19,7 @@ const {
       readMcpServers: vi.fn(async () => [{ name: mcpName }]),
       listCatalog: vi.fn(async () => [{ name: catalogName }]),
       listProjects: vi.fn(async () => []),
-      listSessions: vi.fn(async () => []),
+      listSessions: vi.fn(async (): Promise<NormalizedSession[]> => []),
       listPlans: vi.fn(async () => []),
       detectRunning: vi.fn(async () => false),
     };
@@ -87,8 +87,10 @@ beforeEach(() => {
   codexProvider.readMcpServers.mockClear();
   claudeProvider.listConfigFiles.mockReset();
   codexProvider.listConfigFiles.mockReset();
+  codexProvider.listSessions.mockReset();
   claudeProvider.listConfigFiles.mockResolvedValue([]);
   codexProvider.listConfigFiles.mockResolvedValue([]);
+  codexProvider.listSessions.mockResolvedValue([]);
   safeWriteMock.mockClear();
   getUsageSummariesMock.mockClear();
   setupClaudeUsageCaptureMock.mockClear();
@@ -149,6 +151,54 @@ describe("provider-aware catalog and MCP routes", () => {
         url: `app://local${pathname}?${search}`,
       } as never),
     ).resolves.toEqual(expected);
+  });
+});
+
+describe("Codex workspace sessions", () => {
+  it("returns imported sessions for the collapsed auxiliary section while keeping their kind", async () => {
+    codexProvider.listSessions.mockResolvedValue([
+      {
+        id: "codex:main",
+        provider: "codex",
+        projectId: "codex:C--repo",
+        sessionKind: "main",
+        title: "직접 세션",
+        updatedAt: "2026-07-05T01:00:00.000Z",
+      },
+      {
+        id: "codex:imported",
+        provider: "codex",
+        projectId: "codex:C--repo",
+        sessionKind: "imported",
+        title: "가져온 세션",
+        updatedAt: "2026-07-05T01:01:00.000Z",
+      },
+    ]);
+
+    const sessions = await routeRequest({
+      method: "GET",
+      url: "app://local/api/workspace/projects/codex%3AC--repo/sessions",
+    } as never);
+
+    expect((sessions as Array<{ sessionKind: string }>).map((session) => session.sessionKind)).toEqual([
+      "imported",
+      "main",
+    ]);
+  });
+
+  it("validates pinned session query and write values", async () => {
+    const invalidQuery = await routeRequest({
+      method: "GET",
+      url: "app://local/api/workspace/projects/codex%3AC--repo/sessions?pinned=0",
+    } as never).catch((caught: unknown) => caught);
+    expect(invalidQuery).toMatchObject({ statusCode: 400, message: "pinned는 1이어야 합니다" });
+
+    const invalidWrite = await routeRequest({
+      method: "POST",
+      url: "app://local/api/workspace/board/session/codex%3Asession",
+      body: { pinned: "yes" },
+    } as never).catch((caught: unknown) => caught);
+    expect(invalidWrite).toMatchObject({ statusCode: 400, message: "pinned는 boolean이어야 합니다" });
   });
 });
 

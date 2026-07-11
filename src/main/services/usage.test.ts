@@ -6,6 +6,7 @@ import {
   parseClaudeUsageLine,
   parseCodexUsageLine,
   parseUsageSnapshot,
+  readUsageEvents,
   resolveForwardShell,
   restoreClaudeCaptureSettings,
 } from "./usage.js";
@@ -13,6 +14,33 @@ import {
 const NOW = Date.parse("2026-07-05T08:00:00.000Z");
 
 describe("usage aggregation", () => {
+  it("keeps readable usage events when another log file cannot be opened", async () => {
+    const line = JSON.stringify({
+      timestamp: "2026-07-05T07:45:00.000Z",
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: { last_token_usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 } },
+      },
+    });
+    const result = await readUsageEvents(
+      ["ok.jsonl", "locked.jsonl"],
+      parseCodexUsageLine,
+      async (file) => {
+        if (file === "locked.jsonl") throw new Error("file is locked");
+        return {
+          mtimeMs: NOW,
+          lines: (async function* () {
+            yield line;
+          })(),
+        };
+      },
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.errors).toEqual([expect.stringContaining("locked.jsonl")]);
+  });
+
   it("maps Codex primary and secondary rate limits to 5h and weekly windows", () => {
     const event = parseCodexUsageLine(
       JSON.stringify({

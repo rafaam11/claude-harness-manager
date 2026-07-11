@@ -7,11 +7,12 @@ import type {
   ProviderId,
 } from "@shared/provider-types";
 import { getProviders } from "../providers/registry.js";
-import { readBoard, type BoardStatus, type ProjectTrack } from "../lib/board.js";
+import { readBoard, type BoardData, type BoardStatus, type ProjectTrack } from "../lib/board.js";
 import { normalizePathKey } from "../lib/path-normalize.js";
 import { parseTimeMs } from "../lib/time.js";
 import {
   getEnrichedPlans,
+  getPinnedProjectSessions,
   getProjectSessions,
   getTimeline,
   getWorkspaceProjects,
@@ -75,6 +76,17 @@ export function mergeProviderProjectsByPath(
   for (const group of groups.values()) {
     const sorted = [...group].sort((a, b) => b.lastActivity - a.lastActivity);
     const primary = sorted[0];
+    const boardSources = [...group].sort((a, b) => {
+      const providerRank = (provider: ProviderId | undefined) =>
+        provider === "claude" ? 0 : provider === "codex" ? 1 : 2;
+      return providerRank(a.provider) - providerRank(b.provider) || a.id.localeCompare(b.id);
+    });
+    const firstText = (pick: (p: ProviderWorkspaceProject) => string) =>
+      boardSources.map(pick).find((value) => value.length > 0) ?? "";
+    const firstTracks =
+      boardSources.map((project) => project.board.tracks).find((tracks) => tracks.length > 0) ?? [];
+    const firstOrder =
+      boardSources.map((project) => project.board.order).find((order) => order != null) ?? null;
     const memberIds = uniqueStrings(sorted.flatMap((p) => [p.id, ...(p.memberIds ?? [])]));
     const providers = new Set(sorted.map((p) => p.provider).filter(Boolean));
     merged.push({
@@ -85,10 +97,12 @@ export function mergeProviderProjectsByPath(
       lastActivity: Math.max(...sorted.map((p) => p.lastActivity)),
       staleDays: Math.min(...sorted.map((p) => p.staleDays)),
       board: {
-        // memo/nameOverride/tracks/order는 primary 것을 유지하되, 세션 가시성을 좌우하는
-        // hidden/status만 교차-provider 오염을 제거한다: 한쪽 provider의 보관/숨김이 다른
-        // provider의 세션을 가리지 않도록, 모든 멤버가 숨김일 때만 숨기고 상태는 가장 활성 멤버 기준.
+        // 수동 필드는 안정적인 provider 순서로 보존하고, hidden/status는 모든 멤버를 함께 본다.
         ...primary.board,
+        memo: firstText((project) => project.board.memo),
+        nameOverride: firstText((project) => project.board.nameOverride),
+        tracks: firstTracks,
+        order: firstOrder,
         hidden: sorted.every((p) => p.board.hidden),
         status: leastArchivedStatus(sorted.map((p) => p.board.status)),
       },
@@ -100,6 +114,7 @@ export function mergeProviderProjectsByPath(
 export function toTimelineEvents(
   sessions: NormalizedSession[],
   plans: NormalizedPlan[],
+  board?: BoardData,
 ): NormalizedTimelineEvent[] {
   const events: NormalizedTimelineEvent[] = [];
   for (const s of sessions) {
@@ -113,6 +128,9 @@ export function toTimelineEvents(
       sourcePath: s.sourcePath,
       lastUserText: s.lastUserText,
       lastAssistantText: s.lastAssistantText,
+      startedAt: s.startedAt,
+      turnCount: s.turnCount,
+      pinned: board?.sessions[s.id]?.pinned === true,
     });
   }
   for (const p of plans) {
@@ -148,7 +166,7 @@ export async function getNormalizedTimeline(
     Promise.all(providers.map((p) => p.listSessions())),
     Promise.all(providers.map((p) => p.listPlans())),
   ]);
-  return toTimelineEvents(sessions.flat(), plans.flat());
+  return toTimelineEvents(filterUserFacingSessions(sessions.flat()), plans.flat(), await readBoard());
 }
 
 const EMPTY_BOARD: WorkspaceProject["board"] = {
@@ -179,7 +197,7 @@ function normalizeBoard(entry: unknown): WorkspaceProject["board"] {
   };
 }
 
-function normalizedSessionToRecall(session: NormalizedSession): SessionRecall {
+function normalizedSessionToRecall(session: NormalizedSession, board?: BoardData): SessionRecall {
   return {
     sessionId: session.id,
     sessionKind: session.sessionKind,
@@ -192,16 +210,24 @@ function normalizedSessionToRecall(session: NormalizedSession): SessionRecall {
     transcriptPath: session.sourcePath ?? session.id,
     transcriptMtime: parseTimeMs(session.updatedAt),
     truncatedScan: true,
+    startedAt: session.startedAt ? parseTimeMs(session.startedAt) : null,
+    turnCount: session.turnCount ?? null,
+    pinned: board?.sessions[session.id]?.pinned === true,
   };
 }
 
 async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
   const provider = getProviders("codex")[0];
-  const [projects, sessions, board] = await Promise.all([
-    provider.listProjects(),
-    provider.listSessions(),
-    readBoard(),
-  ]);
+  const [sessions, board] = await Promise.all([provider.listSessions(), readBoard()]);
+  const projects = new Map<string, { id: string; realPath: string | null }>();
+  for (const session of sessions) {
+    if (!session.projectId) continue;
+    const prev = projects.get(session.projectId);
+    projects.set(session.projectId, {
+      id: session.projectId,
+      realPath: session.cwd ?? prev?.realPath ?? null,
+    });
+  }
   const latestByProject = new Map<string, NormalizedSession>();
   for (const session of filterUserFacingSessions(sessions)) {
     if (!session.projectId) continue;
@@ -210,9 +236,9 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
       latestByProject.set(session.projectId, session);
     }
   }
-  return projects.map((project) => {
+  return [...projects.values()].map((project) => {
     const latest = latestByProject.get(project.id);
-    const lastActivity = parseTimeMs(project.latestActivityAt);
+    const lastActivity = latest ? parseTimeMs(latest.updatedAt) : 0;
     return {
       id: project.id,
       provider: "codex" as ProviderId,
@@ -220,7 +246,7 @@ async function codexWorkspaceProjects(): Promise<WorkspaceProject[]> {
       gitBranch: null,
       lastActivity,
       staleDays: lastActivity ? Math.max(0, Math.floor((Date.now() - lastActivity) / 86_400_000)) : 0,
-      recall: latest ? normalizedSessionToRecall(latest) : null,
+      recall: latest ? normalizedSessionToRecall(latest, board) : null,
       todos: null,
       board: normalizeBoard(board.projects[project.id] ?? EMPTY_BOARD),
       repoRoot: project.realPath,
@@ -241,18 +267,27 @@ export async function getProviderWorkspaceProjects(
   }
   if (filter === "all" || filter === "codex") lists.push(await codexWorkspaceProjects());
   const projects = lists.flat().sort((a, b) => b.lastActivity - a.lastActivity);
-  return filter === "all" ? mergeProviderProjectsByPath(projects) : projects;
+  const merged = filter === "all" ? mergeProviderProjectsByPath(projects) : projects;
+  return merged.filter(
+    (project) => !(project.provider === "codex" && project.lastActivity === 0 && !project.recall),
+  );
 }
 
-export async function getProviderProjectSessions(projectId: string): Promise<SessionRecall[]> {
+export async function getProviderProjectSessions(
+  projectId: string,
+  options: { pinnedOnly?: boolean } = {},
+): Promise<SessionRecall[]> {
   if (projectId.startsWith("codex:")) {
     const provider = getProviders("codex")[0];
-    return filterUserFacingSessions(await provider.listSessions())
+    const board = await readBoard();
+    const sessions = (await provider.listSessions())
       .filter((session) => session.projectId === projectId)
-      .map(normalizedSessionToRecall)
+      .map((session) => normalizedSessionToRecall(session, board));
+    return sessions
+      .filter((session) => !options.pinnedOnly || (session.pinned && session.sessionKind === "main"))
       .sort((a, b) => b.transcriptMtime - a.transcriptMtime);
   }
-  return getProjectSessions(projectId);
+  return options.pinnedOnly ? getPinnedProjectSessions(projectId) : getProjectSessions(projectId);
 }
 
 export async function getProviderEnrichedPlans(
@@ -263,7 +298,8 @@ export async function getProviderEnrichedPlans(
   return (await getEnrichedPlans(archived)).map((plan) => ({ ...plan, provider: "claude" as const }));
 }
 
-function codexSessionToTimelineEvent(session: NormalizedSession): TimelineEvent {
+function codexSessionToTimelineEvent(session: NormalizedSession, board: BoardData): TimelineEvent {
+  const sessionBoard = board.sessions[session.id];
   return {
     ts: parseTimeMs(session.updatedAt),
     kind: "session",
@@ -271,10 +307,14 @@ function codexSessionToTimelineEvent(session: NormalizedSession): TimelineEvent 
     realPath: session.cwd ?? null,
     title: session.title ?? session.lastUserText ?? "(제목 없음)",
     sessionId: session.id,
-    status: "진행중",
+    status: sessionBoard?.status ?? (session.projectId ? board.projects[session.projectId]?.status : undefined) ?? "진행중",
+    sessionKind: session.sessionKind,
+    pinned: sessionBoard?.pinned === true,
     lastPrompt: session.lastUserText ?? null,
     lastAssistantSnippet: session.lastAssistantText ?? null,
     lastModel: session.model ?? null,
+    startedAt: session.startedAt ? parseTimeMs(session.startedAt) : null,
+    turnCount: session.turnCount ?? null,
     provider: "codex",
   };
 }
@@ -289,7 +329,8 @@ export async function getProviderTimeline(
   }
   if (filter === "all" || filter === "codex") {
     const provider = getProviders("codex")[0];
-    events.push(...filterUserFacingSessions(await provider.listSessions()).map(codexSessionToTimelineEvent));
+    const board = await readBoard();
+    events.push(...filterUserFacingSessions(await provider.listSessions()).map((session) => codexSessionToTimelineEvent(session, board)));
   }
   const sessionIds = new Set(events.filter((event) => event.kind === "session" && event.sessionId).map((event) => event.sessionId!));
   return events

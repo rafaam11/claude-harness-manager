@@ -289,6 +289,8 @@ pre.viewer {
 .bdg-skill { background: #3b82f6; }
 .bdg-agent { background: #8b5cf6; }
 .bdg-command { background: #10b981; }
+.bdg-instruction { background: #64748b; }
+.bdg-memory { background: #be185d; }
 .bdg-mcp { background: #f59e0b; }
 .bdg-plugin { background: #06b6d4; }
 .bdg-session { background: #10b981; }
@@ -547,6 +549,43 @@ pre.viewer {
 .tl-filter-archive-item button:hover { text-decoration: underline; }
 .timeline-day { font-weight: 700; color: var(--accent); margin: 16px 0 6px; font-size: 13px; }
 .timeline-gap { color: var(--muted); font-size: 11px; text-align: center; margin: 10px 0; opacity: 0.7; }
+.timeline-pinned-section {
+  margin: 14px 0 10px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-live-section {
+  margin: 14px 0 10px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-pinned-head, .timeline-live-head, .ws-pinned-sessions .ws-plans-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.timeline-live-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.timeline-live-setup button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.timeline-live-setup button:hover { background: var(--active-bg); }
+.timeline-live-setup.installed { font-size: 11px; }
 .timeline-row {
   --tl-provider-tone: transparent;
   border-bottom: 1px solid var(--border);
@@ -585,6 +624,15 @@ pre.viewer {
 .timeline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timeline-proj { font-size: 11px; flex-shrink: 0; }
 .timeline-item .ws-select { flex-shrink: 0; }
+.timeline-pin-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+}
+.timeline-pin-btn.active { color: var(--accent); }
 .timeline-caret { font-size: 10px; flex-shrink: 0; }
 /* 행 펼침 패널: 세션 스니펫 / 계획 본문 */
 .timeline-expand { padding: 2px 0 12px 39px; }
@@ -597,10 +645,19 @@ pre.viewer {
 .bdg-model-sonnet { background: #f97316; }
 .bdg-model-haiku { background: #14b8a6; }
 .bdg-model-fable { background: #ec4899; }
+.bdg-model-gpt-mini { background: #0ea5e9; }
+.bdg-model-gpt-55 { background: #f59e0b; }
+.bdg-model-gpt-sol { background: #e11d48; }
+.bdg-model-gpt-terra { background: #16a34a; }
+.bdg-model-gpt { background: #2563eb; }
 .bdg-model-unknown { background: #6b7280; }
+.bdg-live { background: #16a34a; }
 .bdg-model-missing { background: #6b7280; opacity: 0.82; }
 .bdg-model-missing-claude { background: #d97706; }
 .bdg-model-missing-codex { background: #14b8a6; }
+
+.ws-pinned-sessions { margin: 12px 0; }
+.ws-pinned-sessions .timeline { margin-top: 4px; }
 
 /* News (라이브 통합 피드) — 2단 마스터-디테일. 그리드(.cat-split)·항목 카드(.cat-master-item)·
    상세 패널(.ws-detail/.ws-detail-inner)은 Catalog 것을 재사용하고, 좌측 목록 스크롤 높이만 덧입힌다.

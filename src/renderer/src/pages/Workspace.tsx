@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
-import { marked } from "marked";
-import { api, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
+import { Eye, EyeOff, Pin, PinOff } from "lucide-react";
+import { api, fmtClock, fmtDate, fmtDay, fmtRelative, fmtSize, fmtTime } from "../api/client";
+import { renderMarkdownSafe } from "../markdown";
 import GitPanel from "./git/GitPanel";
 import type {
   EntityId,
@@ -13,7 +13,6 @@ import {
   displayName,
   modelBadgeClass,
   modelDisplayName,
-  projectVisibilityWrite,
   shortName,
   stripClaudeEntityId,
   type BoardStatus,
@@ -35,6 +34,18 @@ type ProjectPatch = {
   order?: number | null;
 };
 type PlanPatch = { status?: BoardStatus; memo?: string; projectOverride?: EntityId | null };
+
+export function projectBoardWrite(
+  project: WorkspaceProject | undefined,
+  id: string,
+  patch: ProjectPatch,
+): { url: string; body: unknown } {
+  const memberIds = project?.memberIds?.length ? project.memberIds : [id];
+  if (project?.provider === undefined && memberIds.length > 1) {
+    return { url: "/api/workspace/board/projects", body: { ids: memberIds, ...patch } };
+  }
+  return { url: `/api/workspace/board/project/${encodeURIComponent(id)}`, body: patch };
+}
 
 // 정렬 모드: 뷰 전역 취향이라 localStorage에 저장(테마와 동일 패턴), board.json엔 안 둔다.
 type SortMode = "recent" | "status" | "manual";
@@ -100,18 +111,46 @@ export function partitionWorkspaceSessions(sessions: SessionRecall[]): {
   const primary: SessionRecall[] = [];
   const auxiliary: SessionRecall[] = [];
   for (const session of sessions) {
-    if (session.sessionKind === "worker" || session.sessionKind === "system") auxiliary.push(session);
-    else primary.push(session);
+    const isCodex = session.sessionId?.startsWith("codex:") ?? false;
+    if (
+      session.sessionKind === "worker" ||
+      session.sessionKind === "imported" ||
+      session.sessionKind === "system" ||
+      (isCodex && session.sessionKind !== "main")
+    ) {
+      auxiliary.push(session);
+    } else {
+      primary.push(session);
+    }
   }
   return { primary, auxiliary };
+}
+
+export function isPinnableWorkspaceSession(session: SessionRecall): boolean {
+  if (!session.sessionId) return false;
+  const { primary } = partitionWorkspaceSessions([session]);
+  return primary.length === 1;
+}
+
+export function sortWorkspaceSessionsPinnedFirst(sessions: SessionRecall[]): SessionRecall[] {
+  return [...sessions].sort(
+    (a, b) => Number(b.pinned === true) - Number(a.pinned === true) || b.transcriptMtime - a.transcriptMtime,
+  );
 }
 
 function sessionKindRank(session: SessionRecall): number {
   if (session.sessionKind === "main") return 4;
   if (session.sessionKind === "unknown" || !session.sessionKind) return 3;
   if (session.sessionKind === "worker") return 2;
-  if (session.sessionKind === "system") return 1;
+  if (session.sessionKind === "imported" || session.sessionKind === "system") return 1;
   return 0;
+}
+
+function auxiliarySessionLabel(kind: SessionRecall["sessionKind"]): string {
+  if (kind === "worker") return "WORKER";
+  if (kind === "imported") return "IMPORTED";
+  if (kind === "system") return "SYSTEM";
+  return "AUX";
 }
 
 function hasSessionRecallText(session: SessionRecall): boolean {
@@ -152,6 +191,7 @@ function mergeWorkspaceSession(a: SessionRecall, b: SessionRecall): SessionRecal
     transcriptPath: textSource.transcriptPath,
     transcriptMtime: Math.max(a.transcriptMtime, b.transcriptMtime),
     truncatedScan: a.truncatedScan || b.truncatedScan,
+    pinned: a.pinned || b.pinned,
   };
 }
 
@@ -295,19 +335,7 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
         ? prev.map((p) => (p.id === id ? { ...p, board: { ...p.board, ...boardPatch } } : p))
         : prev,
     );
-    // hidden/status만 단독으로 바뀌는 경우(숨김 버튼·상태 드롭다운) 병합 카드면 memberIds에 팬아웃.
-    const visibilityOnly =
-      (body.hidden !== undefined || body.status !== undefined) &&
-      body.memo === undefined &&
-      body.nameOverride === undefined &&
-      body.tracks === undefined &&
-      body.order === undefined;
-    const req = visibilityOnly
-      ? projectVisibilityWrite(projects?.find((p) => p.id === id), id, {
-          hidden: body.hidden,
-          status: body.status,
-        })
-      : { url: `/api/workspace/board/project/${encodeURIComponent(id)}`, body };
+    const req = projectBoardWrite(projects?.find((p) => p.id === id), id, body);
     try {
       await api.post(req.url, req.body);
     } catch (e) {
@@ -326,7 +354,10 @@ function ClaudeWorkspace({ providerFilter }: { providerFilter: ProviderFilter })
     const reordered = [...list];
     [reordered[i], reordered[j]] = [reordered[j], reordered[i]];
     const orders: Record<string, number> = {};
-    reordered.forEach((p, idx) => (orders[p.id] = idx));
+    reordered.forEach((p, idx) => {
+      const ids = p.provider === undefined && p.memberIds.length > 1 ? p.memberIds : [p.id];
+      ids.forEach((memberId) => (orders[memberId] = idx));
+    });
     setProjects((prev) =>
       prev
         ? prev.map((p) =>
@@ -581,6 +612,7 @@ function ProjectDetail({
   const hasClaudeMember = projectIds.some((id) => id.startsWith("claude:"));
 
   const [detailMode, setDetailMode] = useState<"overview" | "session" | "git">("overview");
+  const [pinRevision, setPinRevision] = useState(0);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const startEditName = () => {
@@ -590,6 +622,10 @@ function ProjectDetail({
   const saveName = () => {
     setEditingName(false);
     onPatch(p.id, { nameOverride: nameDraft.trim() || null });
+  };
+  const writeSessionPin = async (sessionId: string, pinned: boolean) => {
+    await api.post(`/api/workspace/board/session/${encodeURIComponent(sessionId)}`, { pinned });
+    setPinRevision((revision) => revision + 1);
   };
 
   return (
@@ -676,12 +712,24 @@ function ProjectDetail({
         <GitPanel key="main" projectId={p.id} onError={onError} />
       ) : detailMode === "session" ? (
         <>
-          <SessionsSection projectIds={projectIds} refreshNonce={refreshNonce} />
+          <SessionsSection
+            projectIds={projectIds}
+            refreshNonce={refreshNonce}
+            pinRevision={pinRevision}
+            onPinChange={writeSessionPin}
+          />
           {hasClaudeMember && <MemorySection projectId={projectIds.find((id) => id.startsWith("claude:")) ?? p.id} />}
         </>
       ) : (
         <>
           <div className="ws-path mono">{p.realPath ?? p.id}</div>
+
+      <PinnedSessionsSection
+        projectIds={projectIds}
+        refreshNonce={refreshNonce}
+        pinRevision={pinRevision}
+        onPinChange={writeSessionPin}
+      />
 
       {r ? (
         <div className="ws-recall">
@@ -697,7 +745,7 @@ function ProjectDetail({
               <div
                 className="md-body ws-snippet-md"
                 dangerouslySetInnerHTML={{
-                  __html: marked.parse(r.lastAssistantSnippet, { breaks: true }) as string,
+                  __html: renderMarkdownSafe(r.lastAssistantSnippet, { breaks: true }),
                 }}
               />
             </div>
@@ -741,12 +789,99 @@ function ProjectDetail({
 }
 
 // ============================ 세션 탭(그룹 내 모든 세션 — Timeline 행 스타일 재사용) ============================
-function SessionsSection({
+type SessionPinWriter = (sessionId: string, pinned: boolean) => Promise<void>;
+
+async function loadProjectSessions(projectIds: string[], pinnedOnly = false): Promise<SessionRecall[]> {
+  const suffix = pinnedOnly ? "?pinned=1" : "";
+  const results = await Promise.allSettled(
+    projectIds.map((projectId) =>
+      api.get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions${suffix}`),
+    ),
+  );
+  const lists = results
+    .filter((result): result is PromiseFulfilledResult<SessionRecall[]> => result.status === "fulfilled")
+    .map((result) => result.value);
+  if (lists.length === 0 && results.length > 0) {
+    throw (results[0] as PromiseRejectedResult).reason;
+  }
+  return mergeWorkspaceSessionLists(lists);
+}
+
+function PinnedSessionsSection({
   projectIds,
   refreshNonce,
+  pinRevision,
+  onPinChange,
 }: {
   projectIds: string[];
   refreshNonce: number;
+  pinRevision: number;
+  onPinChange: SessionPinWriter;
+}) {
+  const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const projectKey = projectIds.join("\n");
+
+  useEffect(() => {
+    let alive = true;
+    setError("");
+    loadProjectSessions(projectIds, true).then(
+      (next) => {
+        if (alive) setSessions(next);
+      },
+      (reason: unknown) => {
+        if (alive) setError((reason as Error).message);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [projectKey, refreshNonce, pinRevision]);
+
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  const togglePin = async (session: SessionRecall, pinned: boolean) => {
+    if (!session.sessionId) return;
+    setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned } : item)) ?? prev);
+    try {
+      await onPinChange(session.sessionId, pinned);
+    } catch (reason) {
+      setError((reason as Error).message);
+      setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned: !pinned } : item)) ?? prev);
+    }
+  };
+
+  if (error) return <div className="banner err">{error}</div>;
+  if (!sessions || sessions.length === 0) return null;
+  const pinned = sortWorkspaceSessionsPinnedFirst(sessions.filter((session) => session.pinned));
+  if (pinned.length === 0) return null;
+  return (
+    <section className="ws-pinned-sessions">
+      <div className="ws-plans-head">
+        <Pin size={14} aria-hidden="true" /> 고정 세션 <span className="cat-count">{pinned.length}</span>
+      </div>
+      <div className="timeline">
+        <SessionRows sessions={pinned} expanded={expanded} onToggle={toggle} onPinChange={togglePin} />
+      </div>
+    </section>
+  );
+}
+
+function SessionsSection({
+  projectIds,
+  refreshNonce,
+  pinRevision,
+  onPinChange,
+}: {
+  projectIds: string[];
+  refreshNonce: number;
+  pinRevision: number;
+  onPinChange: SessionPinWriter;
 }) {
   const [sessions, setSessions] = useState<SessionRecall[] | null>(null);
   const [error, setError] = useState("");
@@ -757,34 +892,23 @@ function SessionsSection({
 
   useEffect(() => {
     let alive = true;
-    // 다른 프로젝트로 전환(projectKey 변경) 시에만 로딩 표시. nonce만 증가한 조용한 갱신은
-    // 기존 목록을 유지하고 완료 시 결과만 교체해 깜빡임을 없앤다.
     if (prevKeyRef.current !== projectKey) {
       prevKeyRef.current = projectKey;
       setSessions(null);
     }
     setError("");
-    // 병합 카드에서 멤버 하나의 조회 실패가 전체를 가리지 않게 성공분만 표시(전부 실패 시에만 에러)
-    Promise.allSettled(
-      projectIds.map((projectId) =>
-        api.get<SessionRecall[]>(`/api/workspace/projects/${encodeURIComponent(projectId)}/sessions`),
-      ),
-    ).then((results) => {
-      if (!alive) return;
-      const lists = results
-        .filter((r): r is PromiseFulfilledResult<SessionRecall[]> => r.status === "fulfilled")
-        .map((r) => r.value);
-      if (lists.length === 0 && results.length > 0) {
-        const first = results[0] as PromiseRejectedResult;
-        setError((first.reason as Error).message);
-        return;
-      }
-      setSessions(mergeWorkspaceSessionLists(lists));
-    });
+    loadProjectSessions(projectIds).then(
+      (next) => {
+        if (alive) setSessions(next);
+      },
+      (reason: unknown) => {
+        if (alive) setError((reason as Error).message);
+      },
+    );
     return () => {
       alive = false;
     };
-  }, [projectKey, refreshNonce]);
+  }, [projectKey, refreshNonce, pinRevision]);
 
   const toggle = (key: string) =>
     setExpanded((prev) => {
@@ -792,6 +916,16 @@ function SessionsSection({
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  const togglePin = async (session: SessionRecall, pinned: boolean) => {
+    if (!session.sessionId) return;
+    setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned } : item)) ?? prev);
+    try {
+      await onPinChange(session.sessionId, pinned);
+    } catch (reason) {
+      setError((reason as Error).message);
+      setSessions((prev) => prev?.map((item) => (item.sessionId === session.sessionId ? { ...item, pinned: !pinned } : item)) ?? prev);
+    }
+  };
 
   if (error) return <div className="banner err">{error}</div>;
   if (!sessions) return <div className="muted">불러오는 중…</div>;
@@ -800,7 +934,12 @@ function SessionsSection({
 
   return (
     <div className="timeline">
-      <SessionRows sessions={primary} expanded={expanded} onToggle={toggle} />
+      <SessionRows
+        sessions={sortWorkspaceSessionsPinnedFirst(primary)}
+        expanded={expanded}
+        onToggle={toggle}
+        onPinChange={togglePin}
+      />
       {primary.length === 0 && <div className="muted">직접 대화 세션이 없습니다.</div>}
       {auxiliary.length > 0 && (
         <>
@@ -819,11 +958,13 @@ function SessionRows({
   sessions,
   expanded,
   onToggle,
+  onPinChange,
   auxiliary = false,
 }: {
   sessions: SessionRecall[];
   expanded: Set<string>;
   onToggle: (key: string) => void;
+  onPinChange?: (session: SessionRecall, pinned: boolean) => void;
   auxiliary?: boolean;
 }) {
   return (
@@ -834,16 +975,32 @@ function SessionRows({
         return (
           <div className={`timeline-row${auxiliary ? " timeline-row-child" : ""}`} key={key}>
             <div className="timeline-item" onClick={() => onToggle(key)}>
-              {auxiliary && <span className="bdg bdg-model-missing">AUX</span>}
+              {auxiliary && (
+                <span className="bdg bdg-model-missing">{auxiliarySessionLabel(s.sessionKind)}</span>
+              )}
               {s.lastModel && (
                 <span className={`bdg ${modelBadgeClass(s.lastModel)}`} title={s.lastModel}>
                   {modelDisplayName(s.lastModel)}
                 </span>
               )}
               <span className="timeline-time muted">
-                {fmtDay(s.transcriptMtime)} {fmtTime(s.transcriptMtime)}
+                {fmtDay(s.transcriptMtime)} {s.pinned ? fmtClock(s.transcriptMtime) : fmtTime(s.transcriptMtime)}
               </span>
               <span className="timeline-title">{s.aiTitle ?? s.lastPrompt ?? "(제목 없음)"}</span>
+              {s.turnCount != null && s.turnCount > 0 && <span className="t-tag">{s.turnCount}턴</span>}
+              {!auxiliary && onPinChange && isPinnableWorkspaceSession(s) && (
+                <button
+                  className={`ws-icon-btn timeline-pin-btn${s.pinned ? " active" : ""}`}
+                  aria-label={s.pinned ? "세션 고정 해제" : "세션 고정"}
+                  title={s.pinned ? "세션 고정 해제" : "세션 고정"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onPinChange(s, !s.pinned);
+                  }}
+                >
+                  {s.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                </button>
+              )}
               <span className="timeline-caret muted">{open ? "▾" : "▸"}</span>
             </div>
             {open && (
@@ -859,7 +1016,7 @@ function SessionRows({
                     <div
                       className="md-body ws-snippet-md"
                       dangerouslySetInnerHTML={{
-                        __html: marked.parse(s.lastAssistantSnippet, { breaks: true }) as string,
+                        __html: renderMarkdownSafe(s.lastAssistantSnippet, { breaks: true }),
                       }}
                     />
                   </div>
@@ -1109,7 +1266,7 @@ function PlanRow({
           <div
             className="md-body ws-planbody"
             dangerouslySetInnerHTML={{
-              __html: marked.parse(body ?? "불러오는 중…") as string,
+              __html: renderMarkdownSafe(body ?? "불러오는 중…"),
             }}
           />
         </div>

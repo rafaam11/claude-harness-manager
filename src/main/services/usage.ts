@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { createReadStream, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import {
@@ -656,22 +656,39 @@ async function listJsonlFiles(root: string): Promise<string[]> {
   return files;
 }
 
-async function readUsageEvents(
+type UsageFileReader = (
+  file: string,
+) => Promise<{ mtimeMs: number; lines: AsyncIterable<string> }>;
+
+const defaultUsageFileReader: UsageFileReader = async (file) => {
+  const p = guardPath(file);
+  const handle = await fs.open(p, "r");
+  const stat = await handle.stat();
+  return {
+    mtimeMs: stat.mtimeMs,
+    lines: readline.createInterface({ input: handle.createReadStream(), crlfDelay: Infinity }),
+  };
+};
+
+export async function readUsageEvents(
   files: string[],
   parseLine: (line: string, sourcePath: string, fallbackMtime: number) => ParsedUsageEvent | null,
-): Promise<ParsedUsageEvent[]> {
+  openFile: UsageFileReader = defaultUsageFileReader,
+): Promise<{ events: ParsedUsageEvent[]; errors: string[] }> {
   const events: ParsedUsageEvent[] = [];
+  const errors: string[] = [];
   for (const file of files) {
-    const p = guardPath(file);
-    const stat = await fs.stat(p).catch(() => null);
-    if (!stat) continue;
-    const rl = readline.createInterface({ input: createReadStream(p), crlfDelay: Infinity });
-    for await (const line of rl) {
-      const event = parseLine(String(line), p, stat.mtimeMs);
-      if (event) events.push(event);
+    try {
+      const source = await openFile(file);
+      for await (const line of source.lines) {
+        const event = parseLine(String(line), file, source.mtimeMs);
+        if (event) events.push(event);
+      }
+    } catch (error) {
+      errors.push(`${file}: ${(error as Error).message}`);
     }
   }
-  return events;
+  return { events, errors };
 }
 
 async function readClaudeSnapshot(nowMs: number): Promise<ParsedQuotaObservation | null> {
@@ -685,16 +702,14 @@ async function getClaudeUsage(nowMs: number): Promise<UsageSummary> {
     errors.push((error as Error).message);
     return [] as string[];
   });
-  const events = await readUsageEvents(files, parseClaudeUsageLine).catch((error) => {
-    errors.push((error as Error).message);
-    return [] as ParsedUsageEvent[];
-  });
+  const usage = await readUsageEvents(files, parseClaudeUsageLine);
+  errors.push(...usage.errors);
   const snapshot = await readClaudeSnapshot(nowMs).catch((error) => {
     errors.push((error as Error).message);
     return null;
   });
   const capture = await readCaptureStatus().catch(() => undefined);
-  const summary = buildClaudeUsageSummary(events, snapshot, nowMs, capture);
+  const summary = buildClaudeUsageSummary(usage.events, snapshot, nowMs, capture);
   return { ...summary, errors };
 }
 
@@ -704,11 +719,9 @@ async function getCodexUsage(nowMs: number): Promise<UsageSummary> {
     errors.push((error as Error).message);
     return [] as string[];
   });
-  const events = await readUsageEvents(files, parseCodexUsageLine).catch((error) => {
-    errors.push((error as Error).message);
-    return [] as ParsedUsageEvent[];
-  });
-  const summary = buildCodexUsageSummary(events, nowMs);
+  const usage = await readUsageEvents(files, parseCodexUsageLine);
+  errors.push(...usage.errors);
+  const summary = buildCodexUsageSummary(usage.events, nowMs);
   return { ...summary, errors };
 }
 

@@ -1,17 +1,21 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import matter from "gray-matter";
+import { CODEX_HOME, WORKSPACE_CACHE_TTL_MS } from "../config.js";
 import { detectProcess } from "../lib/process-detect.js";
 import { parseTimeMs } from "../lib/time.js";
 import { readCodexMcpServersFromToml } from "../lib/toml-validate.js";
+import { readCodexStateThreads, type CodexStateThread } from "./codex-state.js";
 import type { ProviderAdapter } from "./types.js";
 import type { SessionKind } from "@shared/provider-types";
 
-export const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+export { CODEX_HOME };
 export const CODEX_CONFIG = path.join(CODEX_HOME, "config.toml");
 export const CODEX_SESSIONS_DIR = path.join(CODEX_HOME, "sessions");
 export const CODEX_HISTORY = path.join(CODEX_HOME, "history.jsonl");
+export const CODEX_SESSION_INDEX = path.join(CODEX_HOME, "session_index.jsonl");
 const CODEX_SESSION_TAIL_BYTES = 512 * 1024;
+const CODEX_SESSION_HEAD_BYTES = 64 * 1024;
 
 async function statOrNull(p: string) {
   return fs.stat(p).catch(() => null);
@@ -35,7 +39,7 @@ function isoFromTimestamp(value: unknown): string | null {
 function localProjectIdFromCwd(cwd: string): string {
   const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
   const parsed = path.win32.parse(cwd);
-  if (parsed.root && /^[A-Za-z]:\\?$/.test(parsed.root)) {
+  if (parsed.root && /^[A-Za-z]:[\\/]?$/.test(parsed.root)) {
     const drive = parsed.root[0].toUpperCase();
     const rest = cwd
       .slice(parsed.root.length)
@@ -154,16 +158,31 @@ interface CodexSessionSummary {
   cwd: string | undefined;
   model: string | undefined;
   title: string | undefined;
+  firstUserText: string | undefined;
   updatedAt: string;
+  startedAt: string | undefined;
+  turnCount: number | undefined;
+  turnIds: Set<string>;
+  completeScan: boolean;
   lastUserText: string | undefined;
   lastAssistantText: string | undefined;
+  lastFinalAnswerText: string | undefined;
+  lastAssistantFallbackText: string | undefined;
   sourcePath: string;
 }
 
 interface CodexHistoryEntry {
   sessionId: string;
-  text: string;
-  updatedAt: string;
+  firstText: string;
+  lastText: string;
+  firstAt: string | undefined;
+  lastAt: string | undefined;
+  turnCount: number;
+}
+
+interface CodexSessionIndexEntry {
+  threadName: string;
+  updatedAt: string | undefined;
 }
 
 function isNoiseHistoryText(text: string): boolean {
@@ -173,7 +192,7 @@ function isNoiseHistoryText(text: string): boolean {
 
 async function readCodexHistory(): Promise<Map<string, CodexHistoryEntry>> {
   const raw = await fs.readFile(CODEX_HISTORY, "utf8").catch(() => "");
-  const latest = new Map<string, CodexHistoryEntry>();
+  const entries = new Map<string, CodexHistoryEntry>();
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let o: any;
@@ -185,38 +204,64 @@ async function readCodexHistory(): Promise<Map<string, CodexHistoryEntry>> {
     if (typeof o?.session_id !== "string" || typeof o?.text !== "string") continue;
     const text = o.text.trim();
     if (!text || isNoiseHistoryText(text)) continue;
-    const updatedAt = isoFromTimestamp(o.ts) ?? iso(Date.now());
-    const prev = latest.get(o.session_id);
-    if (!prev || parseTimeMs(updatedAt) >= parseTimeMs(prev.updatedAt)) {
-      latest.set(o.session_id, { sessionId: o.session_id, text, updatedAt });
-    }
+    const at = isoFromTimestamp(o.ts) ?? undefined;
+    const prev = entries.get(o.session_id);
+    entries.set(o.session_id, {
+      sessionId: o.session_id,
+      firstText: prev?.firstText ?? text,
+      lastText: text,
+      firstAt: prev?.firstAt ?? at,
+      lastAt: at ?? prev?.lastAt,
+      turnCount: (prev?.turnCount ?? 0) + 1,
+    });
   }
-  return latest;
+  return entries;
 }
 
-async function readHead(filePath: string, bytes = 64 * 1024): Promise<string> {
+async function readCodexSessionIndex(): Promise<Map<string, CodexSessionIndexEntry>> {
+  const raw = await fs.readFile(CODEX_SESSION_INDEX, "utf8").catch(() => "");
+  const entries = new Map<string, CodexSessionIndexEntry>();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof o?.id !== "string" || typeof o?.thread_name !== "string" || !o.thread_name.trim()) continue;
+    entries.set(o.id, {
+      threadName: o.thread_name.trim(),
+      updatedAt: isoFromTimestamp(o.updated_at) ?? undefined,
+    });
+  }
+  return entries;
+}
+
+async function readRange(filePath: string, start: number, bytes: number): Promise<string> {
   const handle = await fs.open(filePath, "r");
   try {
     const stat = await handle.stat();
-    const len = Math.min(stat.size, bytes);
+    const len = Math.max(0, Math.min(stat.size - start, bytes));
     const buffer = Buffer.alloc(len);
-    await handle.read(buffer, 0, len, 0);
+    await handle.read(buffer, 0, len, start);
     return buffer.toString("utf8");
   } finally {
     await handle.close();
   }
 }
 
-async function readTail(filePath: string, size: number, bytes = CODEX_SESSION_TAIL_BYTES): Promise<string> {
-  const handle = await fs.open(filePath, "r");
-  try {
-    const len = Math.min(size, bytes);
-    const buffer = Buffer.alloc(len);
-    await handle.read(buffer, 0, len, Math.max(0, size - len));
-    return buffer.toString("utf8");
-  } finally {
-    await handle.close();
+async function readSessionChunks(filePath: string, size: number): Promise<{ chunks: string[]; complete: boolean }> {
+  if (size <= CODEX_SESSION_TAIL_BYTES) {
+    return { chunks: [await fs.readFile(filePath, "utf8")], complete: true };
   }
+  const headLength = Math.min(size, CODEX_SESSION_HEAD_BYTES);
+  const tailStart = Math.max(headLength, size - CODEX_SESSION_TAIL_BYTES);
+  const [head, tail] = await Promise.all([
+    readRange(filePath, 0, headLength),
+    readRange(filePath, tailStart, size - tailStart),
+  ]);
+  return { chunks: [head, tail], complete: false };
 }
 
 async function listSessionFiles(): Promise<string[]> {
@@ -231,6 +276,15 @@ async function listSessionFiles(): Promise<string[]> {
   }
   await walk(CODEX_SESSIONS_DIR);
   return files;
+}
+
+function applyUserText(text: string, acc: CodexSessionSummary) {
+  const trimmed = text.trim();
+  if (!trimmed || isInjectedCodexText(trimmed)) return;
+  acc.firstUserText ??= trimmed;
+  acc.title ??= trimmed;
+  acc.lastUserText = trimmed;
+  acc.sessionKind = preferSessionKind(acc.sessionKind, sessionKindFromUserText(trimmed));
 }
 
 function applyCodexLine(line: string, acc: CodexSessionSummary) {
@@ -258,6 +312,8 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     if (typeof o.payload?.originator === "string") acc.originator = o.payload.originator;
     if (typeof o.payload?.source === "string") acc.source = o.payload.source;
     if (typeof o.payload?.thread_source === "string") acc.threadSource = o.payload.thread_source;
+    acc.startedAt ??=
+      isoFromTimestamp(o.payload?.timestamp ?? o.timestamp ?? o.payload?.created_at) ?? undefined;
     return;
   }
 
@@ -270,6 +326,20 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
     return;
   }
 
+  if (o?.type === "event_msg") {
+    const payload = o.payload;
+    if (payload?.type === "task_started" && typeof payload.turn_id === "string") {
+      acc.turnIds.add(payload.turn_id);
+      acc.startedAt ??= isoFromTimestamp(payload.started_at ?? o.timestamp) ?? undefined;
+    } else if (payload?.type === "user_message" && typeof payload.message === "string") {
+      applyUserText(payload.message, acc);
+    } else if (payload?.type === "task_complete" && typeof payload.last_agent_message === "string") {
+      const text = payload.last_agent_message.trim();
+      if (text) acc.lastAssistantText = text;
+    }
+    return;
+  }
+
   if (o?.type !== "response_item") return;
   const payload = o.payload;
   if (payload?.type !== "message") return;
@@ -279,21 +349,30 @@ function applyCodexLine(line: string, acc: CodexSessionSummary) {
       acc.sessionKind = preferSessionKind(acc.sessionKind, "system");
     }
     const text = userTextFromContent(payload.content);
-    if (text && !text.startsWith("<")) {
-      acc.lastUserText = text;
-      acc.title = text;
-      acc.sessionKind = preferSessionKind(acc.sessionKind, sessionKindFromUserText(text));
-    }
+    if (text) applyUserText(text, acc);
   } else if (payload.role === "assistant") {
     const text = textFromContent(payload.content);
-    if (text) acc.lastAssistantText = text;
+    if (!text) return;
+    acc.lastAssistantFallbackText = text;
+    if (payload.phase === "final_answer") acc.lastFinalAnswerText = text;
   }
 }
+
+interface CodexSessionFileCacheEntry {
+  size: number;
+  mtimeMs: number;
+  summary: CodexSessionSummary;
+}
+
+const sessionFileCache = new Map<string, CodexSessionFileCacheEntry>();
 
 async function readCodexSession(filePath: string): Promise<CodexSessionSummary | null> {
   const stat = await statOrNull(filePath);
   if (!stat) return null;
-  const localId = path.basename(filePath, ".jsonl").replace(/^rollout-[^-]+-[^-]+-[^-]+-/, "");
+  const cached = sessionFileCache.get(filePath);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.summary;
+  const basename = path.basename(filePath, ".jsonl");
+  const localId = basename.match(/([0-9a-f]{8}-[0-9a-f-]{27,})$/i)?.[1] ?? basename;
   const acc: CodexSessionSummary = {
     id: `codex:${localId}`,
     localId,
@@ -305,17 +384,32 @@ async function readCodexSession(filePath: string): Promise<CodexSessionSummary |
     cwd: undefined,
     model: undefined,
     title: undefined,
+    firstUserText: undefined,
     updatedAt: iso(stat.mtimeMs),
+    startedAt: undefined,
+    turnCount: undefined,
+    turnIds: new Set<string>(),
+    completeScan: false,
     lastUserText: undefined,
     lastAssistantText: undefined,
+    lastFinalAnswerText: undefined,
+    lastAssistantFallbackText: undefined,
     sourcePath: filePath,
   };
 
-  for (const chunk of [await readHead(filePath), await readTail(filePath, stat.size)]) {
-    const lines = chunk.split(/\r?\n/);
-    for (const line of lines) applyCodexLine(line, acc);
+  try {
+    const { chunks, complete } = await readSessionChunks(filePath, stat.size);
+    acc.completeScan = complete;
+    for (const chunk of chunks) {
+      const lines = chunk.split(/\r?\n/);
+      for (const line of lines) applyCodexLine(line, acc);
+    }
+    acc.lastAssistantText ??= acc.lastFinalAnswerText ?? acc.lastAssistantFallbackText;
+    sessionFileCache.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs, summary: acc });
+    return acc;
+  } catch {
+    return cached?.summary ?? null;
   }
-  return acc;
 }
 
 function sessionKindRank(kind: SessionKind): number {
@@ -345,13 +439,68 @@ function mergeCodexSessionSummary(
 ): CodexSessionSummary {
   const latest = newerSession(a, b);
   const userFacing = betterUserFacingSession(a, b);
+  const startedAt = [a.startedAt, b.startedAt]
+    .filter((value): value is string => Boolean(value))
+    .sort((x, y) => parseTimeMs(x) - parseTimeMs(y))[0];
   return {
     ...latest,
     sessionKind: preferSessionKind(a.sessionKind, b.sessionKind),
     title: userFacing.title ?? latest.title,
+    firstUserText: userFacing.firstUserText ?? latest.firstUserText,
     lastUserText: userFacing.lastUserText ?? latest.lastUserText,
-    lastAssistantText: latest.lastAssistantText ?? userFacing.lastAssistantText,
+    lastAssistantText: userFacing.lastAssistantText ?? latest.lastAssistantText,
+    startedAt,
+    turnCount: a.turnCount ?? b.turnCount,
+    turnIds: new Set([...a.turnIds, ...b.turnIds]),
+    completeScan: a.completeScan && b.completeScan,
     sourcePath: userFacing.sourcePath,
+  };
+}
+
+function stateThreadSummary(thread: CodexStateThread): CodexSessionSummary {
+  return {
+    id: `codex:${thread.id}`,
+    localId: thread.id,
+    projectId: `codex:${localProjectIdFromCwd(thread.cwd)}`,
+    sessionKind: "unknown",
+    originator: undefined,
+    source: thread.source,
+    threadSource: thread.threadSource,
+    cwd: thread.cwd,
+    model: thread.model,
+    title: thread.title || undefined,
+    firstUserText: undefined,
+    updatedAt: isoFromTimestamp(thread.updatedAt) ?? iso(0),
+    startedAt: isoFromTimestamp(thread.createdAt) ?? undefined,
+    turnCount: undefined,
+    turnIds: new Set<string>(),
+    completeScan: false,
+    lastUserText: undefined,
+    lastAssistantText: undefined,
+    lastFinalAnswerText: undefined,
+    lastAssistantFallbackText: undefined,
+    sourcePath: thread.rolloutPath,
+  };
+}
+
+function overlayStateThread(session: CodexSessionSummary, thread: CodexStateThread): CodexSessionSummary {
+  const state = stateThreadSummary(thread);
+  const updatedAt =
+    parseTimeMs(state.updatedAt) > parseTimeMs(session.updatedAt) ? state.updatedAt : session.updatedAt;
+  const startedAt = [session.startedAt, state.startedAt]
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => parseTimeMs(a) - parseTimeMs(b))[0];
+  return {
+    ...session,
+    projectId: session.projectId ?? state.projectId,
+    source: session.source ?? state.source,
+    threadSource: session.threadSource ?? state.threadSource,
+    cwd: session.cwd ?? state.cwd,
+    model: session.model ?? state.model,
+    title: session.title ?? state.title,
+    updatedAt,
+    startedAt,
+    sourcePath: session.sourcePath || state.sourcePath,
   };
 }
 
@@ -359,26 +508,48 @@ function isImportedDesktopLog(session: CodexSessionSummary): boolean {
   return session.originator === "Codex Desktop" && session.source === "vscode" && !session.model;
 }
 
-function finalizeCodexSessionKind(session: CodexSessionSummary): CodexSessionSummary {
+function finalizeCodexSessionKind(
+  session: CodexSessionSummary,
+  hasHistory: boolean,
+): CodexSessionSummary {
+  if (session.originator === "Claude Code" && session.source === "vscode") {
+    return { ...session, sessionKind: "imported" };
+  }
   if (isImportedDesktopLog(session)) {
     return { ...session, sessionKind: "system" };
   }
   if (session.threadSource === "subagent") {
     return { ...session, sessionKind: "worker" };
   }
+  if (session.threadSource === "user" || hasHistory) {
+    return { ...session, sessionKind: "main" };
+  }
   return session;
 }
 
-async function readCodexSessions(): Promise<CodexSessionSummary[]> {
+async function readCodexSessionsUncached(): Promise<CodexSessionSummary[]> {
   const files = await listSessionFiles();
+  const liveFiles = new Set(files);
+  for (const cachedPath of sessionFileCache.keys()) {
+    if (!liveFiles.has(cachedPath)) sessionFileCache.delete(cachedPath);
+  }
   const rawSessions = (await Promise.all(files.map((file) => readCodexSession(file)))).filter(
     (s): s is CodexSessionSummary => Boolean(s),
   );
-  const history = await readCodexHistory();
+  const [history, sessionIndex, stateThreads] = await Promise.all([
+    readCodexHistory(),
+    readCodexSessionIndex(),
+    readCodexStateThreads(),
+  ]);
   const byId = new Map<string, CodexSessionSummary>();
   for (const session of rawSessions) {
     const prev = byId.get(session.id);
     byId.set(session.id, prev ? mergeCodexSessionSummary(prev, session) : session);
+  }
+  for (const thread of stateThreads) {
+    const id = `codex:${thread.id}`;
+    const prev = byId.get(id);
+    byId.set(id, prev ? overlayStateThread(prev, thread) : stateThreadSummary(thread));
   }
   const sessions = [...byId.values()];
   return sessions
@@ -388,19 +559,42 @@ async function readCodexSessions(): Promise<CodexSessionSummary[]> {
     )
     .map((session) => {
       const h = history.get(session.localId);
-      const overlaid = h
-        ? {
-            ...session,
-            title: h.text,
-            lastUserText: h.text,
-            sessionKind: preferSessionKind(session.sessionKind, sessionKindFromUserText(h.text)),
-            updatedAt:
-              parseTimeMs(h.updatedAt) >= parseTimeMs(session.updatedAt) ? h.updatedAt : session.updatedAt,
-          }
-        : session;
-      return finalizeCodexSessionKind(overlaid);
+      const indexed = sessionIndex.get(session.localId);
+      const updateCandidates = [session.updatedAt, h?.lastAt, indexed?.updatedAt].filter(
+        (value): value is string => Boolean(value),
+      );
+      const updatedAt = updateCandidates.sort((a, b) => parseTimeMs(b) - parseTimeMs(a))[0] ?? session.updatedAt;
+      const overlaid: CodexSessionSummary = {
+        ...session,
+        title: indexed?.threadName ?? h?.firstText ?? session.firstUserText ?? session.title,
+        firstUserText: h?.firstText ?? session.firstUserText,
+        lastUserText: h?.lastText ?? session.lastUserText,
+        startedAt: session.startedAt ?? h?.firstAt,
+        turnCount: h?.turnCount ?? (session.completeScan ? session.turnIds.size || undefined : undefined),
+        updatedAt,
+      };
+      return finalizeCodexSessionKind(overlaid, Boolean(h));
     })
     .sort((a, b) => parseTimeMs(b.updatedAt) - parseTimeMs(a.updatedAt));
+}
+
+let sessionSnapshot:
+  | { expiresAt: number; value: CodexSessionSummary[] }
+  | { expiresAt: number; promise: Promise<CodexSessionSummary[]> }
+  | null = null;
+
+async function readCodexSessions(): Promise<CodexSessionSummary[]> {
+  const now = Date.now();
+  if (sessionSnapshot && sessionSnapshot.expiresAt > now) {
+    if ("value" in sessionSnapshot) return sessionSnapshot.value;
+    return sessionSnapshot.promise;
+  }
+  const promise = readCodexSessionsUncached().then((value) => {
+    sessionSnapshot = { expiresAt: Date.now() + WORKSPACE_CACHE_TTL_MS, value };
+    return value;
+  });
+  sessionSnapshot = { expiresAt: now + WORKSPACE_CACHE_TTL_MS, promise };
+  return promise;
 }
 
 async function codexMemoryFiles(): Promise<string[]> {
@@ -455,7 +649,7 @@ export const codexProvider: ProviderAdapter = {
       if (!stat) continue;
       items.push({
         name: path.basename(p),
-        kind: "command" as const,
+        kind: "instruction" as const,
         description: "Codex instruction file",
         path: p,
         size: stat.size,
@@ -469,13 +663,42 @@ export const codexProvider: ProviderAdapter = {
       if (!stat) continue;
       items.push({
         name,
-        kind: "skill" as const,
+        kind: "memory" as const,
         description: "Codex memory file",
         path: p,
         size: stat.size,
         mtime: stat.mtimeMs,
       });
     }
+    const skillsRoot = path.join(CODEX_HOME, "skills");
+    async function walkSkills(dir: string): Promise<void> {
+      for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walkSkills(full);
+          continue;
+        }
+        if (!entry.isFile() || entry.name !== "SKILL.md") continue;
+        const stat = await fs.stat(full).catch(() => null);
+        if (!stat) continue;
+        const raw = await fs.readFile(full, "utf8").catch(() => "");
+        let description = "";
+        try {
+          description = raw ? ((matter(raw).data?.description as string | undefined) ?? "") : "";
+        } catch {
+          // 잘못된 frontmatter 하나가 전체 Catalog를 가리지 않게 설명만 비운다.
+        }
+        items.push({
+          name: path.relative(skillsRoot, path.dirname(full)).split(path.sep).join("/"),
+          kind: "skill" as const,
+          description,
+          path: full,
+          size: stat.size,
+          mtime: stat.mtimeMs,
+        });
+      }
+    }
+    await walkSkills(skillsRoot);
     return items;
   },
   async listProjects() {
@@ -484,6 +707,7 @@ export const codexProvider: ProviderAdapter = {
       { localId: string; title: string; realPath: string | null; latestActivityAt: string | null }
     >();
     for (const session of await readCodexSessions()) {
+      if (session.sessionKind !== "main") continue;
       const localId = session.cwd ? localProjectIdFromCwd(session.cwd) : "unknown";
       const id = `codex:${localId}`;
       const prev = byProject.get(id);
@@ -513,7 +737,9 @@ export const codexProvider: ProviderAdapter = {
       title: session.title ?? session.lastUserText ?? path.basename(session.sourcePath),
       cwd: session.cwd,
       model: session.model,
+      startedAt: session.startedAt,
       updatedAt: session.updatedAt,
+      turnCount: session.turnCount,
       lastUserText: session.lastUserText,
       lastAssistantText: session.lastAssistantText,
       sourcePath: session.sourcePath,

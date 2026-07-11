@@ -191,4 +191,47 @@ describe("recall provider-prefixed Claude ids", () => {
       lastAssistantSnippet: "main answer",
     });
   });
+
+  it("adds an older pinned direct session to the timeline and exposes it in the pinned lookup", async () => {
+    const projectId = "D--repo";
+    const pinnedSessionId = "pinned-session";
+    const latestSessionId = "latest-session";
+    const transcript = (sessionId: string, prompt: string) =>
+      [
+        JSON.stringify({ type: "user", message: { content: prompt }, cwd: "C:/work/repo", sessionId }),
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: `${prompt} answer` }], model: "claude-sonnet-5" },
+          cwd: "C:/work/repo",
+          sessionId,
+        }),
+      ].join("\n");
+    const pinnedPath = path.join(homeDir, ".claude", "projects", projectId, `${pinnedSessionId}.jsonl`);
+    const latestPath = path.join(homeDir, ".claude", "projects", projectId, `${latestSessionId}.jsonl`);
+    await writeText(pinnedPath, transcript(pinnedSessionId, "pinned work"));
+    await writeText(latestPath, transcript(latestSessionId, "latest work"));
+    await fs.utimes(pinnedPath, new Date("2026-07-01T00:00:00.000Z"), new Date("2026-07-01T00:00:00.000Z"));
+    await fs.utimes(latestPath, new Date("2026-07-02T00:00:00.000Z"), new Date("2026-07-02T00:00:00.000Z"));
+    await writeJson(path.join(homeDir, ".harness-manager", "board.json"), {
+      schemaVersion: 2,
+      projects: {},
+      plans: {},
+      sessions: { [`claude:${pinnedSessionId}`]: { pinned: true } },
+    });
+
+    const { getPinnedProjectSessions, getTimeline } = await loadRecallModule();
+    const [pinned, timeline] = await Promise.all([
+      getPinnedProjectSessions(`claude:${projectId}`),
+      getTimeline(),
+    ]);
+
+    expect(pinned).toHaveLength(1);
+    expect(pinned[0]).toMatchObject({ sessionId: pinnedSessionId, pinned: true, sessionKind: "main" });
+    expect(timeline.filter((event) => event.kind === "session")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionId: `claude:${pinnedSessionId}`, pinned: true }),
+        expect.objectContaining({ sessionId: `claude:${latestSessionId}`, pinned: false }),
+      ]),
+    );
+  });
 });

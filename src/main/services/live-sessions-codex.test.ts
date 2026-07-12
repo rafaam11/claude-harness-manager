@@ -11,14 +11,31 @@ const { getProvidersMock, readCodexStateThreadsMock } = vi.hoisted(() => ({
   readCodexStateThreadsMock: vi.fn<() => Promise<[]>>(async () => []),
 }));
 
-vi.mock("../providers/registry.js", () => ({
-  getProviders: getProvidersMock,
-  prefixEntityId: (provider: string, id: string) => `${provider}:${id}`,
-}));
+vi.mock("../providers/registry.js", async () => {
+  const actual = await vi.importActual<typeof import("../providers/registry.js")>(
+    "../providers/registry.js",
+  );
+  return { ...actual, getProviders: getProvidersMock };
+});
 
 vi.mock("../providers/codex-state.js", () => ({
   readCodexStateThreads: readCodexStateThreadsMock,
 }));
+
+// 실제 사용자 board.json에 결과가 좌우되지 않게 고정한다. pinned 배선(isPinnedSession) 검증용.
+vi.mock("../lib/project-registry.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/project-registry.js")>(
+    "../lib/project-registry.js",
+  );
+  return {
+    ...actual,
+    readBoardWithProjectRegistry: async () => ({
+      projects: {},
+      plans: {},
+      sessions: { "codex:main": { pinned: true } },
+    }),
+  };
+});
 
 import { getLiveSessions } from "./live-sessions.js";
 
@@ -93,6 +110,7 @@ describe.runIf(onWindows)("Codex live-session transcript fallback", () => {
         source: "codex-rollout-lock",
         lastPrompt: "Codex 실행 세션을 보여줘",
         lastAssistantSnippet: "처리 중입니다.",
+        pinned: true, // board의 세션 pin이 실행 중 세션 응답에도 실린다
       }),
     ]);
   });

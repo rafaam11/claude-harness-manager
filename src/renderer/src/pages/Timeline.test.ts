@@ -5,6 +5,7 @@ import {
   canHideTimelineProjectTab,
   elapsedLabel,
   filterTimelineEventsForVisibleProjects,
+  groupLiveSessionsByProject,
   groupTimelineByDayAndProject,
   isPinnableTimelineSession,
   isTopLevelTimelineEvent,
@@ -146,6 +147,36 @@ describe("날짜 → 프로젝트 2단 그룹", () => {
     const days = groupTimelineByDayAndProject([ev(230, null), ev(210, "claude:alpha")], key, name, day);
 
     expect(days[0].projects.map((p) => p.key)).toEqual(["claude:alpha", NONE_KEY]);
+  });
+});
+
+describe("실행 중 세션 프로젝트 그룹핑", () => {
+  const live = (id: string, projectId: string | null, updatedAt: string): LiveSession =>
+    ({ id, projectId, updatedAt, detectedAt: updatedAt }) as LiveSession;
+
+  it("프로젝트별로 묶고 최신 활동 그룹을 앞에, 프로젝트 없음은 맨 뒤에 둔다", () => {
+    // getLiveSessions가 최신순 정렬을 보장하므로 입력도 최신순이다.
+    const sessions = [
+      live("claude:a", "claude:proj-a", "2026-07-11T10:00:00.000Z"),
+      live("codex:n", null, "2026-07-11T09:30:00.000Z"),
+      live("claude:b", "claude:proj-b", "2026-07-11T09:00:00.000Z"),
+      live("claude:a2", "claude:proj-a", "2026-07-11T08:00:00.000Z"),
+    ];
+
+    const groups = groupLiveSessionsByProject(
+      sessions,
+      (s) => s.projectId ?? NONE_KEY,
+      (s) => s.projectId ?? "프로젝트 없음",
+    );
+
+    expect(groups.map((g) => [g.key, g.items.map((s) => s.id)])).toEqual([
+      ["claude:proj-a", ["claude:a", "claude:a2"]],
+      ["claude:proj-b", ["claude:b"]],
+      [NONE_KEY, ["codex:n"]],
+    ]);
+    expect(groups[0].name).toBe("claude:proj-a");
+    expect(groups[2].name).toBe("프로젝트 없음");
+    expect(groups[0].tone).toBeTruthy();
   });
 });
 

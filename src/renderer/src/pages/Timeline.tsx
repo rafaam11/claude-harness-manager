@@ -223,6 +223,19 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
     }
   }
 
+  async function patchLivePinned(session: LiveSession, pinned: boolean) {
+    setLiveSessions((prev) => (prev ? prev.map((s) => (s.id === session.id ? { ...s, pinned } : s)) : prev));
+    // 같은 세션이 타임라인 행에도 떠 있으면 pin 상태를 함께 맞춘다(고정 세션 섹션 즉시 반영).
+    setEvents((prev) => (prev ? prev.map((x) => (x.sessionId === session.id ? { ...x, pinned } : x)) : prev));
+    try {
+      await api.post(`/api/workspace/board/session/${encodeURIComponent(session.id)}`, { pinned });
+    } catch (err) {
+      setLiveError((err as Error).message);
+      void reloadLiveSessions();
+      reload();
+    }
+  }
+
   async function setProjectStatus(projectId: string, status: BoardStatus) {
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, board: { ...p.board, status } } : p)),
@@ -515,16 +528,24 @@ function ClaudeTimeline({ providerFilter }: { providerFilter: ProviderFilter }) 
           <div className="timeline-live-head">
             <Activity size={14} aria-hidden="true" /> 실행 중 세션 <span className="cat-count">{liveSessions!.length}</span>
           </div>
-          {liveSessions!.map((session) => (
-            <LiveSessionRow
-              key={session.id}
-              session={session}
-              projectName={liveProjectLabel(session)}
-              projectKey={liveProjectKey(session)}
-              onOpen={() =>
-                setModalTarget({ sessionId: session.id, title: session.title, todos: session.todos })
-              }
-            />
+          {groupLiveSessionsByProject(liveSessions!, liveProjectKey, liveProjectLabel).map((group) => (
+            <div className="tl-proj-group" key={group.key}>
+              <div className={`tl-proj-head ${group.tone}`}>
+                <span className="tl-tone-dot" aria-hidden="true" />
+                <span className="tl-proj-name">{group.name}</span>
+                <span className="tl-tab-count">{group.items.length}</span>
+              </div>
+              {group.items.map((session) => (
+                <LiveSessionRow
+                  key={session.id}
+                  session={session}
+                  onOpen={() =>
+                    setModalTarget({ sessionId: session.id, title: session.title, todos: session.todos })
+                  }
+                  onPinChange={(pinned) => void patchLivePinned(session, pinned)}
+                />
+              ))}
+            </div>
           ))}
         </section>
       )}
@@ -654,6 +675,41 @@ export function canHideTimelineProjectTab(tabKey: string): boolean {
   return tabKey !== "all" && tabKey !== NONE_KEY;
 }
 
+export interface LiveSessionProjectGroup {
+  key: string;
+  name: string;
+  tone: string;
+  items: LiveSession[];
+}
+
+/**
+ * 실행 중 세션을 프로젝트별로 접는다. 입력은 최신순이어야 하고(getLiveSessions가 보장),
+ * 그룹 순서도 최신 활동순 — "프로젝트 없음"은 언제나 맨 뒤(groupTimelineByDayAndProject와 동일 규칙).
+ */
+export function groupLiveSessionsByProject(
+  sessions: LiveSession[],
+  getProjectKey: (session: LiveSession) => string,
+  getProjectName: (session: LiveSession) => string,
+): LiveSessionProjectGroup[] {
+  const groups: LiveSessionProjectGroup[] = [];
+  for (const session of sessions) {
+    const key = getProjectKey(session);
+    let group = groups.find((g) => g.key === key);
+    if (!group) {
+      group = { key, name: getProjectName(session), tone: projectTone(key), items: [] };
+      groups.push(group);
+    }
+    group.items.push(session);
+  }
+  return groups.sort((a, b) => {
+    if (a.key === NONE_KEY) return 1;
+    if (b.key === NONE_KEY) return -1;
+    const at = Date.parse(a.items[0].updatedAt ?? a.items[0].detectedAt);
+    const bt = Date.parse(b.items[0].updatedAt ?? b.items[0].detectedAt);
+    return bt - at;
+  });
+}
+
 export function isPinnableTimelineSession(e: TimelineEvent): boolean {
   if (e.kind !== "session" || !e.sessionId) return false;
   if (e.provider === "codex") return e.sessionKind === "main";
@@ -731,14 +787,12 @@ function ProjectChip({ name, toneKey }: { name: string; toneKey: string }) {
 
 function LiveSessionRow({
   session,
-  projectName,
-  projectKey,
   onOpen,
+  onPinChange,
 }: {
   session: LiveSession;
-  projectName: string;
-  projectKey: string;
   onOpen: () => void;
+  onPinChange: (pinned: boolean) => void;
 }) {
   // 경과 시간이 계속 흐르도록 초 단위로 다시 그린다(폴링 응답은 상태가 안 바뀌면 동일하다).
   const [now, setNow] = useState(() => Date.now());
@@ -765,7 +819,6 @@ function LiveSessionRow({
           <div className="tl-live-line">
             <ActivityBadge state={session.activity.state} />
             {elapsed && <span className="muted tl-live-since">{elapsed}</span>}
-            <ProjectChip name={projectName} toneKey={projectKey} />
           </div>
           <div className="tl-live-line">
             <span className={`bdg ${modelBadge.className}`} title={modelBadge.title}>
@@ -781,6 +834,17 @@ function LiveSessionRow({
             </div>
           )}
         </div>
+        <button
+          className={`ws-icon-btn timeline-pin-btn${session.pinned ? " active" : ""}`}
+          aria-label={session.pinned ? "세션 고정 해제" : "세션 고정"}
+          title={session.pinned ? "세션 고정 해제" : "세션 고정"}
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onPinChange(!session.pinned);
+          }}
+        >
+          {session.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+        </button>
       </div>
     </div>
   );

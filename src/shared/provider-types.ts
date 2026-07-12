@@ -116,7 +116,7 @@ export interface LiveSessionTodos {
   items: LiveSessionTodo[];
 }
 
-/** 실제 터미널 프로세스 생존을 검증해 얻은 실행 중 세션. 수동 board 상태와 무관하다. */
+/** 실제 터미널 프로세스 생존을 검증해 얻은 실행 중 세션. 실행 여부는 수동 board 상태와 무관하다. */
 export interface LiveSession {
   id: EntityId;
   provider: ProviderId;
@@ -132,6 +132,8 @@ export interface LiveSession {
   todos: LiveSessionTodos | null;
   lastPrompt: string | null;
   lastAssistantSnippet: string | null;
+  /** board의 세션 고정 상태 — 실행 중 목록에서 바로 pin 토글할 수 있게 실어 보낸다. */
+  pinned: boolean;
 }
 
 export interface ClaudeLiveTrackingStatus {

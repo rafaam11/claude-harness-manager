@@ -11,10 +11,13 @@ import type {
 import { getProviders, prefixEntityId } from "../providers/registry.js";
 import { normalizePathKey } from "../lib/path-normalize.js";
 import { PS_DECODE, decodeJson, psEnv, runningProcessIds } from "../lib/process-liveness.js";
+import type { BoardData } from "../lib/board.js";
+import { readBoardWithProjectRegistry } from "../lib/project-registry.js";
 import {
   getProjectRecalls,
   getSessionRecallByTranscriptPath,
   isDirectSessionRecall,
+  isPinnedSession,
 } from "./recall.js";
 import { getSessionTodos } from "./tasks.js";
 import { readClaudeLiveSessionRecords, type ClaudeLiveSessionRecord } from "./claude-live-tracking.js";
@@ -81,7 +84,7 @@ async function lockedRollouts(paths: string[]): Promise<Set<string>> {
   return process.platform === "win32" ? windowsLockedPaths(paths) : unixLockedPaths(paths);
 }
 
-async function liveCodexSessions(detectedAt: string): Promise<LiveSession[]> {
+async function liveCodexSessions(detectedAt: string, board: BoardData): Promise<LiveSession[]> {
   const provider = getProviders("codex")[0];
   const sessions = provider ? await provider.listSessions() : [];
   const candidates = sessions.filter(
@@ -92,12 +95,13 @@ async function liveCodexSessions(detectedAt: string): Promise<LiveSession[]> {
   if (!locked.size) return [];
   return candidates
     .filter((session) => locked.has(path.normalize(session.sourcePath)))
-    .map((session) => codexLiveSession(session, detectedAt));
+    .map((session) => codexLiveSession(session, detectedAt, board));
 }
 
 function codexLiveSession(
   session: NormalizedSession,
   detectedAt: string,
+  board: BoardData,
 ): LiveSession {
   return {
     id: session.id,
@@ -114,10 +118,11 @@ function codexLiveSession(
     todos: null,
     lastPrompt: session.lastUserText ?? null,
     lastAssistantSnippet: session.lastAssistantText ?? null,
+    pinned: isPinnedSession(board, session.id),
   };
 }
 
-async function liveClaudeSessions(detectedAt: string): Promise<LiveSession[]> {
+async function liveClaudeSessions(detectedAt: string, board: BoardData): Promise<LiveSession[]> {
   const records = (await readClaudeLiveSessionRecords()).filter((record) => !record.endedAt);
   const running = await runningProcessIds(
     records.map((record) => ({ id: record.sessionId, pid: record.processPid, startToken: record.processStartToken })),
@@ -125,7 +130,9 @@ async function liveClaudeSessions(detectedAt: string): Promise<LiveSession[]> {
   if (!running.size) return [];
   const projects = await getProjectRecalls();
   const sessions = await Promise.all(
-    records.filter((record) => running.has(record.sessionId)).map((record) => claudeLiveSession(record, projects, detectedAt)),
+    records
+      .filter((record) => running.has(record.sessionId))
+      .map((record) => claudeLiveSession(record, projects, detectedAt, board)),
   );
   return sessions.filter((session): session is LiveSession => session !== null);
 }
@@ -146,6 +153,7 @@ async function claudeLiveSession(
   record: ClaudeLiveSessionRecord,
   projects: Awaited<ReturnType<typeof getProjectRecalls>>,
   detectedAt: string,
+  board: BoardData,
 ): Promise<LiveSession | null> {
   const recall = await getSessionRecallByTranscriptPath(record.transcriptPath);
   if (recall && !isDirectSessionRecall(recall)) return null;
@@ -168,14 +176,16 @@ async function claudeLiveSession(
     todos: liveTodos(todos),
     lastPrompt: recall?.lastPrompt ?? null,
     lastAssistantSnippet: recall?.lastAssistantSnippet ?? null,
+    pinned: isPinnedSession(board, sessionId),
   };
 }
 
 export async function getLiveSessions(filter: ProviderFilter = "all"): Promise<LiveSession[]> {
   const detectedAt = new Date().toISOString();
+  const board = await readBoardWithProjectRegistry();
   const groups = await Promise.all([
-    filter === "all" || filter === "codex" ? liveCodexSessions(detectedAt) : Promise.resolve([]),
-    filter === "all" || filter === "claude" ? liveClaudeSessions(detectedAt) : Promise.resolve([]),
+    filter === "all" || filter === "codex" ? liveCodexSessions(detectedAt, board) : Promise.resolve([]),
+    filter === "all" || filter === "claude" ? liveClaudeSessions(detectedAt, board) : Promise.resolve([]),
   ]);
   return groups.flat().sort((a, b) => (b.updatedAt ?? b.detectedAt).localeCompare(a.updatedAt ?? a.detectedAt));
 }

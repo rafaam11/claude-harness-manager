@@ -171,7 +171,8 @@ function getCompatEntry<T>(map: Record<string, T>, id: string): T | undefined {
   return undefined;
 }
 
-function isPinnedSession(board: BoardData, sessionId: string | null): boolean {
+/** board의 세션 고정 여부. claude는 raw/`claude:` 접두 키를 모두, codex는 접두 키를 그대로 처리한다. */
+export function isPinnedSession(board: BoardData, sessionId: string | null): boolean {
   return !!sessionId && getCompatEntry(board.sessions, sessionId)?.pinned === true;
 }
 

@@ -137,6 +137,19 @@ export default function SessionTranscriptModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [target, onClose]);
 
+  // main에 높이/overflow 제약이 없어 이 앱의 스크롤은 실제로 body에서 일어난다 — 모달이
+  // position:fixed로 떠 있어도 body 스크롤을 잠그지 않으면 모달 위에서 휠을 굴릴 때 배경도
+  // 같이 스크롤된다(오버레이 배경엔 스크롤 가능한 요소가 아예 없어 휠이 그대로 body로 새고,
+  // 모달 본문도 끝까지 스크롤하면 남은 델타가 체이닝된다). 열려 있는 동안만 body를 잠근다.
+  useEffect(() => {
+    if (!target) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [target]);
+
   if (!target) return null;
   return (
     <div className="session-modal-overlay" onClick={onClose}>
